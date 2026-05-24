@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+
+    <!-- опции ModBuildConfig -->
+    <ModFolderName>$(MSBuildProjectName)</ModFolderName>
+    <EnableModDeploy>true</EnableModDeploy>
+    <EnableGameDebugging>true</EnableGameDebugging>
+    <EnableModZip>false</EnableModZip>
+    <GamePath>D:\Games\Steam\steamapps\common\Stardew Valley</GamePath>
+    <GameModsPath>$(GamePath)\Mods\HarveyOverhaul</GameModsPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.4.0" />
+  </ItemGroup>
+
+  <!-- Копирование файлов Content Patcher -->
+  <ItemGroup>
+   
+   
+    <!-- Манифест мода -->
+    <Content Include="manifest.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Конфиг мода -->
+    <Content Include="config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

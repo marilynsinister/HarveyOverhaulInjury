@@ -1,0 +1,21 @@
+{
+  "Name": "Harvey Overhaul: Injury Logic",
+  "Author": "marilynsinister",
+  "Version": "1.0.0",
+  "Description": "Механика ран/лечения, госпитализация, доп. баффы и разговорные темы для Харви.",
+  "UniqueID": "marilynsinister.HarveyOverhaul.Injury",
+  "EntryDll": "HarveyOverhaulInjury.dll",
+  "MinimumApiVersion": "4.1.0",
+  "UpdateKeys": [],
+  "Dependencies": [
+    {
+      "UniqueID": "Pathoschild.ContentPatcher",
+      "MinimumVersion": "2.0.0",
+      "IsRequired": true
+    },
+    {
+      "UniqueID": "FlashShifter.StardewValleyExpandedCP",
+      "IsRequired": true
+    }
+  ]
+}

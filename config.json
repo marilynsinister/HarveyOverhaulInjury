@@ -1,0 +1,7 @@
+{
+  "OnlyAtClinic": false,
+  "SendLetters": true,
+  "ForceHospitalization": true,
+  "ProximityTiles": 3,
+  "MinHospitalStayMinutes": 120
+}
