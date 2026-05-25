@@ -15,6 +15,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly IMonitor _monitor;
         private Dictionary<string, string>? _cachedDialogues;
         private bool _isLoadingDialogues = false;
+        private Dictionary<string, string>? _cachedProximityDialogues;
+        private bool _isLoadingProximityDialogues = false;
+
+        private const string ProximityDialogueAssetPath = "Data/HarveyOverhaul/HarveyProximityInjuryDialogue";
+        public const string ProximityDialogueFallback = "Покажись мне в клинике.";
 
         public DialogueManager(IMonitor monitor)
         {
@@ -297,6 +302,96 @@ namespace HarveyOverhaul.InjuryCare.Managers
             {
                 _monitor.Log($"Ошибка при загрузке диалога: {ex}", LogLevel.Error);
                 return defaultText;
+            }
+        }
+
+        /// <summary>
+        /// Выбрать случайную proximity-реплику (облачко) по префиксу из CP-ассета.
+        /// </summary>
+        public string PickRandomProximityLineByPrefix(string prefix, string defaultText = ProximityDialogueFallback) =>
+            PickRandomProximityLineByPrefixes(new[] { prefix }, defaultText);
+
+        /// <summary>
+        /// Выбрать proximity-реплику, перебирая префиксы от точного к запасным.
+        /// </summary>
+        public string PickRandomProximityLineByPrefixes(IEnumerable<string> prefixes, string defaultText = ProximityDialogueFallback)
+        {
+            try
+            {
+                var dialogues = LoadProximityDialoguesFromAsset();
+                if (dialogues == null || dialogues.Count == 0)
+                    return defaultText;
+
+                var tried = new List<string>();
+
+                foreach (var prefix in prefixes)
+                {
+                    if (string.IsNullOrWhiteSpace(prefix))
+                        continue;
+
+                    if (tried.Exists(p => string.Equals(p, prefix, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    tried.Add(prefix);
+
+                    var matching = dialogues
+                        .Where(kvp => kvp.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        .Select(kvp => kvp.Value)
+                        .ToList();
+
+                    if (matching.Count > 0)
+                        return matching[Game1.random.Next(matching.Count)];
+                }
+
+                if (tried.Count > 0)
+                {
+                    _monitor.Log(
+                        $"Proximity-реплики не найдены для префиксов: {string.Join(" → ", tried)}",
+                        LogLevel.Warn);
+                }
+
+                return defaultText;
+            }
+            catch (Exception ex)
+            {
+                _monitor.Log($"Ошибка при загрузке proximity-реплики: {ex}", LogLevel.Error);
+                return defaultText;
+            }
+        }
+
+        /// <summary>
+        /// Загрузить proximity-реплики из CP (с кэшированием).
+        /// </summary>
+        private Dictionary<string, string>? LoadProximityDialoguesFromAsset()
+        {
+            if (_cachedProximityDialogues != null)
+                return _cachedProximityDialogues;
+
+            if (_isLoadingProximityDialogues)
+            {
+                _monitor.Log("Proximity-реплики уже загружаются, пропускаем повторную загрузку", LogLevel.Warn);
+                return new Dictionary<string, string>();
+            }
+
+            try
+            {
+                _isLoadingProximityDialogues = true;
+
+                var dialogues = Game1.content.Load<Dictionary<string, string>>(ProximityDialogueAssetPath);
+                _cachedProximityDialogues = dialogues ?? new Dictionary<string, string>();
+                _monitor.Log(
+                    $"Загружено {_cachedProximityDialogues.Count} proximity-реплик из {ProximityDialogueAssetPath}",
+                    LogLevel.Debug);
+                return _cachedProximityDialogues;
+            }
+            catch (Exception ex)
+            {
+                _monitor.Log($"Ошибка загрузки proximity-реплик: {ex.Message}", LogLevel.Error);
+                return new Dictionary<string, string>();
+            }
+            finally
+            {
+                _isLoadingProximityDialogues = false;
             }
         }
 

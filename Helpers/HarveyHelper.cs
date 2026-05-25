@@ -35,6 +35,27 @@ namespace HarveyOverhaul.InjuryCare.Helpers
         }
 
         /// <summary>
+        /// Тон proximity-реплик по отношениям с Харви: Low / Mid / High / Romantic.
+        /// Romantic — только dating или married; 8+ сердец без романтики = High.
+        /// </summary>
+        public static string GetRelationshipToneWithHarvey()
+        {
+            var friendship = Game1.player?.friendshipData;
+            if (friendship == null || !friendship.TryGetValue("Harvey", out var data))
+                return "Low";
+
+            if (data.IsMarried() || data.IsDating())
+                return "Romantic";
+
+            int hearts = data.Points / 250;
+            if (hearts >= 8)
+                return "High";
+            if (hearts >= 4)
+                return "Mid";
+            return "Low";
+        }
+
+        /// <summary>
         /// Получить количество сердец с Харви
         /// </summary>
         public static int GetHeartsWithHarvey()

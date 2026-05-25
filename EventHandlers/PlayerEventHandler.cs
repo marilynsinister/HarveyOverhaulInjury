@@ -23,11 +23,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly TreatmentManager _treatmentManager;
         private readonly HospitalizationManager _hospitalizationManager;
         private readonly DialogueManager _dialogueManager;
+        private readonly ProximityReactionManager _proximityReactionManager;
 
         private PassOutHandler? _passOutHandler;
 
-        private int _lastProximityCheck = -1;
+        /// <summary>Последняя обычная proximity-реакция (игровые минуты с полуночи). Кулдаун 2 ч.</summary>
+        private int _lastProximityReactionMinute = -1;
+        /// <summary>Одно облачко за визит в локацию (сброс при варпе в другую локацию).</summary>
         private bool _proximityReactionShown = false;
+        private const int ProximityReactionCooldownMinutes = 120;
         private string _lastLocationName = "";
         private int _lastMineWarningDay = -1;
         private bool _eventWasActive;
@@ -44,7 +48,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             InjuryManager injuryManager,
             TreatmentManager treatmentManager,
             HospitalizationManager hospitalizationManager,
-            DialogueManager dialogueManager)
+            DialogueManager dialogueManager,
+            ProximityReactionManager proximityReactionManager)
         {
             _monitor = monitor;
             _config = config;
@@ -54,6 +59,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _treatmentManager = treatmentManager;
             _hospitalizationManager = hospitalizationManager;
             _dialogueManager = dialogueManager;
+            _proximityReactionManager = proximityReactionManager;
         }
 
         public void SetPassOutHandler(PassOutHandler passOutHandler)
@@ -72,12 +78,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 _dialogueManager.ClearHarveyNeedsFirstTreatmentTopicIfObsolete("HarveyMod_FirstTreatment завершён");
 
-                // Сбрасываем флаг реакции при смене локации
+                // Одна proximity-реакция на локацию: сброс только «уже показано здесь» (кулдаун 2 ч сохраняется).
                 if (e.NewLocation?.Name != _lastLocationName)
                 {
                     _proximityReactionShown = false;
                     _lastLocationName = e.NewLocation?.Name ?? "";
-                    _monitor.Log($"Смена локации на {_lastLocationName}, сброс флага реакции", LogLevel.Trace);
+                    _monitor.Log(
+                        $"[Proximity] Локация «{_lastLocationName}»: сброс per-location, кулдаун с {_lastProximityReactionMinute} игр. мин",
+                        LogLevel.Debug);
                 }
 
                 // Проверка госпитализации
@@ -536,7 +544,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             var harvey = HarveyHelper.FindHarveyInLocation(Game1.currentLocation);
             if (harvey != null)
-                _dialogueManager.ShowEmoteWithText(harvey, HarveyEmotes.DirtyWound, HarveyTextMessages.DirtyWound);
+            {
+                var injuries = _injuryManager.CollectAllInjuries();
+                int emote = _proximityReactionManager.DetermineEmoteForProximity(injuries);
+                var prefixes = _proximityReactionManager.DetermineProximityPrefixCandidates(injuries);
+                string text = _dialogueManager.PickRandomProximityLineByPrefixes(
+                    prefixes,
+                    DialogueManager.ProximityDialogueFallback);
+                _dialogueManager.ShowEmoteWithText(harvey, emote, text);
+            }
 
             Game1.addHUDMessage(new HUDMessage("Рана загрязнилась! Риск инфекции!", HUDMessage.error_type));
             _monitor.Log($"[Шахта] Рана загрязнилась: chance={chance:P0}, {reason}", LogLevel.Warn);
@@ -714,14 +730,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         }
 
         /// <summary>
-        /// Проверить близость Харви для обнаружения травм и принудительной госпитализации.
-        /// Тяжёлые проверки (поиск Харви, сбор травм) выполняются только при наличии условий для срабатывания.
+        /// Близость Харви: принудительная госпитализация (mine rescue) или одно короткое облачко.
+        /// Антиспам: не чаще 1× за локацию и не чаще 1× за 2 игровых часа (проверка ~1 раз/сек, показ — нет).
+        /// Облачко: только ShowEmoteWithText / showTextAboveHead — без DialogueBox и без блокировки движения.
         /// </summary>
         private void CheckHarveyProximity()
         {
             if (!Context.IsPlayerFree) return;
 
-            // Дешёвая проверка: есть ли смысл вообще что-то делать
             bool canForcedHosp = _config.ForceHospitalization
                 && Helpers.GameUtils.HasConversationTopic(ConversationTopics.MineInjuryRescue)
                 && _buffManager.HasAnyBuff(InjurySets.Severe.ToArray());
@@ -742,7 +758,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (distance > _config.ProximityTiles)
                 return;
 
-            // Близко к Харви: приоритет — принудительная госпитализация (без сбора всех травм)
+            // topicMineInjuryRescue + Severe: приоритет госпитализации (не обычное облачко).
             if (canForcedHosp)
             {
                 if (!_hospitalizationManager.IsHospitalized)
@@ -756,30 +772,67 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
-            // Обычная реакция на травмы (эмоция + текст)
             var injuries = _injuryManager.CollectAllInjuries();
-            if (injuries.HasAny && !_proximityReactionShown)
-            {
-                _monitor.Log($"🔍 Харви обнаружил травмы на расстоянии {distance:F1} клеток", LogLevel.Info);
-                ShowProximityDiscovery(harvey, injuries);
-                _proximityReactionShown = true;
-                _lastProximityCheck = Game1.timeOfDay;
-            }
+            if (!injuries.HasAny)
+                return;
+
+            if (!CanShowNormalProximityReaction())
+                return;
+
+            _monitor.Log(
+                $"[Proximity] Показ облачка: локация={_lastLocationName}, дистанция={distance:F1} клеток",
+                LogLevel.Debug);
+            ShowProximityDiscovery(harvey, injuries);
+            _proximityReactionShown = true;
+            _lastProximityReactionMinute = Helpers.GameUtils.CurrentTimeInMinutes();
         }
 
         /// <summary>
-        /// Показать реакцию обнаружения травм при приближении
+        /// Можно ли показать обычное proximity-облачко (не госпитализация).
+        /// </summary>
+        private bool CanShowNormalProximityReaction()
+        {
+            if (_proximityReactionShown)
+            {
+                _monitor.Log("[Proximity] Пропуск: уже показано в этой локации", LogLevel.Debug);
+                return false;
+            }
+
+            if (_lastProximityReactionMinute >= 0)
+            {
+                int now = Helpers.GameUtils.CurrentTimeInMinutes();
+                int elapsed = now - _lastProximityReactionMinute;
+                if (elapsed < 0)
+                    elapsed += 24 * 60;
+
+                if (elapsed < ProximityReactionCooldownMinutes)
+                {
+                    _monitor.Log(
+                        $"[Proximity] Пропуск: кулдаун {elapsed}/{ProximityReactionCooldownMinutes} игр. мин",
+                        LogLevel.Debug);
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Короткое облачко при проходе мимо (эмоция + текст над головой, без диалогового окна).
         /// </summary>
         private void ShowProximityDiscovery(NPC harvey, Core.Models.InjuryCollection injuries)
         {
-            // Определяем тип реакции на основе травм
-            int emote = _treatmentManager.DetermineEmoteForInjuries(injuries);
-            string textMessage = _treatmentManager.DetermineTextForInjuries(injuries);
-            
-            // Показываем эмоцию с текстом
+            int emote = _proximityReactionManager.DetermineEmoteForProximity(injuries);
+            var prefixes = _proximityReactionManager.DetermineProximityPrefixCandidates(injuries);
+            string textMessage = _dialogueManager.PickRandomProximityLineByPrefixes(
+                prefixes,
+                DialogueManager.ProximityDialogueFallback);
+
             _dialogueManager.ShowEmoteWithText(harvey, emote, textMessage);
-            
-            _monitor.Log($"✨ Харви: эмоция={emote}, текст='{textMessage}'", LogLevel.Debug);
+
+            _monitor.Log(
+                $"[Proximity] Облачко: emote={emote}, prefixes=[{string.Join(", ", prefixes)}], text='{textMessage}'",
+                LogLevel.Debug);
         }
 
         /// <summary>

@@ -27,6 +27,7 @@ namespace HarveyOverhaul.InjuryCare
         private DialogueManager _dialogueManager = null!;
         private InjuryManager _injuryManager = null!;
         private TreatmentManager _treatmentManager = null!;
+        private ProximityReactionManager _proximityReactionManager = null!;
         private HospitalizationManager _hospitalizationManager = null!;
         private HospitalActivityManager _hospitalActivityManager = null!;
         private ComplicationManager _complicationManager = null!;
@@ -148,6 +149,11 @@ namespace HarveyOverhaul.InjuryCare
                 "injury_foreign_topic_add",
                 "Тест конфликта модов: добавить чужой conversation topic. injury_foreign_topic_add <topicId> [days]",
                 (_, args) => CmdForeignTopicAdd(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_proximity_test",
+                "Отладка proximity-реплик из CP без изменения state. injury_proximity_test <situation> [tone]",
+                (_, args) => CmdProximityTest(args));
 
             Monitor.Log("Harvey Overhaul: Injury & Care загружен", LogLevel.Info);
         }
@@ -576,6 +582,136 @@ namespace HarveyOverhaul.InjuryCare
             Game1.addHUDMessage(new HUDMessage($"[TEST] foreign topic: {topicId}", HUDMessage.newQuest_type));
         }
 
+        private void CmdProximityTest(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log(
+                    "Использование: injury_proximity_test <situation> [tone]. " +
+                    "tone: Low | Mid | High | Romantic (по умолчанию — текущие отношения с Харви).",
+                    LogLevel.Info);
+                Monitor.Log("situation: untreated | intreatment | readyphase | recovery | wetbandage | dirtywound | " +
+                            "wetstitches | allergicrash | painflare | neglect | generic | multiple", LogLevel.Info);
+                Monitor.Log("Примеры: injury_proximity_test untreated Romantic | injury_proximity_test wetbandage High", LogLevel.Info);
+                return;
+            }
+
+            string situationKey = args[0].Trim();
+            if (!TryMapProximityTestSituation(situationKey, out string primaryPrefixBase))
+            {
+                Monitor.Log(
+                    $"Неизвестная situation «{situationKey}». " +
+                    "untreated, intreatment, readyphase, recovery, wetbandage, dirtywound, wetstitches, " +
+                    "allergicrash, painflare, neglect, generic, multiple.",
+                    LogLevel.Warn);
+                return;
+            }
+
+            string tone;
+            if (args.Length >= 2)
+            {
+                tone = NormalizeProximityTestTone(args[1]) ?? string.Empty;
+                if (string.IsNullOrEmpty(tone))
+                {
+                    Monitor.Log("tone должен быть Low, Mid, High или Romantic.", LogLevel.Warn);
+                    return;
+                }
+            }
+            else
+            {
+                tone = HarveyHelper.GetRelationshipToneWithHarvey();
+            }
+
+            string primaryPrefix = $"{primaryPrefixBase}_{tone}";
+            var prefixes = ProximityReactionManager.BuildPrefixCandidates(primaryPrefix);
+            string text = _dialogueManager.PickRandomProximityLineByPrefixes(prefixes);
+
+            bool usedFallback = string.Equals(text, DialogueManager.ProximityDialogueFallback, StringComparison.Ordinal);
+
+            Monitor.Log("=== PROXIMITY TEST (debug) ===", LogLevel.Info);
+            Monitor.Log($"situation={situationKey} tone={tone}", LogLevel.Info);
+            Monitor.Log($"primary: {primaryPrefix}", LogLevel.Info);
+            Monitor.Log($"fallback chain: {string.Join(" → ", prefixes)}", LogLevel.Info);
+            Monitor.Log($"result: {text}", LogLevel.Info);
+            if (usedFallback)
+                Monitor.Log("CP: совпадений нет, использован defaultText.", LogLevel.Warn);
+            Monitor.Log("=== END PROXIMITY TEST ===", LogLevel.Info);
+
+            string hudText = text.Length > 120 ? text[..117] + "…" : text;
+            Game1.addHUDMessage(new HUDMessage($"[proximity] {hudText}", HUDMessage.achievement_type));
+
+            NPC? harvey = Game1.currentLocation?.getCharacterFromName("Harvey");
+            if (harvey != null)
+            {
+                int emote = GetProximityTestEmote(situationKey);
+                _dialogueManager.ShowEmoteWithText(harvey, emote, text);
+                Monitor.Log("Харви в текущей локации — показано ShowEmoteWithText.", LogLevel.Info);
+            }
+            else
+            {
+                Monitor.Log("Харви не в текущей локации — только log + HUD.", LogLevel.Info);
+            }
+        }
+
+        private static bool TryMapProximityTestSituation(string situation, out string prefixBase)
+        {
+            prefixBase = situation.Trim().ToLowerInvariant() switch
+            {
+                "untreated" => "Proximity_Injury_Untreated",
+                "intreatment" or "in_treatment" or "in-treatment" => "Proximity_Injury_InTreatment",
+                "readyphase" or "ready_phase" or "ready-phase" or "phaseready" => "Proximity_Phase_ReadyNextPhase",
+                "recovery" or "readyrecovery" or "ready_recovery" => "Proximity_Recovery_ReadyRecovery",
+                "wetbandage" or "wet_bandage" => "Proximity_Complication_WetBandage",
+                "dirtywound" or "dirty_wound" => "Proximity_Complication_DirtyWound",
+                "wetstitches" or "wet_stitches" => "Proximity_Complication_WetStitches",
+                "allergicrash" or "allergic_rash" => "Proximity_Complication_AllergicRash",
+                "painflare" or "pain_flare" => "Proximity_Complication_PainFlare",
+                "neglect" => "Proximity_Complication_Neglect",
+                "generic" => "Proximity_Complication_Generic",
+                "multiple" => "Proximity_Complication_Multiple",
+                _ => string.Empty
+            };
+
+            return !string.IsNullOrEmpty(prefixBase);
+        }
+
+        private static string? NormalizeProximityTestTone(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return null;
+
+            string normalized = raw.Trim();
+            if (normalized.Equals("low", StringComparison.OrdinalIgnoreCase)) return "Low";
+            if (normalized.Equals("mid", StringComparison.OrdinalIgnoreCase)) return "Mid";
+            if (normalized.Equals("high", StringComparison.OrdinalIgnoreCase)) return "High";
+            if (normalized.Equals("romantic", StringComparison.OrdinalIgnoreCase)) return "Romantic";
+            return null;
+        }
+
+        private static int GetProximityTestEmote(string situation)
+        {
+            return situation.Trim().ToLowerInvariant() switch
+            {
+                "wetbandage" or "wet_bandage" or "wetstitches" or "wet_stitches"
+                    => HarveyEmotes.WorriedAboutPatient,
+                "dirtywound" or "dirty_wound" => HarveyEmotes.DirtyWound,
+                "recovery" or "readyrecovery" or "ready_recovery"
+                    or "readyphase" or "ready_phase" or "ready-phase" or "phaseready"
+                    => HarveyEmotes.Thinking,
+                "intreatment" or "in_treatment" or "in-treatment" => HarveyHelper.GetCaringEmote(),
+                "generic" or "multiple" or "neglect" or "allergicrash" or "allergic_rash"
+                    or "painflare" or "pain_flare"
+                    => HarveyEmotes.FoundComplication,
+                _ => HarveyEmotes.FindInjury
+            };
+        }
+
         /// <summary>
         /// Полный сброс данных мода для отладки.
         /// Удаляет все баффы мода, осложнения, топики и очищает _state.
@@ -670,6 +806,8 @@ namespace HarveyOverhaul.InjuryCare
             // TreatmentManager
             _treatmentManager = new TreatmentManager(Monitor, _buffManager, _injuryManager, _dialogueManager, _stateManager);
 
+            _proximityReactionManager = new ProximityReactionManager(_buffManager, _stateManager, _injuryManager);
+
             // ComplicationManager - управление осложнениями
             _complicationManager = new ComplicationManager(
                 Monitor,
@@ -709,7 +847,8 @@ namespace HarveyOverhaul.InjuryCare
                 _injuryManager,
                 _treatmentManager,
                 _hospitalizationManager,
-                _dialogueManager
+                _dialogueManager,
+                _proximityReactionManager
             );
 
             _interactionHandler = new InteractionHandler(
