@@ -12,15 +12,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
     public class HospitalActivityManager
     {
         private readonly IMonitor _monitor;
+        private readonly ModConfig _config;
         private readonly DialogueManager _dialogueManager;
         
         private int _lastActivityTime = -1;
         private int _activityCounter = 0;
         private readonly List<string> _availableActivities = new();
 
-        public HospitalActivityManager(IMonitor monitor, DialogueManager dialogueManager)
+        public HospitalActivityManager(IMonitor monitor, ModConfig config, DialogueManager dialogueManager)
         {
             _monitor = monitor;
+            _config = config;
             _dialogueManager = dialogueManager;
             InitializeActivities();
         }
@@ -52,11 +54,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             if (!hospitalization.IsHospitalized) return;
             if (!Context.IsPlayerFree) return;
+            if (_activityCounter >= _config.MaxHospitalActivitiesPerStay) return;
 
+            int intervalMinutes = Math.Max(1, _config.HospitalActivityIntervalMinutes);
             int currentTime = Game1.timeOfDay;
-            
-            // Активность каждые 20 минут игрового времени
-            if (_lastActivityTime == -1 || currentTime - _lastActivityTime >= 20)
+
+            if (_lastActivityTime == -1 || GetElapsedMinutesSince(currentTime, _lastActivityTime) >= intervalMinutes)
             {
                 _lastActivityTime = currentTime;
                 TriggerRandomActivity();
@@ -190,6 +193,21 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _lastActivityTime = -1;
             _activityCounter = 0;
             _monitor.Log("🏥 Сброс активностей госпитализации", LogLevel.Debug);
+        }
+
+        private static int ToClockMinutes(int timeOfDay)
+        {
+            int hours = timeOfDay / 100;
+            int minutes = timeOfDay % 100;
+            return hours * 60 + minutes;
+        }
+
+        private static int GetElapsedMinutesSince(int currentTimeOfDay, int previousTimeOfDay)
+        {
+            int elapsed = ToClockMinutes(currentTimeOfDay) - ToClockMinutes(previousTimeOfDay);
+            if (elapsed < 0)
+                elapsed += 24 * 60;
+            return elapsed;
         }
     }
 }

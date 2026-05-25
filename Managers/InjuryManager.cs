@@ -363,10 +363,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyHurt()
         {
             _buffManager.AddBuff("buffHurt", -2);
-            _dialogueManager.AddTopic(ConversationTopics.Hurt, 3);
+            _dialogueManager.AddTopic(ConversationTopics.Hurt, 2);
             Game1.playSound("debuffHit");
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffHurt", currentDay, 3, 0, 0);
+            _stateManager.CreateDebuffState("buffHurt", currentDay, 2, 0, 0);
         }
 
         public void ApplyHurtSafe()
@@ -377,11 +377,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyBadlyHurt()
         {
             _buffManager.AddBuff("buffBadlyHurt", -2);
-            _dialogueManager.AddTopic(ConversationTopics.BadlyHurt, 8);
-            _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 8);
+            _dialogueManager.AddTopic(ConversationTopics.BadlyHurt, 4);
+            _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 4);
             Game1.playSound("debuffHit");
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffBadlyHurt", currentDay, 3, 3, 2);
+            _stateManager.CreateDebuffState("buffBadlyHurt", currentDay, 4, 0, 0);
 
             // Примечание: Прямая госпитализация УБРАНА!
             // Харви заметит травму через proximity detection и запустит госпитализацию
@@ -411,12 +411,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplySprainedAnkle()
         {
             _buffManager.AddBuff("buffSprainedAnkle", -2);
-            _dialogueManager.AddTopic(ConversationTopics.SprainedAnkle, 14);
+            _dialogueManager.AddTopic(ConversationTopics.SprainedAnkle, 7);
             Game1.playSound("debuffHit");
 
-            // Инициализируем состояние дебаффа (2 фазы: 7 + 7 = 14 дней)
+            // Инициализируем состояние дебаффа (2 фазы: 3 + 4 = 7 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffSprainedAnkle", currentDay, 7, 7, 0);
+            _stateManager.CreateDebuffState("buffSprainedAnkle", currentDay, 3, 4, 0);
         }
 
         public void ApplySprainedAnkleSafe()
@@ -427,12 +427,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyBruisedRibs()
         {
             _buffManager.AddBuff("buffBruisedRibs", -2);
-            _dialogueManager.AddTopic(ConversationTopics.BruisedRibs, 21);
+            _dialogueManager.AddTopic(ConversationTopics.BruisedRibs, 9);
             Game1.playSound("debuffHit");
             
-            // Инициализируем состояние дебаффа (2 фазы: 10 + 11 = 21 день)
+            // Инициализируем состояние дебаффа (2 фазы: 4 + 5 = 9 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffBruisedRibs", currentDay, 10, 11, 0);
+            _stateManager.CreateDebuffState("buffBruisedRibs", currentDay, 4, 5, 0);
         }
 
         public void ApplyBruisedRibsSafe()
@@ -443,12 +443,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyBackStrain()
         {
             _buffManager.AddBuff("buffBackStrain", -2);
-            _dialogueManager.AddTopic(ConversationTopics.BackStrain, 12);
+            _dialogueManager.AddTopic(ConversationTopics.BackStrain, 6);
             Game1.playSound("debuffHit");
             
-            // Инициализируем состояние дебаффа (2 фазы: 5 + 7 = 12 дней)
+            // Инициализируем состояние дебаффа (2 фазы: 2 + 4 = 6 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffBackStrain", currentDay, 5, 7, 0);
+            _stateManager.CreateDebuffState("buffBackStrain", currentDay, 2, 4, 0);
         }
 
         public void ApplyBackStrainSafe()
@@ -460,12 +460,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             // Применяем базовый бафф травмы (до лечения)
             _buffManager.AddBuff("buffDeepCuts", -2);
-            _dialogueManager.AddTopic(ConversationTopics.DeepCuts, 14);
+            _dialogueManager.AddTopic(ConversationTopics.DeepCuts, 7);
             Game1.playSound("debuffHit");
 
-            // Инициализируем состояние дебаффа (3 фазы: 3 + 7 + 4 = 14 дней)
+            // Инициализируем состояние дебаффа (3 фазы: 2 + 3 + 2 = 7 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffDeepCuts", currentDay, 3, 7, 4);
+            _stateManager.CreateDebuffState("buffDeepCuts", currentDay, 2, 3, 2);
         }
 
         public void ApplyDeepCutsSafe(string source = "generic")
@@ -479,12 +479,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyBurnWounds()
         {
             _buffManager.AddBuff("buffBurnWounds", -2);
-            _dialogueManager.AddTopic(ConversationTopics.BurnWounds, 21);
+            _dialogueManager.AddTopic(ConversationTopics.BurnWounds, 8);
             Game1.playSound("fireball");
 
-            // Инициализируем состояние дебаффа (2 фазы: 7 + 14 = 21 день)
+            // Инициализируем состояние дебаффа (2 фазы: 3 + 5 = 8 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffBurnWounds", currentDay, 7, 14, 0);
+            _stateManager.CreateDebuffState("buffBurnWounds", currentDay, 3, 5, 0);
 
             if (_config.ForceHospitalization && _dialogueManager.IsDatingOrMarriedToHarvey())
             {
@@ -501,12 +501,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyInfectedWound()
         {
             _buffManager.AddBuff("buffInfectedWound", -2);
-            _dialogueManager.AddTopic(ConversationTopics.InfectedWound, 14);
+            _dialogueManager.AddTopic(ConversationTopics.InfectedWound, 6);
             Game1.playSound("debuffHit");
 
-            // Инициализируем состояние дебаффа (2 фазы: 3 + 11 = 14 дней)
+            // Инициализируем состояние дебаффа (2 фазы: 2 + 4 = 6 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffInfectedWound", currentDay, 3, 11, 0);
+            _stateManager.CreateDebuffState("buffInfectedWound", currentDay, 2, 4, 0);
 
             if (_config.ForceHospitalization && _dialogueManager.IsDatingOrMarriedToHarvey())
             {
@@ -525,13 +525,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyTornMuscles()
         {
             _buffManager.AddBuff("buffTornMuscles", -2);
-            _dialogueManager.AddTopic(ConversationTopics.TornMuscles, 28);
-            _dialogueManager.AddTopic(ConversationTopics.HealthDamageSevere, 28);
+            _dialogueManager.AddTopic(ConversationTopics.TornMuscles, 11);
+            _dialogueManager.AddTopic(ConversationTopics.HealthDamageSevere, 11);
             Game1.playSound("debuffHit");
 
-            // Инициализируем состояние дебаффа (3 фазы: 7 + 14 + 7 = 28 дней)
+            // Инициализируем состояние дебаффа (3 фазы: 3 + 5 + 3 = 11 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffTornMuscles", currentDay, 7, 14, 7);
+            _stateManager.CreateDebuffState("buffTornMuscles", currentDay, 3, 5, 3);
         }
 
         public void ApplyTornMusclesSafe()
@@ -542,13 +542,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyConcussion()
         {
             _buffManager.AddBuff("buffConcussion", -2);
-            _dialogueManager.AddTopic(ConversationTopics.Concussion, 21);
-            _dialogueManager.AddTopic(ConversationTopics.HealthDamageSevere, 21);
+            _dialogueManager.AddTopic(ConversationTopics.Concussion, 9);
+            _dialogueManager.AddTopic(ConversationTopics.HealthDamageSevere, 9);
             Game1.playSound("debuffHit");
 
-            // Инициализируем состояние дебаффа (3 фазы: 3 + 11 + 7 = 21 день)
+            // Инициализируем состояние дебаффа (3 фазы: 2 + 4 + 3 = 9 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffConcussion", currentDay, 3, 11, 7);
+            _stateManager.CreateDebuffState("buffConcussion", currentDay, 2, 4, 3);
 
             if (_config.ForceHospitalization)
             {
@@ -565,13 +565,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyFracturedBone()
         {
             _buffManager.AddBuff("buffFracturedBone", -2);
-            _dialogueManager.AddTopic(ConversationTopics.FracturedBone, 56);
-            _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 56);
+            _dialogueManager.AddTopic(ConversationTopics.FracturedBone, 18);
+            _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 18);
             Game1.playSound("debuffHit");
 
-            // Инициализируем состояние дебаффа (3 фазы: 7 + 35 + 14 = 56 дней)
+            // Инициализируем состояние дебаффа (3 фазы: 4 + 10 + 4 = 18 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffFracturedBone", currentDay, 7, 35, 14);
+            _stateManager.CreateDebuffState("buffFracturedBone", currentDay, 4, 10, 4);
 
             if (_config.ForceHospitalization)
             {
@@ -588,14 +588,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyShrapnelWounds()
         {
             _buffManager.AddBuff("buffShrapnelWounds", -2);
-            _dialogueManager.AddTopic(ConversationTopics.ShrapnelWounds, 42);
-            _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 42);
+            _dialogueManager.AddTopic(ConversationTopics.ShrapnelWounds, 11);
+            _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 11);
             _dialogueManager.AddTopic(ConversationTopics.PostOperativeCare, 7);
             Game1.playSound("stoneCrack");
 
-            // Инициализируем состояние дебаффа (3 фазы: 5 + 10 + 7 = 22 дня)
+            // Инициализируем состояние дебаффа (3 фазы: 3 + 5 + 3 = 11 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffShrapnelWounds", currentDay, 5, 10, 7);
+            _stateManager.CreateDebuffState("buffShrapnelWounds", currentDay, 3, 5, 3);
 
             if (_config.ForceHospitalization)
             {
@@ -614,11 +614,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplySurgicalWound()
         {
             _buffManager.AddBuff("buffSurgicalWound", -2);
-            _dialogueManager.AddTopic(ConversationTopics.SurgicalWound, 14);
+            _dialogueManager.AddTopic(ConversationTopics.SurgicalWound, 7);
             _dialogueManager.AddTopic(ConversationTopics.PostOperativeCare, 7);
             Game1.playSound("debuffHit");
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffSurgicalWound", currentDay, 14, 0, 0);
+            _stateManager.CreateDebuffState("buffSurgicalWound", currentDay, 7, 0, 0);
         }
 
         public void ApplySurgicalWoundSafe()
@@ -635,12 +635,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
             
             // Применяем бафф простуды
             _buffManager.AddBuff(InjuryBuffs.Cold, -2);
-            _dialogueManager.AddTopic(ConversationTopics.Cold, 7);
+            _dialogueManager.AddTopic(ConversationTopics.Cold, 4);
             Game1.playSound("debuffHit");
             
-            // Инициализируем состояние дебаффа (2 фазы: 3 дня острая + 4 дня восстановление = 7 дней)
+            // Инициализируем состояние дебаффа (2 фазы: 2 + 2 = 4 дня)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState(InjuryBuffs.Cold, currentDay, 3, 4, 0);
+            _stateManager.CreateDebuffState(InjuryBuffs.Cold, currentDay, 2, 2, 0);
             
             Game1.addHUDMessage(new HUDMessage("Простуда! Температура, слабость...", HUDMessage.error_type));
         }

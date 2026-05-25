@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using HarveyOverhaul.InjuryCare.Core;
+using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
 using StardewModdingAPI;
 using StardewValley;
@@ -50,6 +51,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             // Проверка фазовых травм на небрежность
             CheckPhaseNeglect(today);
+
+            // Травмы без начатого лечения
+            CheckUntreatedInjuries(today);
         }
 
         /// <summary>
@@ -124,20 +128,166 @@ namespace HarveyOverhaul.InjuryCare.Managers
             Game1.addHUDMessage(new HUDMessage("Мокрая повязка привела к инфекции!", HUDMessage.error_type));
         }
 
-        // Баланс мокрой повязки:
-        // days = today - startDay
-        // 0: нет инфекции в тот же день (0%)
-        // 1: мягкий риск (15%)
-        // 2: заметный риск (35%)
-        // 3+: высокий, но не гарантированный риск (65%; не legacy 25/60)
+        // Баланс мокрой повязки: days = today - startDay
         private static double CalculateWetBandageInfectionChance(int days)
         {
             return days switch
             {
                 <= 0 => 0.0,
-                1 => 0.15,
+                1 => 0.10,
                 2 => 0.35,
-                _ => 0.65
+                3 => 0.60,
+                _ => 0.80
+            };
+        }
+
+        /// <summary>
+        /// Дней без лечения, после которых Харви требует осмотр (TreatmentStarted == false).
+        /// </summary>
+        private int GetUntreatedThresholdDays(string injuryId)
+        {
+            return injuryId switch
+            {
+                "buffHurt" or InjuryBuffs.Cold or "buffBackStrain" => 3,
+                "buffSprainedAnkle" or "buffBruisedRibs" => 2,
+                "buffDeepCuts" or "buffBurnWounds" or "buffShrapnelWounds" => 1,
+                "buffBadlyHurt" or "buffConcussion" or "buffFracturedBone"
+                    or "buffInfectedWound" or "buffSurgicalWound" or "buffTornMuscles" => 1,
+                _ => 2
+            };
+        }
+
+        private static bool IsComplicationEntry(string injuryId, DebuffState debuffState)
+        {
+            return debuffState.TotalPhases == 0
+                && InjurySets.KnownComplicationBuffIds.Contains(injuryId);
+        }
+
+        private static bool IsOpenWoundInjury(string injuryId)
+        {
+            return injuryId is "buffDeepCuts" or "buffBurnWounds" or "buffShrapnelWounds";
+        }
+
+        private static string GetUntreatedWarningKey(string injuryId, int injuryStartDay)
+            => $"untreatedWarning_{injuryId}_{injuryStartDay}";
+
+        /// <summary>
+        /// Проверить травмы, по которым ещё не начато лечение (TreatmentStarted == false).
+        /// </summary>
+        private void CheckUntreatedInjuries(int today)
+        {
+            bool sentUrgentReminder = false;
+            bool sentStrongWarning = false;
+
+            foreach (var kv in _stateManager.State.ActiveDebuffs.ToList())
+            {
+                string injuryId = kv.Key;
+                var debuffState = kv.Value;
+
+                if (IsComplicationEntry(injuryId, debuffState))
+                    continue;
+
+                if (debuffState.TreatmentStarted)
+                    continue;
+
+                int daysUntreated = today - debuffState.InjuryStartDay;
+                if (daysUntreated < 0)
+                    continue;
+
+                int threshold = GetUntreatedThresholdDays(injuryId);
+
+                if (IsOpenWoundInjury(injuryId) && daysUntreated >= threshold + 1)
+                    TryApplyDirtyWoundFromUntreated(injuryId, daysUntreated);
+
+                if (daysUntreated < threshold)
+                    continue;
+
+                string warningKey = GetUntreatedWarningKey(injuryId, debuffState.InjuryStartDay);
+                if (_stateManager.WasApplied(warningKey))
+                    continue;
+
+                _stateManager.MarkApplied(warningKey);
+
+                bool isInfectedWound = string.Equals(
+                    injuryId, "buffInfectedWound", StringComparison.OrdinalIgnoreCase);
+
+                if (isInfectedWound)
+                {
+                    _monitor.Log(
+                        $"🚨 Нелеченная инфекция: {injuryId}, дней без осмотра {daysUntreated}",
+                        LogLevel.Warn);
+
+                    Game1.addHUDMessage(new HUDMessage(
+                        "Харви: инфекция не терпит отлагательств — нужен осмотр!",
+                        HUDMessage.error_type));
+
+                    if (!sentStrongWarning)
+                    {
+                        sentStrongWarning = true;
+                        if (_config.SendLetters)
+                            Game1.addMailForTomorrow(MailIds.TreatmentFinalWarning);
+                    }
+                }
+                else
+                {
+                    _monitor.Log(
+                        $"⚠️ Нелеченная травма: {injuryId}, дней без осмотра {daysUntreated} (порог {threshold})",
+                        LogLevel.Warn);
+
+                    Game1.addHUDMessage(new HUDMessage(
+                        "Харви: эту травму нельзя оставлять без осмотра.",
+                        HUDMessage.health_type));
+
+                    if (!sentUrgentReminder)
+                    {
+                        sentUrgentReminder = true;
+                        if (_config.SendLetters)
+                            Game1.addMailForTomorrow(MailIds.TreatmentUrgentReminder);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Риск загрязнения открытой раны при затянувшемся отказе от осмотра.
+        /// </summary>
+        private void TryApplyDirtyWoundFromUntreated(string injuryId, int daysUntreated)
+        {
+            if (_buffManager.HasBuff(InjuryBuffs.DirtyWound)
+                || _stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.DirtyWound))
+                return;
+
+            if (!GameUtils.Roll(0.25))
+            {
+                _monitor.Log(
+                    $"[Untreated] Грязная рана не сработала: {injuryId}, дней {daysUntreated}, chance=25%",
+                    LogLevel.Debug);
+                return;
+            }
+
+            _monitor.Log(
+                $"ОСЛОЖНЕНИЕ: {injuryId} без осмотра → грязная рана (день {daysUntreated})",
+                LogLevel.Warn);
+
+            _buffManager.AddBuff(InjuryBuffs.DirtyWound, -2);
+            _stateManager.State.ActiveComplications[InjuryBuffs.DirtyWound] = GameUtils.Today();
+            _stateManager.CreateComplicationState(InjuryBuffs.DirtyWound, GameUtils.Today());
+            _dialogueManager.AddTopic(ConversationTopics.DirtyWound, 4);
+            Game1.addHUDMessage(new HUDMessage("Рана загрязнилась! Срочно к Харви!", HUDMessage.error_type));
+        }
+
+        /// <summary>
+        /// Дней отсрочки после окончания текущей фазы, прежде чем наступит небрежность.
+        /// </summary>
+        private int GetNeglectGraceDays(string injuryId)
+        {
+            return injuryId switch
+            {
+                "buffHurt" or InjuryBuffs.Cold or "buffBackStrain" => 3,
+                "buffSprainedAnkle" or "buffBruisedRibs" or "buffDeepCuts" or "buffBurnWounds" => 2,
+                "buffTornMuscles" or "buffShrapnelWounds" or "buffFracturedBone" or "buffSurgicalWound" => 1,
+                "buffConcussion" or "buffInfectedWound" or "buffBadlyHurt" => 1,
+                _ => 2
             };
         }
 
@@ -164,14 +314,18 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
                 int daysSincePhaseStart = today - debuffState.PhaseStartDay;
                 int currentPhaseDuration = debuffState.GetCurrentPhaseDuration();
+                if (currentPhaseDuration <= 0)
+                    continue;
 
-                int gracePeriod     = 7; // дней отсрочки после окончания фазы
-                int totalAllowedDays = currentPhaseDuration + gracePeriod;
+                int gracePeriod = GetNeglectGraceDays(injuryId);
+                int neglectDay = currentPhaseDuration + gracePeriod;
 
-                // Первое предупреждение за 4 дня до осложнения
-                if (daysSincePhaseStart == currentPhaseDuration + 3)
+                // Первое предупреждение: фаза завершена, нужен осмотр для перехода
+                if (daysSincePhaseStart == currentPhaseDuration)
                 {
-                    _monitor.Log($"⚠️ Предупреждение: {injuryId} требует осмотра через 4 дня", LogLevel.Warn);
+                    _monitor.Log(
+                        $"⚠️ Предупреждение: {injuryId} — фаза завершена, осмотр нужен (grace {gracePeriod} д)",
+                        LogLevel.Warn);
 
                     if (!sentUrgentReminder)
                     {
@@ -181,10 +335,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
                         Game1.addHUDMessage(new HUDMessage("Харви настаивает на осмотре!", HUDMessage.health_type));
                     }
                 }
-                // Финальное предупреждение за 1 день до осложнения
-                else if (daysSincePhaseStart == totalAllowedDays - 1)
+                // Финальное предупреждение: за 1 день до небрежности (только если grace > 1)
+                else if (gracePeriod > 1 && daysSincePhaseStart == neglectDay - 1)
                 {
-                    _monitor.Log($"🚨 ФИНАЛЬНОЕ предупреждение: {injuryId} требует осмотра завтра!", LogLevel.Error);
+                    _monitor.Log(
+                        $"🚨 ФИНАЛЬНОЕ предупреждение: {injuryId} — небрежность завтра (день {neglectDay})",
+                        LogLevel.Error);
 
                     if (!sentFinalWarning)
                     {
@@ -194,10 +350,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
                         Game1.addHUDMessage(new HUDMessage("СРОЧНО! Необходим осмотр!", HUDMessage.error_type));
                     }
                 }
-                // Применение небрежности при превышении срока
-                else if (daysSincePhaseStart >= totalAllowedDays)
+                // Небрежность: grace исчерпан
+                else if (daysSincePhaseStart >= neglectDay)
                 {
-                    _monitor.Log($"🚫 ОСЛОЖНЕНИЕ: {injuryId} → небрежность (превышен срок на {daysSincePhaseStart - totalAllowedDays} дней)",
+                    _monitor.Log(
+                        $"🚫 ОСЛОЖНЕНИЕ: {injuryId} → небрежность (день {daysSincePhaseStart}, порог {neglectDay})",
                         LogLevel.Error);
 
                     if (!Game1.player.hasBuff(InjuryBuffs.Neglect))

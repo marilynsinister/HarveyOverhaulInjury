@@ -25,17 +25,17 @@ for line in text.splitlines():
         injuries[cur][int(m2.group(1))] = m2.group(2)
 
 durations = {
-    "buffSprainedAnkle": (7, 7, 0),
-    "buffBruisedRibs": (10, 11, 0),
-    "buffBackStrain": (5, 7, 0),
-    "buffDeepCuts": (3, 7, 4),
-    "buffBurnWounds": (7, 14, 0),
-    "buffInfectedWound": (3, 11, 0),
-    "buffTornMuscles": (7, 14, 7),
-    "buffConcussion": (3, 11, 7),
-    "buffFracturedBone": (7, 35, 14),
-    "buffShrapnelWounds": (5, 10, 7),
-    "buffCold": (3, 4, 0),
+    "buffSprainedAnkle": (3, 4, 0),
+    "buffBruisedRibs": (4, 5, 0),
+    "buffBackStrain": (2, 4, 0),
+    "buffDeepCuts": (2, 3, 2),
+    "buffBurnWounds": (3, 5, 0),
+    "buffInfectedWound": (2, 4, 0),
+    "buffTornMuscles": (3, 5, 3),
+    "buffConcussion": (2, 4, 3),
+    "buffFracturedBone": (4, 10, 4),
+    "buffShrapnelWounds": (3, 5, 3),
+    "buffCold": (2, 2, 0),
 }
 
 

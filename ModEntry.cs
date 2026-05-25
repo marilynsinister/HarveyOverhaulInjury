@@ -161,20 +161,20 @@ namespace HarveyOverhaul.InjuryCare
         /// <summary>Травмы мода: buffId, топик, фазы (p1, p2, p3) дней.</summary>
         private static readonly (string BuffId, string TopicId, int P1, int P2, int P3)[] KnownTraumas =
         {
-            ("buffHurt", "topicHurt", 3, 0, 0),
-            ("buffBadlyHurt", "topicBadlyHurt", 3, 3, 2),
-            ("buffSprainedAnkle", "topicSprainedAnkle", 7, 7, 0),
-            ("buffBruisedRibs", "topicBruisedRibs", 10, 11, 0),
-            ("buffBackStrain", "topicBackStrain", 5, 7, 0),
-            ("buffDeepCuts", "topicDeepCuts", 3, 7, 4),
-            ("buffBurnWounds", "topicBurnWounds", 7, 14, 0),
-            ("buffInfectedWound", "topicInfectedWound", 3, 11, 0),
-            ("buffTornMuscles", "topicTornMuscles", 7, 14, 7),
-            ("buffConcussion", "topicConcussion", 3, 11, 7),
-            ("buffFracturedBone", "topicFracturedBone", 7, 35, 14),
-            ("buffShrapnelWounds", "topicShrapnelWounds", 5, 10, 7),
-            ("buffSurgicalWound", "topicSurgicalWound", 14, 0, 0),
-            (Core.InjuryBuffs.Cold, Core.ConversationTopics.Cold, 3, 4, 0),
+            ("buffHurt", "topicHurt", 2, 0, 0),
+            ("buffBadlyHurt", "topicBadlyHurt", 4, 0, 0),
+            ("buffSprainedAnkle", "topicSprainedAnkle", 3, 4, 0),
+            ("buffBruisedRibs", "topicBruisedRibs", 4, 5, 0),
+            ("buffBackStrain", "topicBackStrain", 2, 4, 0),
+            ("buffDeepCuts", "topicDeepCuts", 2, 3, 2),
+            ("buffBurnWounds", "topicBurnWounds", 3, 5, 0),
+            ("buffInfectedWound", "topicInfectedWound", 2, 4, 0),
+            ("buffTornMuscles", "topicTornMuscles", 3, 5, 3),
+            ("buffConcussion", "topicConcussion", 2, 4, 3),
+            ("buffFracturedBone", "topicFracturedBone", 4, 10, 4),
+            ("buffShrapnelWounds", "topicShrapnelWounds", 3, 5, 3),
+            ("buffSurgicalWound", "topicSurgicalWound", 7, 0, 0),
+            (Core.InjuryBuffs.Cold, Core.ConversationTopics.Cold, 2, 2, 0),
         };
 
         /// <summary>Осложнения мода: buffId, топик.</summary>
@@ -785,10 +785,10 @@ namespace HarveyOverhaul.InjuryCare
             _buffManager.LoadBuffData();
             
             // HospitalizationManager (будет обновлён позже с TreatmentManager)
-            _hospitalizationManager = new HospitalizationManager(Monitor, _config, _dialogueManager);
+            _hospitalizationManager = new HospitalizationManager(Monitor, _config, _dialogueManager, _stateManager);
             
             // HospitalActivityManager - интерактивная госпитализация
-            _hospitalActivityManager = new HospitalActivityManager(Monitor, _dialogueManager);
+            _hospitalActivityManager = new HospitalActivityManager(Monitor, _config, _dialogueManager);
             
             // Связываем менеджеры
             _hospitalizationManager.SetActivityManager(_hospitalActivityManager);
@@ -859,7 +859,8 @@ namespace HarveyOverhaul.InjuryCare
                 _buffManager,
                 _injuryManager,
                 _dialogueManager,
-                _treatmentManager
+                _treatmentManager,
+                _hospitalizationManager
             );
 
             _timeEventHandler = new TimeEventHandler(

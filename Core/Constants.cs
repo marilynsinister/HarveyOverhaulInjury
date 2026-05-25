@@ -254,6 +254,18 @@ namespace HarveyOverhaul.InjuryCare.Core
             "buffBurnWounds"
         };
 
+        /// <summary>
+        /// Ограничение активности: не Severe/Critical, без принудительной госпитализации;
+        /// мягкое предупреждение в шахте и при перегрузке.
+        /// </summary>
+        public static readonly HashSet<string> LimitedActivity = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            "buffTornMuscles",
+            "buffBruisedRibs",
+            "buffSprainedAnkle",
+            "buffBackStrain",
+        };
+
         public static readonly HashSet<string> DirtyInMines = new()
         {
             "buffDeepCuts",

@@ -619,12 +619,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             return injuryId switch
             {
-                "buffConcussion" => 14,
-                "buffFracturedBone" => 21,
-                "buffSurgicalWound" => 14,
-                "buffInfectedWound" => 10,
-                "buffShrapnelWounds" => 14,
-                "buffBurnWounds" => 10,
+                "buffHurt" => 2,
+                "buffBadlyHurt" => 4,
+                "buffConcussion" => 9,
+                "buffFracturedBone" => 18,
+                "buffSurgicalWound" => 7,
+                "buffInfectedWound" => 6,
+                "buffShrapnelWounds" => 11,
+                "buffBurnWounds" => 8,
                 "buffDeepCuts" => 7,
                 _ => 3
             };

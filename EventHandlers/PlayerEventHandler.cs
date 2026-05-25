@@ -287,7 +287,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             // === ПРЕДУПРЕЖДЕНИЕ НА ВХОДЕ В ШАХТУ (раз в день) ===
             bool hasSevereInjury = _buffManager.HasAnyBuff(InjurySets.Severe.ToArray());
+            bool hasLimitedActivity = _buffManager.HasAnyBuff(InjurySets.LimitedActivity.ToArray());
             bool hasAnyInjury    = hasSevereInjury
+                || hasLimitedActivity
                 || _stateManager.GetAllActiveDebuffStates().Count > 0
                 || _stateManager.State.ActiveComplications.Count > 0;
 
@@ -304,9 +306,16 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     _stateManager.State.MineWarningDay = today;
                     _monitor.Log("⚠️ [Шахта] Вход с серьёзными ранами — предупреждение Харви, письмо и дебафф завтра", LogLevel.Warn);
                 }
+                else if (hasLimitedActivity)
+                {
+                    Game1.addHUDMessage(new HUDMessage(
+                        "Харви: С такой травмой шахта — плохая идея. Хотя бы не перегружайся.",
+                        HUDMessage.health_type));
+                    _monitor.Log("ℹ️ [Шахта] Вход с ограничением активности — предупреждение Харви", LogLevel.Debug);
+                }
                 else
                 {
-                    // Лёгкие травмы — мягкое предупреждение
+                    // Прочие травмы (напр. открытые раны DirtyInMines) — напоминание о загрязнении
                     Game1.addHUDMessage(new HUDMessage(
                         "Харви: Будь осторожна в шахте — твои раны могут загрязниться.",
                         HUDMessage.health_type));
@@ -758,11 +767,30 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (distance > _config.ProximityTiles)
                 return;
 
-            // topicMineInjuryRescue + Severe: приоритет госпитализации (не обычное облачко).
+            // topicMineInjuryRescue + Severe: предупреждение, затем госпитализация (не обычное облачко).
             if (canForcedHosp)
             {
                 if (!_hospitalizationManager.IsHospitalized)
                 {
+                    int today = Helpers.GameUtils.Today();
+                    var injuryState = _stateManager.State;
+                    bool warningShownToday = injuryState.PendingForcedHospitalizationWarning
+                        && injuryState.PendingForcedHospitalizationWarningDay == today;
+
+                    if (!warningShownToday)
+                    {
+                        _monitor.Log("⚠️ Харви: proximity-предупреждение перед госпитализацией", LogLevel.Warn);
+                        _dialogueManager.ShowEmoteWithText(
+                            harvey,
+                            HarveyEmotes.ForcedHospitalization,
+                            "Стой. Я вижу, как ты держишься. В клинику. Сейчас.");
+                        injuryState.PendingForcedHospitalizationWarning = true;
+                        injuryState.PendingForcedHospitalizationWarningDay = today;
+                        _stateManager.Save();
+                        _proximityReactionShown = true;
+                        return;
+                    }
+
                     _monitor.Log($"⚠️ Харви обнаружил раны после обморока в шахте → ПРИНУДИТЕЛЬНАЯ ГОСПИТАЛИЗАЦИЯ", LogLevel.Warn);
                     string? injury = _injuryManager.GetActiveInjury() ?? "buffBadlyHurt";
                     _hospitalizationManager.StartForcedHospitalizationWithExplanation(injury, harvey, "mine_rescue");

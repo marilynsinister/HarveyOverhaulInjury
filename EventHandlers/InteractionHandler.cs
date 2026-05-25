@@ -48,6 +48,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly InjuryManager _injuryManager;
         private readonly DialogueManager _dialogueManager;
         private readonly TreatmentManager _treatmentManager;
+        private readonly HospitalizationManager _hospitalizationManager;
 
         private PendingMedicalAction? _pendingMedicalAction;
         private bool _pendingSawDialogueBox;
@@ -87,7 +88,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             BuffManager buffManager,
             InjuryManager injuryManager,
             DialogueManager dialogueManager,
-            TreatmentManager treatmentManager)
+            TreatmentManager treatmentManager,
+            HospitalizationManager hospitalizationManager)
         {
             _monitor = monitor;
             _helper = helper;
@@ -97,6 +99,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _injuryManager = injuryManager;
             _dialogueManager = dialogueManager;
             _treatmentManager = treatmentManager;
+            _hospitalizationManager = hospitalizationManager;
         }
 
         /// <summary>
@@ -215,6 +218,17 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             LogResolvedMedicalAction(resolved);
             SuppressHarveyClickButtons(e);
+
+            if (resolved.Type == MedicalActionType.StartTreatment
+                && resolved.InjuryId != null
+                && TryBeginTreatmentWithHospitalization(harvey, resolved))
+            {
+                LastClickDebug = BuildClickDebugSnapshot(
+                    null,
+                    resolved,
+                    "BLOCKED: StartTreatment with forced hospitalization");
+                return;
+            }
 
             try
             {
@@ -965,6 +979,92 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             _pendingMedicalAction = null;
             _pendingSawDialogueBox = false;
+        }
+
+        private bool TryBeginTreatmentWithHospitalization(NPC harvey, PendingMedicalAction resolved)
+        {
+            string injuryId = resolved.InjuryId!;
+            var debuffState = _stateManager.GetDebuffState(injuryId);
+            if (debuffState == null || !ShouldHospitalizeOnTreatment(injuryId, debuffState))
+                return false;
+
+            string reason = GetTreatmentHospitalizationReason(injuryId, debuffState);
+            _monitor.Log(
+                $"[MedicalAction] клик → StartTreatment+Hospitalization {injuryId} reason={reason}",
+                LogLevel.Info);
+
+            _treatmentManager.ApplyTreatmentForInjury(injuryId);
+            _dialogueManager.ClearHarveyNeedsFirstTreatmentTopic(
+                "лечение начато перед госпитализацией по клику у Харви");
+            _stateManager.MarkHarveyConversation(injuryId, true);
+
+            var stillActiveComplications = GetActiveComplicationIds();
+            if (stillActiveComplications.Count > 0)
+                _treatmentManager.TreatAllComplications(stillActiveComplications);
+
+            GrantMedicalFriendship(10);
+            _stateManager.Save();
+
+            if (reason == "mine_rescue")
+                _dialogueManager.RemoveTopic(ConversationTopics.MineInjuryRescue);
+
+            _hospitalizationManager.StartForcedHospitalizationWithExplanation(injuryId, harvey, reason);
+            return true;
+        }
+
+        private bool ShouldHospitalizeOnTreatment(string injuryId, DebuffState state)
+        {
+            if (!_config.ForceHospitalization)
+                return false;
+            if (_hospitalizationManager.IsHospitalized)
+                return false;
+            if (state.TreatmentStarted)
+                return false;
+
+            int today = GameUtils.Today();
+
+            return injuryId switch
+            {
+                "buffConcussion" => true,
+                "buffInfectedWound" => true,
+                "buffFracturedBone" => true,
+                "buffBadlyHurt" => today - state.InjuryStartDay <= 1,
+                "buffShrapnelWounds" => IsShrapnelMineOrExplosionRelated(state),
+                _ => false
+            };
+        }
+
+        private bool IsShrapnelMineOrExplosionRelated(DebuffState state)
+        {
+            if (GameUtils.HasConversationTopic(ConversationTopics.MineInjuryRescue))
+                return true;
+            if (GameUtils.HasConversationTopic(ConversationTopics.ShrapnelWounds))
+                return true;
+            if (_stateManager.State.PassedOutInMineYesterday || _stateManager.State.NeedsMineRescueEvent)
+                return true;
+            if (!string.IsNullOrEmpty(_stateManager.State.PendingMineRescueEventId))
+                return true;
+            if (_stateManager.WasStoryTriggerApplied(Triggers.ShrapnelWounds))
+                return true;
+
+            return false;
+        }
+
+        private static string GetTreatmentHospitalizationReason(string injuryId, DebuffState state)
+        {
+            if (injuryId == "buffShrapnelWounds"
+                && GameUtils.HasConversationTopic(ConversationTopics.MineInjuryRescue))
+            {
+                return "mine_rescue";
+            }
+
+            return injuryId switch
+            {
+                "buffConcussion" => "concussion_observation",
+                "buffInfectedWound" => "infection_fever",
+                "buffFracturedBone" => "fracture_stabilization",
+                _ => "general"
+            };
         }
 
         /// <summary>

@@ -144,6 +144,26 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         // Отслеживание здоровья для травм
         public int LastHealth { get; set; } = 100;
 
+        // Госпитализация (переживает перезагрузку сейва)
+        public bool IsHospitalized { get; set; } = false;
+        public string HospitalizedInjuryId { get; set; } = "";
+        public string HospitalizationReason { get; set; } = "";
+        public int HospitalAdmissionDay { get; set; } = -1;
+        public int HospitalAdmissionTime { get; set; } = -1;
+        public int HospitalAdmissionMinutes { get; set; } = -1;
+        public int HospitalMinStayMinutes { get; set; } = 120;
+        public bool HospitalDischargeReadyShown { get; set; } = false;
+
+        /// <summary>
+        /// Proximity-предупреждение перед принудительной госпитализацией (уже показано).
+        /// </summary>
+        public bool PendingForcedHospitalizationWarning { get; set; } = false;
+
+        /// <summary>
+        /// День показа proximity-предупреждения о госпитализации. -1 = не показывали.
+        /// </summary>
+        public int PendingForcedHospitalizationWarningDay { get; set; } = -1;
+
         // Память о топиках (для старой логики)
         public Dictionary<string, int> TopicMemory { get; set; } = new();
         

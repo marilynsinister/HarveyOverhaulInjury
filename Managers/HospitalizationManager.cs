@@ -1,5 +1,6 @@
 using System;
 using HarveyOverhaul.InjuryCare.Core;
+using HarveyOverhaul.InjuryCare.Helpers;
 using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewValley;
@@ -14,20 +15,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly IMonitor _monitor;
         private readonly ModConfig _config;
         private readonly DialogueManager _dialogueManager;
+        private readonly StateManager _stateManager;
         private HospitalActivityManager? _activityManager;
-
-        private bool _hospitalHoldActive = false;
-        private string? _currentHospitalCaseInjury = null;
-        private int _admissionTime = -1;
 
         public HospitalizationManager(
             IMonitor monitor,
             ModConfig config,
-            DialogueManager dialogueManager)
+            DialogueManager dialogueManager,
+            StateManager stateManager)
         {
             _monitor = monitor;
             _config = config;
             _dialogueManager = dialogueManager;
+            _stateManager = stateManager;
         }
 
         /// <summary>
@@ -41,12 +41,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>
         /// Госпитализация активна
         /// </summary>
-        public bool IsHospitalized => _hospitalHoldActive;
+        public bool IsHospitalized => _stateManager.State.IsHospitalized;
 
         /// <summary>
         /// Текущая травма, по которой госпитализирован
         /// </summary>
-        public string? CurrentInjury => _currentHospitalCaseInjury;
+        public string? CurrentInjury => string.IsNullOrEmpty(_stateManager.State.HospitalizedInjuryId)
+            ? null
+            : _stateManager.State.HospitalizedInjuryId;
 
         /// <summary>
         /// Начать принудительную госпитализацию
@@ -63,9 +65,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             _monitor.Log($"🏥 Начинаем принудительную госпитализацию: {injuryId}, причина: {reason}", LogLevel.Info);
 
-            _hospitalHoldActive = true;
-            _currentHospitalCaseInjury = injuryId;
-            _admissionTime = Game1.timeOfDay;
+            var state = _stateManager.State;
+            state.IsHospitalized = true;
+            state.HospitalizedInjuryId = injuryId;
+            state.HospitalizationReason = reason;
+            state.HospitalAdmissionDay = GameUtils.Today();
+            state.HospitalAdmissionTime = Game1.timeOfDay;
+            state.HospitalAdmissionMinutes = ToClockMinutes(Game1.timeOfDay);
+            state.HospitalMinStayMinutes = CalculateHospitalStayMinutes(injuryId, reason);
+            state.HospitalDischargeReadyShown = false;
+            state.PendingForcedHospitalizationWarning = false;
+            _stateManager.Save();
 
             // Телепортируем в больницу
             WarpToHospitalBed();
@@ -105,7 +115,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         private string GetMineRescueExplanation()
         {
-            int hours = _config.MinHospitalStayMinutes / 60;
+            int hours = _stateManager.State.HospitalMinStayMinutes / 60;
             
             return $"@! Твои раны после вчерашнего инцидента в шахте очень серьёзны.$a#$b#" +
                    $"Я не могу отпустить тебя в таком состоянии!$a#$b#" +
@@ -119,7 +129,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         private string GetGeneralExplanation()
         {
-            int hours = _config.MinHospitalStayMinutes / 60;
+            int hours = _stateManager.State.HospitalMinStayMinutes / 60;
             
             return $"@! Твоё состояние критическое. Немедленно в палату!$a#$b#" +
                    $"Тебе нужен постельный режим минимум на {hours} {GetHoursWord(hours)}.$u#$b#" +
@@ -142,10 +152,56 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public bool CanDischarge()
         {
-            if (!_hospitalHoldActive) return true;
+            if (!IsHospitalized) return true;
 
-            int elapsed = Game1.timeOfDay - _admissionTime;
-            return elapsed >= _config.MinHospitalStayMinutes;
+            var state = _stateManager.State;
+            int admissionMinutes = state.HospitalAdmissionMinutes;
+            if (admissionMinutes < 0 && state.HospitalAdmissionTime >= 0)
+                admissionMinutes = ToClockMinutes(state.HospitalAdmissionTime);
+
+            if (admissionMinutes < 0)
+                return false;
+
+            int now = ToClockMinutes(Game1.timeOfDay);
+            int elapsed = now - admissionMinutes;
+            if (elapsed < 0)
+                elapsed += 24 * 60;
+
+            int minStay = state.HospitalMinStayMinutes > 0
+                ? state.HospitalMinStayMinutes
+                : _config.MinHospitalStayMinutes;
+
+            return elapsed >= minStay;
+        }
+
+        /// <summary>
+        /// Однократно уведомить игрока, что минимальный срок госпитализации прошёл.
+        /// </summary>
+        public void NotifyDischargeReadyIfNeeded()
+        {
+            if (!IsHospitalized) return;
+            if (!CanDischarge()) return;
+
+            var state = _stateManager.State;
+            if (state.HospitalDischargeReadyShown) return;
+
+            state.HospitalDischargeReadyShown = true;
+            _stateManager.Save();
+
+            _monitor.Log("✅ Минимальный срок госпитализации прошёл, игрок может выписаться", LogLevel.Debug);
+
+            Game1.addHUDMessage(new HUDMessage(
+                "Харви разрешил выписку. Но сегодня без риска.",
+                HUDMessage.health_type));
+
+            NPC? harvey = HarveyHelper.FindHarvey(Game1.currentLocation);
+            if (harvey != null)
+            {
+                _dialogueManager.ShowEmoteWithText(
+                    harvey,
+                    HarveyEmotes.Recovery,
+                    "Показатели стабильны. Можешь идти, но без шахты сегодня.");
+            }
         }
 
         /// <summary>
@@ -155,9 +211,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             _monitor.Log("🏥 Выписка пациента", LogLevel.Info);
 
-            _hospitalHoldActive = false;
-            _currentHospitalCaseInjury = null;
-            _admissionTime = -1;
+            ClearHospitalizationState();
+            _stateManager.Save();
             
             // Сбрасываем активности госпитализации
             _activityManager?.Reset();
@@ -199,7 +254,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public bool HandleWarpAttempt(GameLocation newLocation, GameLocation oldLocation)
         {
-            if (!_hospitalHoldActive) return false;
+            if (!IsHospitalized) return false;
 
             // Блокируем только когда игрок уходит ИМЕННО из клиники
             bool wasInClinic  = IsInClinic(oldLocation);
@@ -260,6 +315,48 @@ namespace HarveyOverhaul.InjuryCare.Managers
             
             _monitor.Log($"😊 Показана реакция выздоровления (полное={fullRecovery})", LogLevel.Debug);
         }
+
+        private static int ToClockMinutes(int timeOfDay)
+        {
+            int hours = timeOfDay / 100;
+            int minutes = timeOfDay % 100;
+            return hours * 60 + minutes;
+        }
+
+        private int CalculateHospitalStayMinutes(string injuryId, string reason)
+        {
+            int baseMinutes = injuryId switch
+            {
+                "buffBadlyHurt" => 90,
+                "buffBurnWounds" => 120,
+                "buffShrapnelWounds" => 120,
+                "buffSurgicalWound" => 120,
+                "buffConcussion" => 180,
+                "buffInfectedWound" => 180,
+                "buffFracturedBone" => 180,
+                _ => _config.MinHospitalStayMinutes
+            };
+
+            if (reason == "mine_rescue")
+                return Math.Max(baseMinutes, 120);
+
+            if (reason == "infection_fever")
+                return Math.Max(baseMinutes, 180);
+
+            return baseMinutes;
+        }
+
+        private void ClearHospitalizationState()
+        {
+            var state = _stateManager.State;
+            state.IsHospitalized = false;
+            state.HospitalizedInjuryId = "";
+            state.HospitalizationReason = "";
+            state.HospitalAdmissionDay = -1;
+            state.HospitalAdmissionTime = -1;
+            state.HospitalAdmissionMinutes = -1;
+            state.HospitalMinStayMinutes = 120;
+            state.HospitalDischargeReadyShown = false;
+        }
     }
 }
-

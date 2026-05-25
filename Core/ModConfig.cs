@@ -15,6 +15,8 @@ namespace HarveyOverhaul.InjuryCare.Core
         public string HospitalLocationName { get; set; } = "Hospital";
         public int HospitalBedX { get; set; } = 20;
         public int HospitalBedY { get; set; } = 5;
+        public int HospitalActivityIntervalMinutes { get; set; } = 40;
+        public int MaxHospitalActivitiesPerStay { get; set; } = 3;
 
         // Настройки механик
         /// <summary>Сколько игровых дней действует дебафф «Харви запретил шахту» после письма (по умолчанию 2).</summary>

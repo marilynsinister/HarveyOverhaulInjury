@@ -82,15 +82,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// </summary>
         private void CheckHospitalDischarge(int newTime)
         {
-            if (!_hospitalizationManager.IsHospitalized) return;
-
-            // Проверяем, прошло ли достаточно времени
-            if (_hospitalizationManager.CanDischarge())
-            {
-                // Автоматическая выписка после минимального срока
-                // Игрок может покинуть больницу
-                _monitor.Log("✅ Минимальный срок госпитализации прошёл, игрок может выписаться", LogLevel.Debug);
-            }
+            _hospitalizationManager.NotifyDischargeReadyIfNeeded();
         }
 
         /// <summary>
