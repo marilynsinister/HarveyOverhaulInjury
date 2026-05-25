@@ -163,6 +163,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     [1] = "HarveyMod_Cold_Acute",        // Острая фаза: температура, слабость
                     [2] = "HarveyMod_Cold_Recovery",     // Восстановление: остаточный кашель
                     [3] = "HarveyMod_Cold_Recovery"      // 2 фазы
+                },
+                ["buffBadlyHurt"] = new Dictionary<int, string>
+                {
+                    [1] = "HarveyMod_BadlyHurt_Acute",
+                    [2] = "HarveyMod_BadlyHurt_Healing",
+                    [3] = "HarveyMod_BadlyHurt_Recovery"
                 }
             };
 
@@ -375,7 +381,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 8);
             Game1.playSound("debuffHit");
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffBadlyHurt", currentDay, 8, 0, 0);
+            _stateManager.CreateDebuffState("buffBadlyHurt", currentDay, 3, 3, 2);
 
             // Примечание: Прямая госпитализация УБРАНА!
             // Харви заметит травму через proximity detection и запустит госпитализацию

@@ -116,6 +116,12 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         public int MineForbiddenAppliedDay { get; set; } = -1;
 
         /// <summary>
+        /// День последнего показа катсцены eventHarveyMineInterception при активном MineForbidden.
+        /// -1 = ещё не показывали. Не пишется в eventsSeen, чтобы событие не стало one-shot на сейв.
+        /// </summary>
+        public int LastMineForbiddenInterceptionDay { get; set; } = -1;
+
+        /// <summary>
         /// Накопленные игровые минуты в шахте/вулкане за текущий день (только при травме DirtyInMines).
         /// </summary>
         public int MineDirtyExposureMinutesToday { get; set; } = 0;

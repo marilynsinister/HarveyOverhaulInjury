@@ -1,8 +1,8 @@
 # Аудит романтического тона (без gate Dating/Married)
 
-Дата: 2026-05-23  
+Дата: 2026-05-23 (критерии стадий — см. [audit-relationship-tone.md](../audit-relationship-tone.md) § «Таблица стадий»)  
 Файлы: `content.json` → `assets/Code/events*.json`, `events_for_mode_new_formatted.json`  
-Критерии: «люблю», pet names, «только мы», «не могу потерять», «самое важное», поцелуи/объятия как романтика, сцена-свидание.
+Критерии нарушения **до Dating**: «люблю», «моя/мой», pet names, «только мы», поцелуи/объятия как romance, сцена-свидание. На стадии **6–8♥** допустима тревога и «ты», но **не** romance-маркеры. **Обращение:** «Вы» только 0–2♥; story E2+ (`750+`) — «ты» (см. канон в `audit-relationship-tone.md`).
 
 ## Уже с gate Dating/Married — не трогаем
 

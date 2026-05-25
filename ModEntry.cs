@@ -139,6 +139,16 @@ namespace HarveyOverhaul.InjuryCare
                 "Полный диагностический отчёт в SMAPI log (то же, что full debug HUD, без обрезки).",
                 (_, _) => CmdDebugDump());
 
+            helper.ConsoleCommands.Add(
+                "injury_medical_snapshot",
+                "Снимок medical pipeline: decision/gate/pending, DebuffState, фазовые баффы (до/после клика по Харви).",
+                (_, _) => CmdMedicalSnapshot());
+
+            helper.ConsoleCommands.Add(
+                "injury_foreign_topic_add",
+                "Тест конфликта модов: добавить чужой conversation topic. injury_foreign_topic_add <topicId> [days]",
+                (_, args) => CmdForeignTopicAdd(args));
+
             Monitor.Log("Harvey Overhaul: Injury & Care загружен", LogLevel.Info);
         }
 
@@ -146,7 +156,7 @@ namespace HarveyOverhaul.InjuryCare
         private static readonly (string BuffId, string TopicId, int P1, int P2, int P3)[] KnownTraumas =
         {
             ("buffHurt", "topicHurt", 3, 0, 0),
-            ("buffBadlyHurt", "topicBadlyHurt", 8, 0, 0),
+            ("buffBadlyHurt", "topicBadlyHurt", 3, 3, 2),
             ("buffSprainedAnkle", "topicSprainedAnkle", 7, 7, 0),
             ("buffBruisedRibs", "topicBruisedRibs", 10, 11, 0),
             ("buffBackStrain", "topicBackStrain", 5, 7, 0),
@@ -493,6 +503,79 @@ namespace HarveyOverhaul.InjuryCare
             Monitor.Log(BuildDebugReport(full: true), LogLevel.Info);
         }
 
+        private void CmdMedicalSnapshot()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("=== MEDICAL PIPELINE SNAPSHOT ===", LogLevel.Info);
+            Monitor.Log($"Pending: {_interactionHandler.GetPendingMedicalActionSummary() ?? "none"}", LogLevel.Info);
+            Monitor.Log($"Decision now: {_interactionHandler.BuildDebugTreatmentDecision()}", LogLevel.Info);
+            Monitor.Log($"Standard dialogue: {_interactionHandler.GetStandardDialogueGateReason()}", LogLevel.Info);
+            Monitor.Log($"Last click: {_interactionHandler.LastClickDebug ?? "-"}", LogLevel.Info);
+
+            foreach (var ds in _stateManager.GetAllActiveDebuffStates()
+                         .Where(d => InjurySets.HarveyTreatable.Contains(d.BuffId))
+                         .OrderByDescending(d => d.BuffId))
+            {
+                Monitor.Log(
+                    $"  DebuffState {ds.BuffId}: phase={ds.CurrentPhase}/{ds.TotalPhases} " +
+                    $"TreatmentStarted={ds.TreatmentStarted} ReadyNext={ds.ReadyForNextPhase} ReadyRecovery={ds.ReadyForRecovery}",
+                    LogLevel.Info);
+                for (int p = 1; p <= 3; p++)
+                {
+                    string phaseBuff = _injuryManager.GetPhaseBuffId(ds.BuffId, p);
+                    if (_buffManager.HasBuff(phaseBuff))
+                        Monitor.Log($"    buff ACTIVE: {phaseBuff}", LogLevel.Info);
+                }
+                if (_buffManager.HasBuff(ds.BuffId))
+                    Monitor.Log($"    buff ACTIVE: {ds.BuffId} (base)", LogLevel.Info);
+            }
+
+            foreach (string compId in InjurySets.KnownComplicationBuffIds)
+            {
+                if (_stateManager.GetDebuffState(compId) != null || _buffManager.HasBuff(compId))
+                    Monitor.Log($"  Complication: {compId} buff={_buffManager.HasBuff(compId)}", LogLevel.Info);
+            }
+
+            if (_buffManager.HasBuff(CureBuffs.Care))
+                Monitor.Log($"  Care buff: ACTIVE ({CureBuffs.Care})", LogLevel.Info);
+
+            Monitor.Log("=== END SNAPSHOT ===", LogLevel.Info);
+        }
+
+        private void CmdForeignTopicAdd(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log("Использование: injury_foreign_topic_add <topicId> [days]. Пример: injury_foreign_topic_add topic_joja_Certified 5", LogLevel.Info);
+                return;
+            }
+
+            string topicId = args[0].Trim();
+            int days = 5;
+            if (args.Length >= 2 && int.TryParse(args[1], out int d))
+                days = Math.Max(1, d);
+
+            if (ModTopicRegistry.GetAllOwnedTopicIds().Contains(topicId))
+            {
+                Monitor.Log($"⚠️ {topicId} — топик InjuryCare. Для теста конфликта используйте чужой ID (не из ModTopicRegistry).", LogLevel.Warn);
+            }
+
+            Game1.player.activeDialogueEvents[topicId] = days;
+            Monitor.Log($"Добавлен foreign topic: {topicId} на {days} д. (не удаляется injury_reset, только вручную или save reload)", LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage($"[TEST] foreign topic: {topicId}", HUDMessage.newQuest_type));
+        }
+
         /// <summary>
         /// Полный сброс данных мода для отладки.
         /// Удаляет все баффы мода, осложнения, топики и очищает _state.
@@ -533,15 +616,16 @@ namespace HarveyOverhaul.InjuryCare
                 _buffManager.RemoveBuff(cureBuff);
             }
 
-            // Удалить все топики мода из activeDialogueEvents
+            // Удалить только топики InjuryCare (не чужие topic* / situation* из других модов)
             if (Game1.player?.activeDialogueEvents != null)
             {
+                var ownedTopics = Core.ModTopicRegistry.GetAllOwnedTopicIds();
                 var modTopics = Game1.player.activeDialogueEvents.Keys
-                    .Where(k => k.StartsWith("topic") || k.StartsWith("situation"))
+                    .Where(k => ownedTopics.Contains(k))
                     .ToList();
                 foreach (var topic in modTopics)
                     Game1.player.activeDialogueEvents.Remove(topic);
-                Monitor.Log($"Удалено {modTopics.Count} топиков.", LogLevel.Info);
+                Monitor.Log($"Удалено {modTopics.Count} топиков InjuryCare.", LogLevel.Info);
             }
 
             // Очистить _state
@@ -656,7 +740,8 @@ namespace HarveyOverhaul.InjuryCare
                 _stateManager,
                 _buffManager,
                 _dialogueManager,
-                _injuryManager
+                _injuryManager,
+                _treatmentManager
             );
 
             // События сохранения
@@ -684,6 +769,7 @@ namespace HarveyOverhaul.InjuryCare
 
             // События взаимодействия
             events.Input.ButtonPressed += _interactionHandler.OnButtonPressed;
+            events.GameLoop.UpdateTicked += _interactionHandler.OnUpdateTicked;
 
             // События времени
             events.GameLoop.TimeChanged += _timeEventHandler.OnTimeChanged;
@@ -1146,8 +1232,10 @@ namespace HarveyOverhaul.InjuryCare
 
         private void AppendHarveyClickLines(StringBuilder sb)
         {
+            sb.AppendLine($"Pending: {_interactionHandler.GetPendingMedicalActionSummary() ?? "none"}");
             sb.AppendLine($"Last click: {_interactionHandler.LastClickDebug ?? "-"}");
             sb.AppendLine($"Decision now: {_interactionHandler.BuildDebugTreatmentDecision()}");
+            sb.AppendLine($"Standard dialogue: {_interactionHandler.GetStandardDialogueGateReason()}");
         }
 
         private void AppendComplicationsBlock(StringBuilder sb, InjuryState state, int today)
@@ -1172,7 +1260,7 @@ namespace HarveyOverhaul.InjuryCare
             sb.AppendLine($"NeedsMineRescueEvent: {YesNo(state.NeedsMineRescueEvent)}  WasPassedOut: {YesNo(state.WasPassedOut)}");
             sb.AppendLine($"WasExhausted: {YesNo(state.WasExhausted)}  WasUpTooLate: {YesNo(state.WasUpTooLate)}");
             sb.AppendLine($"LastPassedOutHealth: {state.LastPassedOutHealth}  LastPassedOutLocation: {(string.IsNullOrEmpty(state.LastPassedOutLocation) ? "-" : state.LastPassedOutLocation)}");
-            sb.AppendLine($"MineWarningDay: {state.MineWarningDay}  MineForbiddenAppliedDay: {state.MineForbiddenAppliedDay}");
+            sb.AppendLine($"MineWarningDay: {state.MineWarningDay}  MineForbiddenAppliedDay: {state.MineForbiddenAppliedDay}  LastMineForbiddenInterceptionDay: {state.LastMineForbiddenInterceptionDay}");
             sb.AppendLine($"LastHealth: {state.LastHealth}  Rain: {state.TimeUnderRainTicks}t/{state.TotalTimeUnderRainToday}t");
 
             var saved = state.SavedActiveBuffs ?? new List<string>();

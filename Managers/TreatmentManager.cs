@@ -40,6 +40,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             "buffInfectedWound",
             "buffBackStrain",
             "buffShrapnelWounds",
+            "buffBadlyHurt",
             "buffCold" // Простуда (2 фазы: острая + восстановление)
         };
 
@@ -191,40 +192,38 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
         
         /// <summary>
-        /// Завершить лечение травмы (вызывается при полном выздоровлении)
+        /// Механическое завершение фазовой травмы без диалога (канон для игрового клика).
+        /// </summary>
+        public void ApplyMechanicalPhasedRecovery(string injuryId, int careDurationMs = 2880000)
+        {
+            _injuryManager.RemoveAllPhaseBuffs(injuryId);
+            _stateManager.RemoveDebuffState(injuryId);
+            _injuryManager.NotifyInjuryRecovered(injuryId);
+
+            _dialogueManager.RemoveTopic(TopicIds.GetInjuryTopic(injuryId));
+            _dialogueManager.RemoveTopic(TopicIds.GetTreatmentTopic(injuryId));
+            for (int phase = 1; phase <= 3; phase++)
+                _dialogueManager.RemoveTopic(_injuryManager.GetPhaseTopicId(injuryId, phase));
+
+            _buffManager.AddBuff(CureBuffs.Care, careDurationMs);
+            _monitor.Log($"Механическое выздоровление применено: {injuryId}, Care={careDurationMs}ms", LogLevel.Debug);
+        }
+
+        /// <summary>
+        /// Завершить лечение травмы (debug-команда injury_phase_cure).
         /// </summary>
         public void CompleteInjuryRecovery(string injuryId)
         {
-            var debuffState = _stateManager.GetDebuffState(injuryId);
-            if (debuffState == null)
+            if (_stateManager.GetDebuffState(injuryId) == null)
             {
                 _monitor.Log($"⚠️ Состояние дебаффа для {injuryId} не найдено", LogLevel.Warn);
                 return;
             }
-            
-            _monitor.Log($"🎉 Завершение лечения {injuryId}", LogLevel.Info);
-            
-            // Удаляем последний фазовый бафф
-            string lastPhaseBuffId = _injuryManager.GetPhaseBuffId(injuryId, debuffState.CurrentPhase);
-            _buffManager.RemoveBuff(lastPhaseBuffId);
-            _monitor.Log($"❌ Удалён последний бафф: {lastPhaseBuffId}", LogLevel.Debug);
-            
-            // Удаляем топики
-            string injuryTopicId = TopicIds.GetInjuryTopic(injuryId);
-            _dialogueManager.RemoveTopic(injuryTopicId);
-            
-            string treatmentTopicId = TopicIds.GetTreatmentTopic(injuryId);
-            _dialogueManager.RemoveTopic(treatmentTopicId);
-            
-            // Удаляем состояние дебаффа
-            _stateManager.RemoveDebuffState(injuryId);
-            _injuryManager.NotifyInjuryRecovered(injuryId);
-            
-            // Применяем бафф заботы Харви
-            _buffManager.AddBuff(CureBuffs.Care, 28800000); // 4 дня
+
+            _monitor.Log($"🎉 Debug-завершение лечения {injuryId}", LogLevel.Info);
+            ApplyMechanicalPhasedRecovery(injuryId, careDurationMs: 28800000);
             _dialogueManager.AddTopic(ConversationTopics.TreatmentCompleted, 7);
-            
-            // Показываем уведомление
+
             StardewValley.Game1.addHUDMessage(new StardewValley.HUDMessage(
                 "🎉 Лечение завершено! Ты полностью здоров${^а}$!",
                 StardewValley.HUDMessage.achievement_type));
@@ -550,14 +549,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>
         /// Построить диалог лечения из топиков
         /// </summary>
-        public string BuildCombinedDialogue(InjuryCollection injuries)
+        /// <param name="markTreatmentDiscussed">Если false — только выбор текста, без записи в state.</param>
+        public string BuildCombinedDialogue(InjuryCollection injuries, bool markTreatmentDiscussed = true)
         {
             var parts = new List<string>();
 
             // Основная травма
             if (injuries.MainInjury != null)
             {
-                string mainText = GetTreatmentDialogue(injuries.MainInjury);
+                string mainText = GetTreatmentDialogue(injuries.MainInjury, markTreatmentDiscussed);
                 parts.Add(mainText);
             }
 
@@ -590,13 +590,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
         }
 
-        private string GetTreatmentDialogue(string injuryId)
+        private string GetTreatmentDialogue(string injuryId, bool markTreatmentDiscussed = true)
         {
             // Убираем префикс "buff" для получения чистого названия травмы
             string cleanInjuryId = injuryId.Replace("buff", "");
             
             // Проверяем, был ли уже разговор о лечении этой травмы
-            bool wasDiscussed = _stateManager.WasTreatmentDiscussed(injuryId);
+            bool wasDiscussed = _stateManager.GetDebuffState(injuryId)?.HarveyConversationHappened == true;
             
             _monitor.Log($"Получаем диалог лечения для: {cleanInjuryId}, wasDiscussed={wasDiscussed}", LogLevel.Debug);
             
@@ -606,8 +606,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             
             _monitor.Log($"Получен диалог лечения: {dialogue}", LogLevel.Debug);
             
-            // Помечаем разговор как состоявшийся
-            _stateManager.MarkTreatmentDiscussed(injuryId, true);
+            if (markTreatmentDiscussed)
+                _stateManager.MarkHarveyConversation(injuryId, true);
             
             return dialogue;
         }

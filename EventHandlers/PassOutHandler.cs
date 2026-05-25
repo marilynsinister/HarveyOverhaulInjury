@@ -22,6 +22,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly BuffManager _buffManager;
         private readonly DialogueManager _dialogueManager;
         private readonly InjuryManager _injuryManager;
+        private readonly TreatmentManager _treatmentManager;
 
         public PassOutHandler(
             IMonitor monitor,
@@ -29,7 +30,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             StateManager stateManager,
             BuffManager buffManager,
             DialogueManager dialogueManager,
-            InjuryManager injuryManager)
+            InjuryManager injuryManager,
+            TreatmentManager treatmentManager)
         {
             _monitor = monitor;
             _config = config;
@@ -37,6 +39,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _buffManager = buffManager;
             _dialogueManager = dialogueManager;
             _injuryManager = injuryManager;
+            _treatmentManager = treatmentManager;
         }
 
         /// <summary>
@@ -701,6 +704,19 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
 
             ClearMineRescueState();
+            WarpFarmerToHospitalBed();
+            StartMineRescueTreatmentIfNeeded();
+        }
+
+        private void WarpFarmerToHospitalBed()
+        {
+            string hospital = _config.HospitalLocationName;
+            if (Game1.getLocationFromName(hospital) == null)
+            {
+                _monitor.Log($"[MineRescue] Локация '{hospital}' не найдена — warp в госпиталь пропущен", LogLevel.Warn);
+                return;
+            }
+
             Game1.warpFarmer(hospital, Math.Max(0, _config.HospitalBedX), Math.Max(0, _config.HospitalBedY), 0);
         }
 
@@ -724,6 +740,34 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _stateManager.Save();
         }
 
+        /// <summary>
+        /// После cutscene спасения в шахте Харви уже начал осмотр — переводим buffBadlyHurt в фазу 1 лечения.
+        /// </summary>
+        private void StartMineRescueTreatmentIfNeeded()
+        {
+            const string injuryId = "buffBadlyHurt";
+
+            if (!_injuryManager.HasInjuryOrPhase(injuryId))
+            {
+                _monitor.Log("[MineRescue] Авто-лечение пропущено: buffBadlyHurt не активен", LogLevel.Debug);
+                return;
+            }
+
+            var debuffState = _stateManager.GetDebuffState(injuryId);
+            if (debuffState?.TreatmentStarted == true)
+            {
+                _monitor.Log("[MineRescue] Авто-лечение пропущено: TreatmentStarted уже true", LogLevel.Debug);
+                return;
+            }
+
+            _treatmentManager.ApplyTreatmentForInjury(injuryId);
+            _dialogueManager.ClearHarveyNeedsFirstTreatmentTopic("лечение начато после спасения в шахте");
+            _stateManager.MarkHarveyConversation(injuryId, true);
+            _stateManager.Save();
+
+            _monitor.Log("[MineRescue] Автоматически начата фаза 1 лечения buffBadlyHurt", LogLevel.Info);
+        }
+
         private void OnMineRescueEventFinished(string eventId)
         {
             try
@@ -733,8 +777,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
                 EnsureMineRescueTopic();
                 ClearMineRescueState();
+                WarpFarmerToHospitalBed();
+                StartMineRescueTreatmentIfNeeded();
 
-                _monitor.Log($"[MineRescue] ✅ Событие '{eventId}' завершено — eventsSeen и флаги обновлены", LogLevel.Info);
+                _monitor.Log($"[MineRescue] ✅ Событие '{eventId}' завершено — eventsSeen, флаги, госпиталь и фаза 1 лечения обновлены", LogLevel.Info);
             }
             catch (Exception ex)
             {

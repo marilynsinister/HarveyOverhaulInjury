@@ -3,6 +3,18 @@
 Технический и **визуальный** аудит постановки story-арки E1–E9 (CP ID: `HarveyOverhaulStory.E{N}_…`).  
 **События не изменялись.** Сюжет и реплики не оцениваются — только карта, координаты, движение, дистанция, камера.
 
+## Changelog (story arc)
+
+| Дата | Event | Тема |
+|------|-------|------|
+| 2026-05-25 | `HarveyOverhaulStory.E10_HarveyWasWrong` | Consent/boundaries: Харви признаёт гиперопеку и ошибку тона после добровольного доверия (E9); границы фермерши не наказываются снижением дружбы |
+| 2026-05-25 | `HarveyOverhaulStory.E11_HomeSafetyProtocol` | Домашняя подготовка вместо экстренного спасения: аптечка/список по выбору фермерши, mail `mailHarveyHomeSafetyProtocol` |
+| 2026-05-25 | `HarveyOverhaulStory.E12_HarveyIsTired` | Взаимная забота: фермерша замечает усталость Харви; `topicHarveyWasCaredFor` (7 д.) |
+| 2026-05-25 | `HarveyOverhaulRomance.E1_NotAnExamDate` | Dating-only: свидание на пляже без «осмотра»; финал с согласием на поцелуй/объятие/паузу |
+| 2026-05-25 | `HarveyOverhaulStory.E13_MinesAgreement` | Договор о снижении риска в шахтах (не запрет): 4 пункта + mail `mailHarveyMinesAgreement`; topics `topicHarveyMines_*` |
+| 2026-05-25 | `HarveyOverhaulStory.E14_NotOnlyPatient` | Dating-only кульминация арки: «не только пациентка»; Forest вечер; `topicHarveyNotOnlyPatient` (14 д.) |
+| 2026-05-25 | `HarveyOverhaulStory.E15_FuturePlan` | Финал арки I: «план жизни» (блокнот, не карта); dating/married FarmHouse; mail `mailHarveyFuturePlanNote` (+2 д.) |
+
 **Источники:** CP `events.json`; [`events-coordinate-audit.md`](events-coordinate-audit.md); [`map-passports.md`](map-passports.md); C# `RescueOperationLauncher` / `PlayerEventHandler` (E5 → `topicRescueOperation`).
 
 ---

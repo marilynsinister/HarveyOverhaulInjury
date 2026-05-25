@@ -1,24 +1,56 @@
 # Аудит тона Харви по уровням отношений (topics / mail / events)
 
-Дата: **2026-05-24** (актуализация статуса)  
+Дата: **2026-05-25** (актуализация: таблица стадий)  
 Источники: [audit-topics-cp-existence.md](./audit-topics-cp-existence.md), [audit-mail-cp-existence.md](./audit-mail-cp-existence.md), CP-файлы `dialoguesHarvey*.json`, `mail*.json`, `events*.json`.
 
 > Детальные таблицы проблем (2026-05-23) сохранены как reference. Актуальный статус исправлений — в разделе «Статус приоритетов (2026-05-24)».
 
-## Шкала уровней
-
-| Уровень | SDV | CP `When` / event `Friendship` |
-|---------|-----|--------------------------------|
-| 0 | Незнакомы / 0♥ | Без `When` (fallback) |
-| 1 | 1–2♥ | `< 500` |
-| 2 | 3–4♥ | `Hearts: 0–5` (injury hospital), `Friendship 500+`, `Hearts: 4–7` с 4♥ |
-| 3 | 5–6♥ | `Hearts: 4–7`, `Friendship 750–1500` |
-| 4 | 7–8♥ | `Hearts: 4–7` / `6–10`, `Friendship 1750–2000` |
-| 5 | 9–10♥ | `Hearts: 8–10`, `Friendship 2000+` |
-| 6 | Dating | `Relationship: Dating` |
-| 7 | Married | `Relationship: Married`, `MarriageDialogueHarvey` |
-
 **250 friendship points = 1 сердце.**
+
+---
+
+## Таблица стадий (канон)
+
+| Стадия | ♥ / gate | Тон Харви | Обращение | Допустимо | Запрещено до следующей стадии |
+|--------|----------|-----------|-----------|-----------|-------------------------------|
+| **0 — врач / знакомый** | 0–2♥, `< 750` | Профессионально, осторожно | **«Вы»** | Осмотр, протокол, мягкое приглашение в клинику | Pet names, «хрупкая», «не отпущу», романтика, **«ты»** |
+| **1 — доверие** | 3–5♥, `750–1249` | Мягкая забота, личное беспокойство | **«Ты»** | Настойчивый врач, договорённости, follow-up | **«Вы»**, романтические обращения, «люблю», «моя» |
+| **2 — близкий друг** | 6–8♥, `1500–1999` | Тревога сильнее, тепло без romance | **«Ты»** (без ласковых имён) | «Я рядом», «беспокоюсь», контроль **с** opt-out | **«Вы»**, **«люблю»**, **«моя/мой»**, pet names, поцелуи как romance |
+| **2b — почти партнёр** | 9–10♥ до букета, `2000+` | Как 6–8, но глубже trust | **«Ты»** | Сильная опека, «ты важна» | **«Вы»**, romance-маркеры только после букета |
+| **3 — Dating** | `Relationship: Dating` | Романтическая забота | **«Ты»** + ласковые | «Солнышко», «дорогая», объятия, поцелуи (с согласия) | Лишение выбора без escape hatch |
+| **4 — Married** | `Relationship: Married` | Максимальная нежность + гиперопека | «Ты» + pet names | «Котёнок», «девочка моя», домашняя близость | Контроль **без** выхода (запреты без «остановите меня» / opt-out) |
+
+### CP / events — технический маппинг
+
+| Стадия | CP `When` / `Friendship` |
+|--------|---------------------------|
+| 0–2♥ | без `When`, `< 750`, injury `Hearts: 0–2`, story **E1** (`500`) |
+| 3–5♥ | `750+`, `Hearts: 3–5`, story **E2–E4** |
+| 6–8♥ | `1500+`, `Hearts: 6–8`, events E4B–E7 |
+| 9–10♥ (pre-dating) | `2000+`, `Hearts: 8–10` **без** pet names |
+| Dating | `Relationship: Dating` |
+| Married | `Relationship: Married`, `MarriageDialogueHarvey` |
+
+### Story-arc (`HarveyOverhaulStory.*`) — дополнение к стадиям
+
+Trust-линия E4–E13 **до букета** сознательно держит **«Вы»** (согласие, границы, `topicHarveyTrust_*`) — это не отменяет стадию 6–8, а уточняет *жанр* сцены. Переход на **«ты»** в story — в split-версиях (`E10_Dating`, `E12_Dating`, `E15_Married`) и в `HarveyOverhaulRomance.*`. Реплики фермерши в `message` / `quickQuestion` («ты остановилась…») — POV игрока, не обращение Харви.
+
+**Запреты до Dating (все каналы):** «люблю», «моя/мой/моё», «солнышко», «малышка», «котёнок», «дорогая» (как pet name), сцены-свидания, поцелуи как romance.
+
+---
+
+## Шкала уровней (legacy, для старых таблиц аудита)
+
+| Уровень | SDV | ≈ стадия |
+|---------|-----|----------|
+| 0 | 0♥ | 0 |
+| 1 | 1–2♥ | 0 |
+| 2 | 3–4♥ | 1 |
+| 3 | 5–6♥ | 1–2 |
+| 4 | 7–8♥ | 2 |
+| 5 | 9–10♥ | 2b |
+| 6 | Dating | 3 |
+| 7 | Married | 4 |
 
 ---
 
@@ -59,15 +91,14 @@
 
 ## Лестница тона (ожидание vs факт)
 
-| Уровень | Ожидаемый тон Харви | Факт для injury/mail |
-|---------|---------------------|----------------------|
-| 0–1♥ | Врач, «вы/ты» нейтрально, без pet names, без «не отпущу» | **Нарушено:** base injury/cure + Introduction |
-| 2–3♥ | Забота + профессиональная дистанция, мягкие предупреждения | **Нарушено:** «хрупкая», «не позволю», «я рядом каждый день» |
-| 4–6♥ | Настойчивый врач, личное беспокойство, ещё без romance | Injury topics = тот же текст, что на 0♥ |
-| 7–8♥ | Тёплая опека, можно «ты очень важна», без pet names | `Hearts 8–10` block в dialoguesHarvey — pet names **рано** (8♥ friendship) |
-| 9–10♥ | Близкий друг / почти партнёр, сильная опека | OK для 9–10♥ в dialoguesHarvey |
-| Dating | Ласковые обращения, «рядом», romance | Dating-блоки в injury/cure — **OK** |
-| Married | Максимальная забота, pet names | Married-блоки — **OK** по тону (слишком контроль — отдельный вопрос баланса) |
+| Стадия | Ожидаемый тон Харви | Факт для injury/mail (2026-05-25) |
+|--------|---------------------|-----------------------------------|
+| 0–2♥ | Врач, «Вы», без pet names | **✅** fallback injury/cure после P0-fix |
+| 3–5♥ | Доверие, мягкая забота, без romance | **✅** blocks `Hearts: 3–5` |
+| 6–8♥ | Близкий друг, тревога, без «люблю/моя» | **⚠️** `Hearts: 8–10` в dialoguesHarvey — проверить pet names |
+| 9–10♥ pre-dating | Как 6–8, сильнее опека | **⚠️** vanilla events иногда romance без gate |
+| Dating | «Солнышко», объятия, «ты» | **✅** Dating-блоки |
+| Married | Нежность + гиперопека **с** opt-out | **✅** E15 «остановите меня»; контроль в topics — отдельный баланс |
 
 ---
 
@@ -138,19 +169,24 @@
 
 ### G. События (выборка)
 
-| ID | Файл | Friendship | Фактический тон | Подходит | Что не так | Нужный ♥ | Правка условия | Farmer speech |
-|----|------|--------------|-----------------|----------|------------|----------|----------------|---------------|
-| `HarveyOverhaulStory.E1_SlipperyPath` | events.json | 500 (2♥) | Осмотр, договор | **да** | `quickQuestion` — OK | 2♥ | — | OK (короткие message) |
-| `HarveyMod_TreatmentPlanMeeting` | events.json | 500 (2♥) | Лечебный план, контроль | **частично** | «Полный курс» на 2♥ — рано для intensity | 750+ (3♥) | Поднять Friendship | OK choices |
-| `HarveyMod_FirstTreatment` | events.json | 750 (3♥) | Первое лечение | **да** | — | 3♥ | — | OK |
-| `HarveyOverhaulStory.E4_PierBreath` | events.json | 1250 (5♥) | Эмоциональная близость | **да** | — | 5♥ | — | OK (`quickQuestion`) |
-| `HarveyOverhaulStory.E6_SayItOutLoud` | events.json | 1750 (7♥) | Признание | **да** | — | 7♥ | — | OK |
-| `eventHarveyPropose` | events.json | 2500 + Dating | Предложение | **да** | — | 10♥ Dating | — | — |
-| `eventHarveyMountainDate` | events.json | 2250 + Dating | Свидание | **да** | — | 9♥ Dating | — | — |
-| `HarveyMod_NightCrisis_PreDating` vs `_Dating` | events.json | 1500, split | Разные версии | **да** | Правильный split pre/dating | 6♥ / Dating | — | — |
-| `eventHarveyMedicalCheck` vs `_Dating` | events.json | 1500, split | Осмотр | **да** | Образцовый подход | 6♥ | — | Farmer: короткие `#Вчера...` |
-| `eventHarveyTraumaExam` | events.json | 2000 (8♥) | Травма-экзамен | **частично** | Тяжёлый контент — OK по ♥; проверить тон на romance без dating | 8♥ | — | OK |
-| `eventRescueOperation` | events.json | 600 (2♥) | Спасательная операция | **частично** | 2♥ — рано для «я не отпущу» если есть | 4♥+ | Friendship 1000+ | — |
+Проверка по **таблице стадий**: «Вы» только E1; с E2 (750+) — «ты».
+
+| ID | Файл | Friendship | Стадия | Подходит | Замечание |
+|----|------|------------|--------|----------|-----------|
+| `HarveyOverhaulStory.E1` | events.json | 500 (2♥) | 0 | **да** | «Вы», осмотр — единственное story-событие на «Вы» | 
+| `HarveyOverhaulStory.E4_PierBreath` | events.json | 1250 (5♥) | 1 | **да** | «ты», trust-touch |
+| `HarveyOverhaulStory.E6_SayItOutLoud` | events.json | 1750 (7♥) | 2 | **да** | «ты», договор — без «люблю» |
+| `HarveyOverhaulStory.E7_DoorSignal` | events.json | 2000 (8♥) | 2 | **да** | «ты», opt-out |
+| `HarveyOverhaulStory.E8_BadDayNoReason` | events.json | 2250 (9♥) | 2b | **да** | «ты» в ветках |
+| `HarveyOverhaulStory.E10` pre / `_Dating` | events.json | 2750 | 2b / 3 | **да** | «ты»; split — romance, не обращение |
+| `HarveyOverhaulStory.E12` pre / `_Dating` | events.json | 3250 | 2b / 3 | **да** | «ты»; split — romance |
+| `HarveyOverhaulRomance.E1` | events.json | 3500 + Dating | 3 | **да** | «ты», поцелуй с согласия |
+| `HarveyOverhaulStory.E14` | events.json | 4000 + Dating | 3 | **да** | «ты»; «любить тебя» — OK по смыслу |
+| `HarveyOverhaulStory.E15` / `_Married` | events.json | 4500 | 3 / 4 | **да** | «ты» + opt-out; Married — pet names |
+| `eventHarveyTraumaExam` | events.json | 2000 (8♥) | 2 | **частично** | «ты» без romance — OK; проверить маркеры |
+| `eventHarveyFirstWalk` | events.json | day 11 | 0 | **нет** | «ты», романтичный fork до 2♥ — см. romantic-tone-audit |
+
+*(Полная таблица 2026-05-23 — см. git history раздела G.)*
 
 ---
 
@@ -176,19 +212,20 @@
    - `Hospital_Mon`…`Sun` (strict) → только `Hearts 6+` + severe injury;
    - `Resort_*`, possessive `FlowerDance_Accept` → `Hearts 6+` или Dating.
 3. **Почта:** split `mailHarveySleepControl` → neutral (0–3♥) / firm (4–7♥) / intimate (Dating+); C# gate.
-4. **Pet names rule:** `солнышко / малышка / котёнок / девочка моя` — **только** `Relationship: Dating|Married`; на 8–10♥ friendship — тёплый друг без pet names.
-5. **Care:** `topicHarveyGentleCare` → `When: Dating`.
+4. **Pet names rule:** `солнышко / малышка / котёнок / дорогая / девочка моя` — **только** `Relationship: Dating|Married`. На 6–10♥ friendship — близкий друг **без** pet names и **без** «люблю/моя».
+5. **Married rule:** гиперопека допустима, но с opt-out («остановите меня», «уйду на шаг», `quickQuestion`).
+6. **Care:** `topicHarveyGentleCare` → `When: Dating`.
 
 ### Шаблон текстов по уровням (injury example)
 
-| ♥ | `topicHurt` (пример) |
-|---|----------------------|
-| 0–2 | «Покажите, где болит. Обработаю в клинике.» |
-| 3–5 | «Порез серьёзнее, чем кажется. Давайте перевяжу — и без тяжёлой работы сегодня.» |
-| 6–8 | «Ты снова без перчаток? …Я перевяжу. Пожалуйста, береги руки.» |
-| 9–10 | «Ты хрупкая, и я не хочу снова видеть эту рану. Я проверю завтра.» |
-| Dating | (текущий dating-block) |
-| Married | (текущий married-block) |
+| Стадия | `topicHurt` (пример) |
+|--------|----------------------|
+| 0–2♥ | «Покажите, где болит. Обработаю в клинике.» |
+| 3–5♥ | «Порез серьёзнее, чем кажется. Давай перевяжу — и без тяжёлой работы сегодня.» |
+| 6–8♥ | «Ты снова без перчаток? …Перевяжу. Пожалуйста, береги руки.» |
+| 9–10♥ pre-dating | «Я не хочу снова видеть эту рану. Проверю завтра.» — **без** «хрупкая» как pet-substitute |
+| Dating | (текущий dating-block: «солнышко», «рядом») |
+| Married | (married-block + opt-out в сценах контроля) |
 
 ---
 
@@ -228,6 +265,16 @@
 - Код не изменялся.
 
 ---
+
+## Исправления CP (2026-05-25, обращение story-arc)
+
+**Канон:** «Вы» только **0–2♥** (story **E1**, `500 FP`). С **E2** (`750+`) — **«ты»** во всех `speak Harvey`, включая pre-dating.
+
+| ID | Файл | Изменение |
+|----|------|-----------|
+| `HarveyOverhaulStory.E2`–`E15` | `events.json` | Массовая конвертация «Вы» → «ты» в `speak Harvey` при `Friendship >= 750` |
+| `HarveyOverhaulStory.E1` | `events.json` | **Без изменений** — «Вы» сохранён (2♥) |
+| `HarveyOverhaulStory.E11`, `E13` | `events.json` | Ручная дочистка в `quickQuestion` / narrative |
 
 ## Исправления CP (2026-05-23)
 

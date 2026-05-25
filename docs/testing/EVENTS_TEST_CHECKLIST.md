@@ -1,11 +1,13 @@
 # Чеклист ручного тестирования событий Harvey Overhaul
 
-**Дата документа:** 2026-05-24  
+**Дата документа:** 2026-05-25  
 **Моды:** C# `HarveyOverhaulInjury` + CP `HarveyOverhaul [CP]`  
 **Файлы событий:** `events.json`, `eventsCare.json`, `eventsMineRescue.json`
 
 > Отмечайте `- [ ]` → `- [x]` по мере проверки.  
 > Для травм, topics и mail см. также [`FOR_TEST.md`](FOR_TEST.md) и [`manual-test-scenarios-topics-mail.md`](manual-test-scenarios-topics-mail.md).
+
+**Changelog 2026-05-25:** story-арка расширена до **E15** (+ `HarveyOverhaulRomance.E1`); после E6 — **E7_DoorSignal** и развилка E8 (trust vs main); правки обращения «Вы»→«ты» с E2 (750 FP); частичные fix координат E7/E8 (см. map-audit).
 
 ---
 
@@ -25,14 +27,14 @@
 | Категория | Всего | Проверено | Баги |
 |-----------|------:|----------:|-----:|
 | Шахта / экстренные | 8 | | |
-| Лечение / госпиталь | 11 | | |
+| Лечение / госпиталь (Injury) | 10 | | |
 | Onboarding / ферма | 7 | | |
 | Pass-out / ночь | 4 | | |
 | Storm comfort | 6 | | |
-| Story E1–E9 | 12 | | |
-| Romance | 5 | | |
-| Прочее | 3 | | |
-| **Итого активных** | **56** | | |
+| Story arc E1–E15 | 24 | | |
+| Romance | 6 | | |
+| Прочее / чужие модули | 4 | | |
+| **Итого активных (Injury CP)** | **69** | | |
 
 ---
 
@@ -59,6 +61,8 @@
 | **Topics / mail** | Нужные topics/mail появились и снялись |
 | **Финал** | `end`, warp, `changeLocation` — игрок в валидном месте |
 | **Повтор** | One-shot: второй раз не дублируется (если задумано) |
+| **Тон** | E1: «Вы» (2♥); E2+: «ты» в `speak Harvey`; dating-split — см. [`audit-relationship-tone.md`](../audit-relationship-tone.md) |
+| **Mail** | Новые: `mailHarveyHomeSafetyProtocol`, `mailHarveyMinesAgreement`, `mailHarveyFuturePlanNote` |
 
 ### Полезные команды
 
@@ -68,20 +72,93 @@ injury_debuff_add <buffId>
 injury_debuff_list
 injury_phase_list
 injury_phase_ready <buffId> 1
+injury_phase_recovery <buffId> 1
 injury_phase_advance <buffId>
+injury_phase_cure <buffId>
+injury_foreign_topic_add <topicId> [days]
 injury_debug_mine_rescue
 injury_night_visit_reset
 injury_audit_content
 ```
+
+**Телепорт в шахту (SMAPI, не мод):**
+
+```
+warp Mine 17 7
+```
+
+Точка `(17, 7)` — та же, что использует C# для mine rescue. Другие локации:
+
+```
+warp SkullCave 5 5
+warp VolcanoDungeon 1 1
+```
+
+После `injury_debug_mine_rescue` утром warp обычно **автоматический**; команда нужна для S05, S11, S17, dirty wound, storm comfort Mine.
 
 ### Как форсировать событие (если нет естественного триггера)
 
 | Способ | Когда |
 |--------|-------|
 | Игровые условия + вход в локацию | Большинство CP entry-событий |
+| SMAPI `warp Mine 17 7` | Шахта, interception, dirty, storm comfort Mine |
 | SMAPI `debug event <EventID>` | Быстрая проверка скрипта (может пропустить preconditions) |
 | C# debug-команды | Mine rescue, debuff, phase |
-| Отдельный тест-слот | Story arc E1→E9, romance chain |
+| Отдельный тест-слот | Story arc E1→E15, romance chain |
+
+### Завершение лечения (команды → клик по Харви)
+
+Чтобы Харви **сказал, что лечение завершено**, и снялись лечебные баффы — нужен **клик после debug-команды** (кроме `injury_phase_cure`, см. ниже). F10 → `LastClickDebug`.
+
+**Фазовая травма** (`buffDeepCuts`, `buffConcussion`, …) — финал через `CompleteRecovery`:
+
+```
+injury_reset
+injury_debuff_add buffDeepCuts
+```
+
+1. **Клик по Харви** → начало лечения (`topicTreatmentDeepCuts`, phase-buff).
+2. Для **каждой** смены фазы (смотреть `injury_phase_list`):
+
+```
+injury_phase_ready buffDeepCuts 1
+```
+
+→ **клик по Харви** → диалог смены фазы (или `injury_phase_advance buffDeepCuts` — только механика, **без** реплики).
+
+3. На **последней** фазе:
+
+```
+injury_phase_recovery buffDeepCuts 1
+```
+
+→ **клик по Харви** → реплика «выздоровление завершено»; сняты phase-buff и state; **`buffHarveyCare`**.
+
+> Фазовым травмам **`topic*Cured` не ставится** — финал только через шаг 3.
+
+**Нефазовая травма** (`buffHurt`, `buffBadlyHurt`) — финал через `topic*Cured`:
+
+```
+injury_reset
+injury_debuff_add buffHurt
+```
+
+1. **Клик по Харви** → `buffHarveyTreatment` (или `buffHarveyIntensiveCare`).
+2. Дождаться `topicHurtCured` (3 игровых дня / сон) **или** для теста:
+
+```
+injury_foreign_topic_add topicHurtCured 7
+```
+
+3. **Клик по Харви** → финальный осмотр; снят cure-buff, **`buffHarveyCare`**.
+
+**Без диалога Харви** (быстрый сброс механики):
+
+```
+injury_phase_cure buffDeepCuts
+```
+
+→ HUD «Лечение завершено», `topicTreatmentCompleted`; **реплики Харви нет**, cure/phase-buff снимаются сразу.
 
 ---
 
@@ -104,25 +181,26 @@ injury_debuff_add buffHurt
 
 ---
 
-### S02 — План лечения (серьёзная травма)
+### S02 — Серьёзная фазовая травма (начало лечения)
 
-- [ ] **S02** Treatment plan meeting
+- [ ] **S02** Phased treatment start (Concussion)
 
 ```
 injury_reset
 injury_debuff_add buffConcussion
 ```
 
-1. Клик по Харви → начало лечения.
-2. Ожидание: `topicDiagnosisComplete`.
-3. Hospital 9:00–17:00 → `HarveyMod_TreatmentPlanMeeting`.
-4. Проверить fork agree/refusal topics.
+1. **Клик по Харви** → фазовое лечение: `topicTreatmentConcussion`, `topicConcussionPhaseAcute`.
+2. Проверить F10: `TreatmentStarted`, phase-buff, `topicHealthDamageSevere`.
+3. Завершение цикла — см. блок **«Завершение лечения»** выше (S03).
+
+> ⚠️ C# при старте фазового лечения может поставить `topicDiagnosisComplete` — это **ошибочный мост** к CP-событию **`HarveyMod_TreatmentPlanMeeting`** (контент **Stress**, не Injury). В Injury-чеклисте это событие **не тестируем**; см. секцию H.
 
 ---
 
-### S03 — Фазовая травма (полный цикл)
+### S03 — Фазовая травма (полный цикл до выздоровления)
 
-- [ ] **S03** Phased injury DeepCuts
+- [ ] **S03** Phased injury DeepCuts — полный цикл
 
 ```
 injury_reset
@@ -130,8 +208,8 @@ injury_debuff_add buffDeepCuts
 ```
 
 1. Клик Харви → лечение, `topicTreatmentDeepCuts`.
-2. `injury_phase_ready buffDeepCuts 1` → клик → смена фазы.
-3. Повтор до recovery → `topicDeepCutsCured` → финальный диалог.
+2. `injury_phase_ready buffDeepCuts 1` → клик → смена фазы (×2 для DeepCuts).
+3. `injury_phase_recovery buffDeepCuts 1` → клик → реплика о завершении; нет injury-buff, есть `buffHarveyCare`.
 
 ---
 
@@ -144,8 +222,8 @@ injury_reset
 injury_debug_mine_rescue
 ```
 
-1. Лечь спать → утро.
-2. Warp в Mine → `eventHarveyMineRescueDating`.
+1. Лечь спать → утро (C# сам сделает `warp Mine 17 7` и cutscene).
+2. Или вручную после debug: `warp Mine 17 7`.
 3. Проверить: Hospital, `topicMineInjuryRescue`, `buffBadlyHurt`, госпитализация.
 
 ---
@@ -160,7 +238,7 @@ injury_debuff_add buffBackStrain
 ```
 
 1. Dating с Харви.
-2. Mine с HP ≤ 35% или stamina ≤ 15%.
+2. `warp Mine 17 7` при HP ≤ 35% или stamina ≤ 15% (или после debuff).
 3. Ожидание: `eventHarveyMinorMineRescue` (не major rescue).
 
 ---
@@ -245,26 +323,51 @@ injury_debuff_add buffBadlyHurt
 
 ---
 
-### S13 — Story arc E1→E9 (полная цепочка)
+### S13 — Story arc: основная ветка E1→E15
 
-- [ ] **S13** Story arc полностью
+- [ ] **S13** Story arc (main path)
+
+Общая цепочка E1–E6, затем **E7_DoorSignal** (обязательный мост). На **E8** ветки **взаимоисключающие** (`HarveyMod_CD_E8`): либо main (ниже), либо trust-fork (S19).
 
 | Шаг | Event ID | Локация | Ключевые условия |
 |-----|----------|---------|------------------|
-| 1 | `HarveyOverhaulStory.E1_SlipperyPath` | BusStop | Wind, 7:00–14:00, 2♥ |
-| 2 | `HarveyOverhaulStory.E2_InsistentExam` | Hospital | Seen E1, 3♥ |
-| 3 | `HarveyOverhaulStory.E2B_QuietAgreement` | Town | Seen E2, sunny/wind |
-| 4 | `HarveyOverhaulStory.E3_ForestApothecary` | Forest | Thu–Sat, sunny, seen E2B |
-| 5 | `HarveyOverhaulStory.E3B_WingPatient` | Forest | Seen E3, sunny |
-| 6 | `HarveyOverhaulStory.E4_PierBreath` | Beach | Seen E3B, вечер, sunny |
-| 7 | `HarveyOverhaulStory.E4B_TooQuiet` | Mountain | Seen E4, вечер |
+| 1 | `HarveyOverhaulStory.E1_SlipperyPath` | BusStop | Wind, 7:00–14:00, 2♥ — **«Вы»** |
+| 2 | `HarveyOverhaulStory.E2_InsistentExam` | Hospital | Seen E1, 3♥ — **«ты»** |
+| 3 | `HarveyOverhaulStory.E2B_QuietAgreement` | Town | Seen E2, 3♥ |
+| 4 | `HarveyOverhaulStory.E3_ForestApothecary` | Forest | Thu–Sat, 4♥, seen E2B |
+| 5 | `HarveyOverhaulStory.E3B_WingPatient` | Forest | Seen E3, 4♥ |
+| 6 | `HarveyOverhaulStory.E4_PierBreath` | Beach | Seen E3B, вечер, 5♥ |
+| 7 | `HarveyOverhaulStory.E4B_TooQuiet` | Mountain | Seen E4, вечер, 6♥ |
 | 8 | `HarveyOverhaulStory.E5_StormBeside` | Hospital | **Storm**, seen E4B, 6♥ |
-| 9 | `HarveyOverhaulStory.E6_SayItOutLoud` | Hospital | Seen E5, вечер |
-| 10 | `HarveyOverhaulStory.E7_TownSip_Sunny` | Town | Seen E6, sunny midday |
-| 11 | `HarveyOverhaulStory.E8_QuietShelf` | ArchaeologyHouse | **Sat** 10–16, seen E7 |
-| 12 | `HarveyOverhaulStory.E9_LightInWindow` | Town | Seen E8, вечер |
+| 9 | `HarveyOverhaulStory.E6_SayItOutLoud` | Hospital | Seen E5, вечер, 7♥ |
+| 10 | `HarveyOverhaulStory.E7_DoorSignal` | Farm | Seen E6, вечер, 8♥ |
+| 11 | `HarveyOverhaulStory.E8_BadDayNoReason` | Forest | Seen E7_DoorSignal, 9♥ — **не** проходить S19 |
+| 12 | `HarveyOverhaulStory.E9_CameByHerself` | Hospital | Seen E8_BadDay, 10♥; нет активных injury/stress topics |
+| 13 | `HarveyOverhaulStory.E10_HarveyWasWrong` | Town | Seen E9_CameByHerself, 11♥, **!dating** |
+| 13b | `HarveyOverhaulStory.E10_HarveyWasWrong_Dating` | Town | То же + **dating/married** |
+| 14 | `HarveyOverhaulStory.E11_HomeSafetyProtocol` | FarmHouse | After E10*, 12♥ → mail `mailHarveyHomeSafetyProtocol` |
+| 15 | `HarveyOverhaulStory.E12_HarveyIsTired` | Hospital | After E11, 13♥, **!dating** |
+| 15b | `HarveyOverhaulStory.E12_HarveyIsTired_Dating` | Hospital | After E11, 13♥, **dating** → `topicHarveyWasCaredFor` |
+| 16 | `HarveyOverhaulRomance.E1_NotAnExamDate` | Beach | **Dating**, 14♥, after E12* — согласие на поцелуй/объятие/паузу |
+| 17 | `HarveyOverhaulStory.E13_MinesAgreement` | BusStop | Dating/married **или** seen mine rescue; 12♥; утро/вечер → mail `mailHarveyMinesAgreement` |
+| 18 | `HarveyOverhaulStory.E14_NotOnlyPatient` | Forest | **Dating**, 16♥, after Rom E1 + E13 → `topicHarveyNotOnlyPatient` |
+| 19 | `HarveyOverhaulStory.E15_FuturePlan` | FarmHouse | **Dating !married**, 18♥, after E14 → mail `mailHarveyFuturePlanNote` |
+| 19b | `HarveyOverhaulStory.E15_FuturePlan_Married` | FarmHouse | **Married**, 18♥, after E14 |
 
-После E5: проверить `topicRescueOperation` → `eventRescueOperation` (Woods, storm).
+После E5: C# ставит `topicRescueOperation` (≥ **8♥** / 2000 FP) → `eventRescueOperation` (Woods, storm).
+
+---
+
+### S19 — Story arc: trust-fork (альтернатива E8–E9 main)
+
+- [ ] **S19** Trust fork E7→E9 (не совмещать с E8_BadDay)
+
+1. Пройти E1–E6 и **E7_DoorSignal**.
+2. **Не** запускать `E8_BadDayNoReason`.
+3. Дождаться снятия `HarveyMod_CD_E7` (7 д.) → sunny midday Town → `E7_TownSip_Sunny`.
+4. **Sat** 10:00–16:00 → `E8_QuietShelf` → topics help fork.
+5. Вечер Town → `E9_LightInWindow` → `topicHarveyTrustFinal`, mail `HarveyOverhaul_E9_LightNote`.
+6. Проверить: main-ветка E10+ **недоступна** (нет `E9_CameByHerself`).
 
 ---
 
@@ -287,9 +390,12 @@ injury_debuff_add buffBadlyHurt
 
 | Event ID | Локация | Hearts | Прочее |
 |----------|---------|--------|--------|
+| `HarveyOverhaulRomance.E1_NotAnExamDate` | Beach | 14♥ | После E12*; согласие на поцелуй/объятие |
 | `eventHarveyFirstDate` | Forest | 8♥ | Sunny evening, не winter |
 | `eventHarveyMountainDate` | Mountain | 9♥ | Sunny morning |
 | `eventHarveyPropose` | Beach | 10♥ | Sunny evening |
+
+> `HarveyOverhaulRomance.E1` — часть story-арки (S13); vanilla dates — отдельная цепочка 8–10♥.
 
 ---
 
@@ -347,7 +453,7 @@ injury_audit_content
 | [ ] | `eventHarveySkullCavePrevention` | SkullCave | S17, выход | [ ] | [ ] | [ ] | [ ] | |
 | [ ] | `eventHarveyEmergencyCare` | Hospital | S07 | [ ] | [ ] | [ ] | [ ] | |
 | [ ] | `eventHarveyExhaustion` | Hospital | S08 | [ ] | [ ] | [ ] | [ ] | |
-| [ ] | `eventRescueOperation` | Woods | После E5 / storm, topic + storm | [ ] | [ ] | [ ] | [ ] | |
+| [ ] | `eventRescueOperation` | Woods | После E5, topic + storm, C# ≥8♥ | [ ] | [ ] | [ ] | [ ] | |
 
 ---
 
@@ -356,7 +462,6 @@ injury_audit_content
 | ☐ | Event ID | Локация | Как запустить | Cutscene | Карта | Topics | Повтор | Заметки |
 |:-:|----------|---------|---------------|:--------:|:-----:|:------:|:------:|---------|
 | [ ] | `HarveyMod_FirstTreatment` | Hospital | S01 | [ ] | [ ] | [ ] | [ ] | |
-| [ ] | `HarveyMod_TreatmentPlanMeeting` | Hospital | S02 | [ ] | [ ] | [ ] | [ ] | |
 | [ ] | `HarveyMod_NightCrisis_Dating` | Hospital | S16, dating | [ ] | [ ] | [ ] | [ ] | |
 | [ ] | `HarveyMod_NightCrisis_PreDating` | Hospital | S16, !dating | [ ] | [ ] | [ ] | [ ] | |
 | [ ] | `HarveyMod_BirthdayHospital_Dating` | Hospital | 9 summer, dating, Hospital | [ ] | [ ] | [ ] | [ ] | |
@@ -409,24 +514,39 @@ injury_audit_content
 
 ---
 
-### F. Story arc E1–E9
+### F. Story arc E1–E15 (+ trust-fork)
+
+**Main path** (E8_BadDay → E9_CameByHerself → E10+). **Trust fork:** S19 (E7_TownSip → E8_QuietShelf → E9_LightInWindow).
 
 | ☐ | Event ID | Локация | Cutscene | Карта | Topics / mail | Заметки |
 |:-:|----------|---------|:--------:|:-----:|---------------|---------|
-| [ ] | `HarveyOverhaulStory.E1_SlipperyPath` | BusStop | [ ] | [ ] | [ ] | Wind, 2♥ |
-| [ ] | `HarveyOverhaulStory.E2_InsistentExam` | Hospital | [ ] | [ ] | [ ] | |
-| [ ] | `HarveyOverhaulStory.E2B_QuietAgreement` | Town | [ ] | [ ] | [ ] | Sunny/wind |
+| [ ] | `HarveyOverhaulStory.E1_SlipperyPath` | BusStop | [ ] | [ ] | [ ] | Wind, 2♥, «Вы» |
+| [ ] | `HarveyOverhaulStory.E2_InsistentExam` | Hospital | [ ] | [ ] | [ ] | 3♥; ⚠️ coords (audit P0) |
+| [ ] | `HarveyOverhaulStory.E2B_QuietAgreement` | Town | [ ] | [ ] | [ ] | |
 | [ ] | `HarveyOverhaulStory.E3_ForestApothecary` | Forest | [ ] | [ ] | [ ] | Thu–Sat |
 | [ ] | `HarveyOverhaulStory.E3B_WingPatient` | Forest | [ ] | [ ] | [ ] | |
-| [ ] | `HarveyOverhaulStory.E4_PierBreath` | Beach | [ ] | [ ] | [ ] | |
-| [ ] | `HarveyOverhaulStory.E4B_TooQuiet` | Mountain | [ ] | [ ] | [ ] | Sunny/wind |
+| [ ] | `HarveyOverhaulStory.E4_PierBreath` | Beach | [ ] | [ ] | [ ] | ⚠️ overlap (39,13) |
+| [ ] | `HarveyOverhaulStory.E4B_TooQuiet` | Mountain | [ ] | [ ] | [ ] | |
 | [ ] | `HarveyOverhaulStory.E5_StormBeside` | Hospital | [ ] | [ ] | [ ] | **Storm** → rescue topic |
 | [ ] | `HarveyOverhaulStory.E6_SayItOutLoud` | Hospital | [ ] | [ ] | [ ] | |
-| [ ] | `HarveyOverhaulStory.E7_TownSip_Sunny` | Town | [ ] | [ ] | [ ] | |
-| [ ] | `HarveyOverhaulStory.E8_QuietShelf` | ArchaeologyHouse | [ ] | [ ] | [ ] | **Saturday** |
-| [ ] | `HarveyOverhaulStory.E9_LightInWindow` | Town | [ ] | [ ] | [ ] | Финал арки |
+| [ ] | `HarveyOverhaulStory.E7_DoorSignal` | Farm | [ ] | [ ] | [ ] | **NEW** вечер у порога |
+| [ ] | `HarveyOverhaulStory.E8_BadDayNoReason` | Forest | [ ] | [ ] | [ ] | **Main** E8; mutex с QuietShelf |
+| [ ] | `HarveyOverhaulStory.E9_CameByHerself` | Hospital | [ ] | [ ] | [ ] | **Main** E9; trust exam forks |
+| [ ] | `HarveyOverhaulStory.E10_HarveyWasWrong` | Town | [ ] | [ ] | [ ] | !dating |
+| [ ] | `HarveyOverhaulStory.E10_HarveyWasWrong_Dating` | Town | [ ] | [ ] | [ ] | dating split |
+| [ ] | `HarveyOverhaulStory.E11_HomeSafetyProtocol` | FarmHouse | [ ] | [ ] | [ ] | mail safety kit |
+| [ ] | `HarveyOverhaulStory.E12_HarveyIsTired` | Hospital | [ ] | [ ] | [ ] | !dating |
+| [ ] | `HarveyOverhaulStory.E12_HarveyIsTired_Dating` | Hospital | [ ] | [ ] | [ ] | dating split |
+| [ ] | `HarveyOverhaulStory.E13_MinesAgreement` | BusStop | [ ] | [ ] | [ ] | mine rescue OR dating |
+| [ ] | `HarveyOverhaulStory.E14_NotOnlyPatient` | Forest | [ ] | [ ] | [ ] | dating only |
+| [ ] | `HarveyOverhaulStory.E15_FuturePlan` | FarmHouse | [ ] | [ ] | [ ] | dating !married |
+| [ ] | `HarveyOverhaulStory.E15_FuturePlan_Married` | FarmHouse | [ ] | [ ] | [ ] | married split |
+| [ ] | `HarveyOverhaulStory.E7_TownSip_Sunny` | Town | [ ] | [ ] | [ ] | **Trust fork**; coords fix (29,22) |
+| [ ] | `HarveyOverhaulStory.E8_QuietShelf` | ArchaeologyHouse | [ ] | [ ] | [ ] | **Trust fork**; Sat; Gunther (11,9) |
+| [ ] | `HarveyOverhaulStory.E9_LightInWindow` | Town | [ ] | [ ] | [ ] | **Trust fork**; trust final |
 
-- [ ] **S13** Story arc (вся цепочка без пропусков)
+- [ ] **S13** Story main path (E1→E15 без пропусков)
+- [ ] **S19** Trust fork (отдельный слот)
 
 ---
 
@@ -434,20 +554,22 @@ injury_audit_content
 
 | ☐ | Event ID | Локация | Cutscene | Карта | Заметки |
 |:-:|----------|---------|:--------:|:-----:|---------|
+| [ ] | `HarveyOverhaulRomance.E1_NotAnExamDate` | Beach | [ ] | [ ] | Story romance; dating, 14♥ |
 | [ ] | `eventHarveyFirstDate` | Forest | [ ] | [ ] | Dating, 8♥ |
 | [ ] | `eventHarveyMountainDate` | Mountain | [ ] | [ ] | Dating, 9♥ |
 | [ ] | `eventHarveyPropose` | Beach | [ ] | [ ] | Dating, 10♥ |
 | [ ] | `eventHarveyRoomCheckup` | HarveyRoom | [ ] | [ ] | 6♥ |
 | [ ] | `eventHarveyRoomCheckup2` | HarveyRoom | [ ] | [ ] | Dating + BETAS |
 
-- [ ] **S15** Romance (вся цепочка)
+- [ ] **S15** Romance (vanilla dates + Rom E1 в S13)
 
 ---
 
-### H. Debug / не подключено
+### H. Debug / чужие модули / не подключено
 
 | ☐ | Event ID | Статус | Заметки |
 |:-:|----------|--------|---------|
+| [ ] | `HarveyMod_TreatmentPlanMeeting` | **HarveyOverhaulStress** | CP в `events.json`, но script — **стресс/тревожность** (`topicTreatmentAgreement`…). C# Injury ошибочно ставит `topicDiagnosisComplete` → не тестировать в Injury-слоте |
 | [ ] | `eventHarveyCareMovementAnimationTest` | Debug-only | Hospital, manual |
 | [ ] | `MyMod_HarveyUrgentFarmVisit` | 💀 не в content.json | |
 | [ ] | `MyMod_HarveyStormComfortForest` | 💀 не в content.json | |
@@ -478,15 +600,16 @@ injury_audit_content
 
 ## Чеклист перед релизом
 
-- [ ] S01–S03: debuff → treat → cured
+- [ ] S01–S03: debuff → treat → **клик-финал** (`phase_recovery` или `topic*Cured`)
 - [ ] S04–S05: mine rescue major + minor
 - [ ] S06–S08: pass-out цепочки
 - [ ] S09–S10: dirty / wet → infection mail
 - [ ] S11: Severe mine forbidden
 - [ ] S12: storm comfort (хотя бы 2 локации)
-- [ ] S13: story E1→E9 (или spot-check ключевых E5, E8, E9)
+- [ ] S13: story main E1→E15 (или spot-check E7_DoorSignal, E10, E14, E15)
+- [ ] S19: trust-fork E7→E9 (отдельный слот, mutex с E8_BadDay)
 - [ ] S14: onboarding на чистом слоте
-- [ ] S15: romance (если релевантно)
+- [ ] S15: romance (vanilla 8–10♥ + `HarveyOverhaulRomance.E1` в dating-слоте)
 - [ ] S16: night crisis обе ветки
 - [ ] S17: mine/skull interception
 - [ ] S18: `injury_audit_content` без missing
@@ -514,4 +637,6 @@ injury_audit_content
 | [`../events-inventory/14-scenario-chains.md`](../events-inventory/14-scenario-chains.md) | Диаграммы C# → CP |
 | [`../events-inventory/00-summary-table.md`](../events-inventory/00-summary-table.md) | Сводка всех Event ID |
 | [`../events-inventory/07-reachability-table.md`](../events-inventory/07-reachability-table.md) | Достижимость и риски |
+| [`../CheckEvent/story-arc-map-audit.md`](../CheckEvent/story-arc-map-audit.md) | Story arc E1–E15, coords, changelog |
+| [`../audit-relationship-tone.md`](../audit-relationship-tone.md) | Тон «Вы»/«ты», dating-split |
 | [`../CheckEvent/cp-event-review-checklist.md`](../CheckEvent/cp-event-review-checklist.md) | Чеклист правки одного события |

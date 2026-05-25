@@ -233,7 +233,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 HandleHospitalLogic();
 
             if (IsMineOrVolcanoLocation(location))
-                HandleMineEntryWarning();
+                HandleMinesLogic();
 
             if (string.Equals(location?.Name, "BathHouse_Pool", StringComparison.OrdinalIgnoreCase))
                 HandleSpaLogic();
@@ -263,13 +263,19 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
         }
 
-        private void HandleMineEntryWarning()
+        private void HandleMinesLogic()
         {
+            int today = Helpers.GameUtils.Today();
+
+            if (_buffManager.HasBuff(InjuryBuffs.MineForbidden))
+            {
+                HandleMineForbiddenEntry(today);
+                return;
+            }
+
             // Штатный rescue-warp утром — не показываем «не ходи в шахту» перед cutscene
             if (_stateManager.State.NeedsMineRescueEvent)
                 return;
-
-            int today = Helpers.GameUtils.Today();
 
             // === ПРЕДУПРЕЖДЕНИЕ НА ВХОДЕ В ШАХТУ (раз в день) ===
             bool hasSevereInjury = _buffManager.HasAnyBuff(InjurySets.Severe.ToArray());
@@ -304,6 +310,101 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 if (_passOutHandler.TryTriggerMinorMineRescue())
                     _monitor.Log("[MinorMineRescue] Cutscene запущена — опасное состояние без Severe", LogLevel.Info);
+            }
+        }
+
+        private void HandleMineForbiddenEntry(int today)
+        {
+            _monitor.Log("[MineForbidden] Игрок вошёл в шахту при активном запрете Харви", LogLevel.Warn);
+
+            if (_stateManager.State.LastMineForbiddenInterceptionDay != today)
+            {
+                _stateManager.State.LastMineForbiddenInterceptionDay = today;
+                _stateManager.Save();
+
+                if (TryStartEventByName("eventHarveyMineInterception", "Mine", WarpOutOfMineIfStillInside))
+                    return;
+
+                _monitor.Log("[MineForbidden] Событие не запустилось — fallback HUD + warp", LogLevel.Warn);
+            }
+
+            ShowMineForbiddenHudAndWarpOut();
+        }
+
+        private void ShowMineForbiddenHudAndWarpOut()
+        {
+            Game1.addHUDMessage(new HUDMessage(
+                "Харви запретил тебе спускаться в шахту до окончания лечения.",
+                HUDMessage.error_type));
+
+            Game1.playSound("cancel");
+            Game1.warpFarmer("Mountain", 53, 8, 2);
+        }
+
+        private void WarpOutOfMineIfStillInside()
+        {
+            if (!IsInsideMineOrVolcano(Game1.currentLocation))
+                return;
+
+            _monitor.Log(
+                "[MineForbidden] Событие завершено, игрок всё ещё в шахте — warp на Mountain (CP без changeLocation)",
+                LogLevel.Info);
+            Game1.warpFarmer("Mountain", 53, 8, 2);
+        }
+
+        private static bool IsInsideMineOrVolcano(GameLocation? location)
+        {
+            return location is MineShaft
+                || location is VolcanoDungeon
+                || string.Equals(location?.NameOrUniqueName, "Mine", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool TryStartEventByName(string eventId, string locationName, Action? onFinished = null)
+        {
+            try
+            {
+                var location = Game1.getLocationFromName(locationName);
+                if (location == null)
+                {
+                    _monitor.Log($"[MineForbidden] Локация '{locationName}' не найдена", LogLevel.Warn);
+                    return false;
+                }
+
+                var eventData = Game1.content.Load<Dictionary<string, string>>($"Data/Events/{locationName}");
+                if (eventData == null)
+                {
+                    _monitor.Log($"[MineForbidden] Data/Events/{locationName} не найден", LogLevel.Warn);
+                    return false;
+                }
+
+                string? eventScript = null;
+                foreach (var kvp in eventData)
+                {
+                    if (kvp.Key.StartsWith(eventId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        eventScript = kvp.Value;
+                        break;
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(eventScript))
+                {
+                    _monitor.Log($"[MineForbidden] Событие '{eventId}' не найдено в Data/Events/{locationName}", LogLevel.Warn);
+                    return false;
+                }
+
+                var gameEvent = new Event(eventScript);
+                if (onFinished != null)
+                    gameEvent.onEventFinished += onFinished;
+
+                location.startEvent(gameEvent);
+                _monitor.Log($"[MineForbidden] Запущено событие '{eventId}'", LogLevel.Info);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _monitor.Log($"[MineForbidden] Ошибка запуска события '{eventId}': {ex}", LogLevel.Error);
+                return false;
             }
         }
 

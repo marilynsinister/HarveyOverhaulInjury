@@ -11,7 +11,6 @@ namespace HarveyOverhaul.InjuryCare.Core
         public static readonly System.Collections.Generic.Dictionary<string, string> Map = new()
         {
             ["buffHurt"]          = CureBuffs.Treatment,
-            ["buffBadlyHurt"]     = CureBuffs.IntensiveCare,
             ["buffSurgicalWound"] = CureBuffs.PostSurgical,
         };
     }
@@ -155,6 +154,42 @@ namespace HarveyOverhaul.InjuryCare.Core
         }
     }
 
+    /// <summary>
+    /// Топики, принадлежащие InjuryCare — для безопасного RemoveTopic / debug-сброса без затрагивания чужих модов.
+    /// </summary>
+    public static class ModTopicRegistry
+    {
+        public static HashSet<string> GetAllOwnedTopicIds()
+        {
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var field in typeof(ConversationTopics).GetFields(
+                         System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+            {
+                if (field.FieldType == typeof(string) && field.GetValue(null) is string topicId)
+                    ids.Add(topicId);
+            }
+
+            foreach (string buffId in InjurySets.HarveyTreatable)
+            {
+                ids.Add(TopicIds.GetInjuryTopic(buffId));
+                ids.Add(TopicIds.GetTreatmentTopic(buffId));
+                ids.Add(TopicIds.GetCuredTopic(buffId));
+                for (int phase = 1; phase <= 3; phase++)
+                    ids.Add(TopicIds.GetPhaseTopicId(buffId, phase));
+            }
+
+            foreach (string compId in InjurySets.KnownComplicationBuffIds)
+                ids.Add(TopicIds.GetComplicationTopic(compId));
+
+            ids.Add(StormComfortIds.StormStressTopic);
+            ids.Add(StormComfortIds.LegacyStressTopic);
+            ids.Add(StormComfortIds.CooldownTopic);
+
+            return ids;
+        }
+    }
+
     /// <summary>ID событий Content Patcher / vanilla.</summary>
     public static class EventIds
     {
@@ -263,6 +298,28 @@ namespace HarveyOverhaul.InjuryCare.Core
             "buffShrapnelWounds",
             "buffSurgicalWound",
             InjuryBuffs.Cold,
+        };
+
+        /// <summary>Осложнения InjuryCare (DebuffState + TreatComplications), не чужие баффы.</summary>
+        public static readonly HashSet<string> KnownComplicationBuffIds = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            InjuryBuffs.WetBandage,
+            InjuryBuffs.DirtyWound,
+            InjuryBuffs.WetStitches,
+            InjuryBuffs.AllergicRash,
+            InjuryBuffs.PainFlare,
+            InjuryBuffs.Neglect,
+        };
+
+        /// <summary>Порядок приоритета осложнений (выше в списке = важнее).</summary>
+        public static readonly string[] ComplicationPriorityOrder =
+        {
+            InjuryBuffs.DirtyWound,
+            InjuryBuffs.WetStitches,
+            InjuryBuffs.WetBandage,
+            InjuryBuffs.AllergicRash,
+            InjuryBuffs.PainFlare,
+            InjuryBuffs.Neglect,
         };
 
         /// <summary>Травмы, после начала лечения которых ставится topicDiagnosisComplete.</summary>
