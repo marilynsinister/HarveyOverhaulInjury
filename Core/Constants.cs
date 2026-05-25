@@ -424,6 +424,18 @@ namespace HarveyOverhaul.InjuryCare.Core
             "buffSurgicalWound",
         };
 
+        /// <summary>
+        /// Основные травмы, у которых после начала лечения возможна мокрая повязка (не WetCast для перелома).
+        /// </summary>
+        public static readonly HashSet<string> WetBandageSensitive = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            "buffDeepCuts",
+            "buffBurnWounds",
+            "buffShrapnelWounds",
+            "buffInfectedWound",
+            "buffSurgicalWound",
+        };
+
         /// <summary>Основные травмы — риск DirtyWound в шахте/от загрязнения.</summary>
         public static readonly HashSet<string> MineDirtSensitive = new(System.StringComparer.OrdinalIgnoreCase)
         {

@@ -18,7 +18,11 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
 
         public int WetBandageMailDay { get; set; } = -1;
         public int WetStitchesMailDay { get; set; } = -1;
+        /// <summary>Устарело: мигрируется в <see cref="NeglectStrikesByInjury"/> при загрузке.</summary>
         public int NeglectStrikes { get; set; } = 0;
+
+        /// <summary>Счётчик дней заброшенности лечения по основной травме (buffId → strikes).</summary>
+        public Dictionary<string, int> NeglectStrikesByInjury { get; set; } = new();
         public bool PassedOutInTownYesterday { get; set; } = false;
         
         // ⭐ Счетчик времени под дождем для постепенного промокания повязки

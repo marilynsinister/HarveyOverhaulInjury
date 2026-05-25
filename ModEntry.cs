@@ -699,15 +699,7 @@ namespace HarveyOverhaul.InjuryCare
             var state = _stateManager.State;
             string loc = Game1.currentLocation?.Name ?? "(null)";
 
-            bool hasDirtyInjury = false;
-            foreach (var injuryId in InjurySets.DirtyInMines)
-            {
-                if (_buffManager.HasBuff(injuryId))
-                {
-                    hasDirtyInjury = true;
-                    break;
-                }
-            }
+            bool hasDirtyInjury = _complicationManager.CanReceiveMineDirtyWound();
 
             bool hasDirtyWound = _buffManager.HasBuff(InjuryBuffs.DirtyWound)
                 || state.ActiveComplications.ContainsKey(InjuryBuffs.DirtyWound);
@@ -1580,6 +1572,16 @@ namespace HarveyOverhaul.InjuryCare
 
         private string YesNo(bool value) => value ? "YES" : "no";
 
+        private static string FormatNeglectStrikes(InjuryState state)
+        {
+            if (state.NeglectStrikesByInjury == null || state.NeglectStrikesByInjury.Count == 0)
+                return state.NeglectStrikes > 0 ? $"legacy={state.NeglectStrikes}" : "(none)";
+
+            return string.Join(
+                ", ",
+                state.NeglectStrikesByInjury.Select(kv => $"{kv.Key}={kv.Value}"));
+        }
+
         private string Warn(bool ok, string text) => ok ? text : $"⚠ {text}";
 
         private string GetBaseTopicForBuff(string buffId)
@@ -2099,7 +2101,7 @@ namespace HarveyOverhaul.InjuryCare
         {
             sb.AppendLine("=== SYSTEM FLAGS ===");
             sb.AppendLine($"DaysWithSevere: {state.DaysWithSevere}  LastNightRoundDay: {state.LastNightRoundDay}");
-            sb.AppendLine($"NeglectStrikes: {state.NeglectStrikes}");
+            sb.AppendLine($"NeglectStrikesByInjury: {FormatNeglectStrikes(state)}");
             sb.AppendLine($"PassedOutInTownYesterday: {YesNo(state.PassedOutInTownYesterday)}  PassedOutInMineYesterday: {YesNo(state.PassedOutInMineYesterday)}");
             sb.AppendLine($"NeedsMineRescueEvent: {YesNo(state.NeedsMineRescueEvent)}  WasPassedOut: {YesNo(state.WasPassedOut)}");
             sb.AppendLine($"WasExhausted: {YesNo(state.WasExhausted)}  WasUpTooLate: {YesNo(state.WasUpTooLate)}");

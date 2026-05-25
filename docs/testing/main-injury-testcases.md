@@ -1,8 +1,13 @@
 # Чеклист: модель одной основной травмы (MainInjury + Complications)
 
-**Дата:** 2026-05-25  
+**Дата:** 2026-05-25 (обновлено после правок WetBandage / DirtyWound / Neglect / infection escalation)  
 **Мод:** C# `HarveyOverhaulInjury` + CP `HarveyOverhaul [CP]`  
 **Цель:** проверить, что в сохранении всегда не более одной **основной** травмы (`MainInjuryId`), осложнения живут отдельно, эскалация инфекции и госпитализация согласованы с main.
+
+> **Whitelist (C# `InjurySets`):**  
+> - `DirtyInMines` → DirtyWound в шахте: `buffDeepCuts`, `buffBurnWounds`, `buffShrapnelWounds` (проверка через `MainInjuryId` + `HasInjuryOrPhase`, не только base-buff)  
+> - `WetBandageSensitive` → WetBandage от воды **только после** `TreatmentStarted` и реальной повязки: `buffDeepCuts`, `buffBurnWounds`, `buffShrapnelWounds`, `buffInfectedWound`, `buffSurgicalWound` (**не** `buffFracturedBone` — там WetCast, не WetBandage)  
+> - `NeglectStrikesByInjury` — счётчик заброшенности **по buffId**, не глобальный; сброс при смене main, `StartTreatment`, `CompleteRecovery`, эскалации в инфекцию
 
 > Отмечайте `- [ ]` → `- [x]` по мере проверки.
 
@@ -26,15 +31,19 @@
 | 3 | Upgrade лёгкой → тяжёлой | [ ] | |
 | 3b | Upgrade заблокирован в лечении | [ ] | |
 | 4 | DirtyWound (осложнение) | [ ] | |
+| 4b | DirtyWound в шахте при фазовом лечении | [ ] | |
+| 4c | DirtyWound: main не из DirtyInMines (негатив) | [ ] | |
 | 5 | DirtyWound → InfectedWound | [ ] | |
 | 5b | WetBandage: untreated infected (негатив) | [ ] | |
 | 5c | WetBandage: после лечения infected (позитив) | [ ] | |
+| 5d | WetBandage: перелом в лечении (негатив) | [ ] | |
 | 6 | Фазовое лечение у Харви | [ ] | |
 | 7 | Полное выздоровление | [ ] | |
 | 8a | Severe по MainInjury | [ ] | |
 | 8b | PainFlare ≠ severe | [ ] | |
 | 9 | Save / load | [ ] | |
 | 10 | Миграция старого сейва | [ ] | |
+| 11 | NeglectStrikesByInjury (не переносится между main) | [ ] | |
 
 ---
 
@@ -59,7 +68,7 @@
 | `injury_main_set <buffId>` | **[DEBUG]** Установить `MainInjuryId` (нужен `DebuffState`) |
 | `injury_main_clear` | **[DEBUG]** Очистить `MainInjuryId` без удаления баффов |
 | `injury_debug_dump` | Полный дамп state в SMAPI-лог |
-| `injury_cleanup_invalid_complications` | Удалить stale/невалидные осложнения (WetBandage без лечения и т.п.) |
+| `injury_cleanup_invalid_complications` | Удалить stale/невалидные осложнения (WetBandage без лечения, main ∉ WetBandageSensitive, orphan DebuffState/SavedActiveBuffs) |
 | `injury_rain_debug` | Счётчики дождя / промокания повязки |
 | `injury_phase_ready <buffId> [1\|0]` | «Фаза истекла, можно сменить» |
 | `injury_phase_recovery <buffId> [1\|0]` | «Можно завершить лечение» |
@@ -84,6 +93,7 @@ warp Hospital 20 5
 - [ ] `Active main injury valid: yes/no`
 - [ ] `Complications: ...`
 - [ ] Строки активных травм с фазой / `TreatmentStarted`
+- [ ] В `injury_debug_dump`: `NeglectStrikesByInjury: buffId=N` (или `(none)`)
 
 ### Что смотреть в debug HUD (F10)
 
@@ -100,8 +110,13 @@ warp Hospital 20 5
 |---------|----------------|
 | `[MainInjury]` | Установка, замена, блокировка, миграция, завершение |
 | `[Complication] MainInjury=..., complication=...` | Осложнения и эскалация |
-| `[Complication] Cleared wound-related complications after infection: ...` | Очистка wound-complications после инфекции |
-| `[WetBandage] skip: ...` | Дождь/вода: WetBandage не применён |
+| `[Complication] Cleared wound-related complications after infection: ...` | Очистка WetBandage/DirtyWound/WetStitches/Neglect после инфекции |
+| `[Complication] Infection escalation finalized (...)` | Финализация эскалации (в т.ч. если main уже `buffInfectedWound`) |
+| `[WetBandage] skip: <reason>, main=..., treatmentStarted=...` | Дождь/вода: WetBandage не применён (`treatment not started`, `main not WetBandageSensitive`, `no active bandage/treatment`, …) |
+| `[WetBandage] allowed: main=..., treatmentStarted=...` | WetBandage разрешён (есть лечение + whitelist + повязка) |
+| `[DirtyWound] allowed/skip: ..., main=...` | Eligibility грязной раны в шахте (`DirtyInMines` + `HasInjuryOrPhase`) |
+| `[Neglect] Сброс счётчика при смене MainInjuryId: ...` | NeglectStrikesByInjury не переносится между main |
+| `[Neglect] Сброс NeglectStrikesByInjury для ...` | StartTreatment / CompleteRecovery / infection |
 | `[BuffRestore] skip invalid complication buff: ...` | DayStarted: snapshot не восстановил stale buff |
 | `[ComplicationCleanup] removing ...` | `injury_cleanup_invalid_complications` |
 | `[MineRescue]` | Major/minor rescue, warp |
@@ -193,6 +208,7 @@ injury_phase_list
 - [ ] `MainInjuryId = buffDeepCuts`
 - [ ] Старый перелом снят (нет `buffFracturedBone` как активной main)
 - [ ] В логе: замена main `buffFracturedBone -> buffDeepCuts`
+- [ ] Если был `NeglectStrikesByInjury` для перелома — сброшен при смене main
 
 ---
 
@@ -272,7 +288,8 @@ injury_phase_list
 ```
 
 - [ ] `MainInjuryId: buffDeepCuts`
-- [ ] Травма **не** в фазе лечения (или exposure считается для open wound)
+- [ ] Травма **не** в фазе лечения (открытая рана; base-buff `buffDeepCuts` на игроке)
+- [ ] `injury_mine_dirty_debug`: `hasDirtyInjury=true` (не только `HasBuff(buffDeepCuts)` — eligibility через main + phase)
 
 ### Шаги (вариант A — шахта)
 
@@ -282,13 +299,15 @@ warp Mine 17 7
 ```
 
 - [ ] Провести в шахте 60+ игровых минут **или** дождаться roll exposure
+- [ ] В логе (периодически): `[DirtyWound] allowed: main=buffDeepCuts, reason=open or treated wound surface`
 
-### Шаги (вариант B — debug exposure, если доступен в сборке)
+### Шаги (вариант B — debug exposure)
 
 ```
 injury_mine_dirty_debug
 ```
 
+- [ ] `hasDirtyInjury=true`, `hasDirtyWound=false` до roll
 - [ ] Смотреть счётчики exposure в F10 / дампе
 
 ### Шаги (вариант C — severe main + NoMine violation)
@@ -303,6 +322,69 @@ injury_mine_dirty_debug
 - [ ] В логе: `[Complication] MainInjury=buffDeepCuts, complication=HarveyMod_DirtyWound`
 - [ ] `buffDeepCuts` и `DirtyWound` сосуществуют: main + complication, **не** две main
 - [ ] `injury_phase_list`: `Complications: HarveyMod_DirtyWound` (или список с ним)
+
+---
+
+## 4b. DirtyWound в шахте при фазовом лечении (base-buff снят)
+
+- [ ] **Сценарий 4b пройден**
+
+### Подготовка
+
+```
+injury_reset
+injury_debuff_add buffDeepCuts
+# Клик по Харви → StartTreatment (фаза 1, base buffDeepCuts снят)
+injury_phase_list
+```
+
+- [ ] `MainInjuryId: buffDeepCuts`, `TreatmentStarted: true`
+- [ ] На игроке **фазовый** бафф (`HarveyMod_DeepCuts_Acute` и т.п.), **нет** `buffDeepCuts`
+- [ ] `HasInjuryOrPhase(buffDeepCuts)` = true (regression: раньше шахта могла не срабатывать)
+
+### Шаги
+
+```
+injury_mine_dirty_debug
+warp Mine 17 7
+# 60+ игровых минут в шахте
+injury_phase_list
+```
+
+### Ожидается
+
+- [ ] `[DirtyWound] allowed: main=buffDeepCuts, ...` (не `skip: no base buff or phase for main`)
+- [ ] DirtyWound **может** появиться (roll), main остаётся `buffDeepCuts`
+- [ ] `injury_mine_dirty_debug`: `hasDirtyInjury=true` при активной фазе
+
+---
+
+## 4c. DirtyWound: main не из DirtyInMines (негатив)
+
+- [ ] **Сценарий 4c пройден**
+
+### Подготовка
+
+```
+injury_reset
+injury_debuff_add buffFracturedBone
+injury_phase_list
+```
+
+### Шаги
+
+```
+injury_mine_dirty_debug
+warp Mine 17 7
+# 60+ игровых минут
+injury_phase_list
+```
+
+### Ожидается
+
+- [ ] `hasDirtyInjury=false` в `injury_mine_dirty_debug`
+- [ ] В логе: `[DirtyWound] skip: main not in DirtyInMines, main=buffFracturedBone`
+- [ ] `HarveyMod_DirtyWound` **не** появляется от mine exposure (PainFlare от другой травмы — отдельная механика)
 
 ---
 
@@ -365,10 +447,20 @@ injury_debug_dump
 - [ ] `TreatmentStarted = false` для `buffInfectedWound`
 - [ ] Topic `topicInfectedWound` есть; `topicHarvey_DirtyWound` / `topicHarvey_WetBandage` / `topicHarvey_Neglect` **отсутствуют**
 - [ ] В логе (при очистке): `[Complication] Cleared wound-related complications after infection: HarveyMod_DirtyWound, ...` (если были wound-complications)
+- [ ] В логе: `[Complication] Infection escalation finalized (day ..., source=HarveyMod_DirtyWound, alreadyInfected=false)`
+- [ ] `NeglectStrikesByInjury` сброшен (в дампе `(none)` или без записи для старой main)
 - [ ] HUD: «Рана инфицирована! Срочно к врачу!» (или эквивалент)
 - [ ] Mail `HarveyMod_DirtyWoundInfection` (если `SendLetters: true`)
 - [ ] В логе: `[MainInjury] Основная травма заменена: buffDeepCuts -> buffInfectedWound`
 - [ ] При fallback (если замена не удалась): **нет** второй main, есть `PainFlare` + срочный topic/mail
+
+### Ожидается (main уже buffInfectedWound + новое wound-complication)
+
+Если у игрока уже `buffInfectedWound`, а daily-check эскалирует **оставшийся** DirtyWound/WetBandage:
+
+- [ ] `MainInjuryId` остаётся `buffInfectedWound`
+- [ ] `FinalizeInfectionEscalation` всё равно вызывается → wound-complications очищены из баффов, `ActiveComplications`, `ActiveDebuffs`, `SavedActiveBuffs`, topics
+- [ ] В логе: `alreadyInfected=true`, `[Complication] MainInjury=buffInfectedWound, complication=... cleared (already infected)`
 
 ### Ожидается (лечение и дождь после эскалации)
 
@@ -420,7 +512,8 @@ injury_phase_list
 - [ ] `ActiveComplications: (none)` (или без wound-related)
 - [ ] Active mod buffs: только `buffInfectedWound`
 - [ ] Topic `topicHarvey_WetBandage` **отсутствует**
-- [ ] В логе (периодически): `[WetBandage] skip: no active bandage/treatment, main=buffInfectedWound, treatmentStarted=False`
+- [ ] В логе (периодически): `[WetBandage] skip: treatment not started, main=buffInfectedWound, treatmentStarted=False`  
+  (или `no active bandage/treatment` — оба варианта OK до StartTreatment)
 
 ---
 
@@ -461,9 +554,43 @@ injury_debug_dump
 ### Ожидается
 
 - [ ] **До** шага 1 (клик Харви): WetBandage от дождя **не** появляется (как в **5b**)
-- [ ] **После** `TreatmentStarted=true`: WetBandage **может** появиться от дождя (HUD «Повязка промокла!», `HarveyMod_WetBandage` в complications)
+- [ ] **После** `TreatmentStarted=true`: WetBandage **может** появиться от дождя (HUD «Повязка промокла!», `HarveyMod_WetBandage` в complications) — `buffInfectedWound` ∈ `WetBandageSensitive`
 - [ ] `MainInjuryId` остаётся `buffInfectedWound`
-- [ ] В логе при успехе: `[Complication] MainInjury=buffInfectedWound, complication=HarveyMod_WetBandage` (не `[MainInjury]` replace)
+- [ ] В логе при успехе: `[WetBandage] allowed: main=buffInfectedWound, treatmentStarted=True` → `[Complication] MainInjury=buffInfectedWound, complication=HarveyMod_WetBandage`
+
+---
+
+## 5d. WetBandage: перелом в лечении (негатив, WetCast)
+
+- [ ] **Сценарий 5d пройден**
+
+### Подготовка
+
+```
+injury_reset
+injury_debuff_add buffFracturedBone
+# Клик по Харви → StartTreatment (фаза гипса / HarveyMod_FracturedBone_*)
+injury_phase_list
+```
+
+- [ ] `MainInjuryId: buffFracturedBone`, `TreatmentStarted: true`
+- [ ] Активен фазовый бафф перелома (не «повязка» из `WetBandageSensitive`)
+
+### Шаги
+
+1. Дождливый день → стоять на улице под дождём **60+ игровых минут**
+
+```
+injury_rain_debug
+injury_phase_list
+injury_debug_dump
+```
+
+### Ожидается
+
+- [ ] `HarveyMod_WetBandage` **не появляется** — `buffFracturedBone` **не** в `WetBandageSensitive`
+- [ ] В логе: `[WetBandage] skip: main not WetBandageSensitive, main=buffFracturedBone, treatmentStarted=True`
+- [ ] Stale WetBandage из старого сейва удаляется через `injury_cleanup_invalid_complications` (reason: not WetBandageSensitive)
 
 ---
 
@@ -518,6 +645,7 @@ injury_phase_list
 - [ ] `GetActiveInjury()` / `injury_phase_list` / F10 показывают **базовый** id (`buffFracturedBone`), не phase buff id
 - [ ] `Active main injury valid: yes` на протяжении всего лечения
 - [ ] Topics лечения: `topicTreatmentFracturedBone`, фазовые `topic*Phase*`
+- [ ] `NeglectStrikesByInjury` для `buffFracturedBone` сброшен при StartTreatment (в дампе `(none)` или без записи для этой main)
 
 ---
 
@@ -561,6 +689,7 @@ injury_phase_recovery buffDeepCuts 1
 - [ ] Базовый и фазовые баффы `buffDeepCuts` сняты
 - [ ] `MainInjuryId` очищен (`(none)` в `injury_phase_list`)
 - [ ] В логе: `[MainInjury] Основная травма завершена: buffDeepCuts` (или `CompleteMainInjury`)
+- [ ] `NeglectStrikesByInjury` для `buffDeepCuts` сброшен (`[Neglect] Сброс NeglectStrikesByInjury для buffDeepCuts`)
 - [ ] `HarveyMod_PainFlare` **не** удалён случайно при cure main
 - [ ] F10 / `injury_phase_list`: `Complications: HarveyMod_PainFlare` (или в списке осложнений)
 - [ ] `Active main injury valid: no` (или n/a при пустом main)
@@ -681,6 +810,7 @@ injury_debug_dump
 - [ ] `Active main injury valid: yes`
 - [ ] Осложнения сохранены в `ActiveComplications` / F10
 - [ ] Нет дублирования main или «потери» main при restore
+- [ ] Stale `HarveyMod_WetBandage` в `SavedActiveBuffs` **не** восстанавливается, если main ∉ `WetBandageSensitive` или лечение не начато (`[BuffRestore] skip invalid complication buff` / cleanup)
 
 ---
 
@@ -722,12 +852,60 @@ injury_debug_dump
 - [ ] `injury_phase_list`: `MainInjuryId` заполнен, `valid: yes`
 - [ ] Осложнения из `KnownComplicationBuffIds` **не** становятся main
 - [ ] Приоритет: тяжёлая травма (например `buffDeepCuts`) побеждает `buffHurt`
+- [ ] При смене main в логе: `[Neglect] Сброс счётчика при смене MainInjuryId: buffHurt -> buffDeepCuts` (если были strikes у старой main)
+
+---
+
+## 11. NeglectStrikesByInjury не переносится между main
+
+- [ ] **Сценарий 11 пройден**
+
+### Подготовка A — смена main
+
+```
+injury_reset
+injury_debuff_add buffHurt
+# Несколько дней без лечения / или debug increment через prescription neglect (3+ нарушения NoMine)
+injury_debug_dump
+```
+
+- [ ] В дампе: `NeglectStrikesByInjury: buffHurt=N` (N > 0)
+
+### Шаги A
+
+```
+injury_debuff_add --force buffDeepCuts
+injury_debug_dump
+```
+
+### Ожидается A
+
+- [ ] `NeglectStrikesByInjury` для `buffHurt` **сброшен** (запись удалена)
+- [ ] Счётчик для `buffDeepCuts` = 0 (не наследует N от `buffHurt`)
+- [ ] Лог: `[Neglect] Сброс счётчика при смене MainInjuryId: buffHurt -> buffDeepCuts`
+
+### Подготовка B — StartTreatment
+
+```
+injury_reset
+injury_debuff_add buffDeepCuts
+# Накопить strikes (untreated neglect / checkup overdue — по ситуации)
+injury_debug_dump
+```
+
+### Шаги B
+
+Клик по Харви → StartTreatment → `injury_debug_dump`
+
+### Ожидается B
+
+- [ ] `NeglectStrikesByInjury` для `buffDeepCuts` сброшен после StartTreatment
 
 ---
 
 ## Быстрая регрессия (минимум)
 
-Если времени мало — пройти **1 → 2 → 3 → 5 → 7 → 8b** по порядку.
+Если времени мало — пройти **1 → 2 → 3 → 4b → 5 → 5b → 5d → 7 → 8b → 11** по порядку.
 
 - [ ] **Быстрая регрессия пройдена**
 
@@ -736,10 +914,13 @@ injury_debug_dump
 | 1 | `injury_reset` → `injury_debuff_add buffFracturedBone` | main установлена | [ ] |
 | 2 | `injury_debuff_add buffDeepCuts` (без `--force`) | main не дублируется | [ ] |
 | 3 | `injury_reset` → `buffHurt` → `buffBadlyHurt` | upgrade main | [ ] |
+| 4b | `buffDeepCuts` + лечение + Mine 60m | DirtyWound eligible без base-buff | [ ] |
 | 5 | DirtyWound + сон 3 дня | infection replaces main, wound-complications cleared | [ ] |
 | 5b | `buffInfectedWound` + дождь без лечения | WetBandage не появляется | [ ] |
+| 5d | `buffFracturedBone` + лечение + дождь | WetBandage skip: not WetBandageSensitive | [ ] |
 | 7 | `injury_phase_cure buffDeepCuts` + PainFlare | main cleared, complication stays | [ ] |
 | 8b | main=hurt + PainFlare | no forced hospital | [ ] |
+| 11 | `--force` другая main | NeglectStrikes не переносится | [ ] |
 
 ---
 
@@ -917,13 +1098,15 @@ injury_debug_dump
 ## Чеклист перед релизом (MainInjury)
 
 - [ ] Сценарии 1–3: apply / block / upgrade main
-- [ ] Сценарии 4–5: complication + infection escalation
+- [ ] Сценарии 4–4c: DirtyWound (open wound, phased treatment, negative for non-DirtyInMines)
+- [ ] Сценарии 5–5d: infection escalation + WetBandage whitelist / cleanup
 - [ ] Сценарий 6: phase treatment, main id stable
-- [ ] Сценарий 7: cure main, complications preserved
+- [ ] Сценарий 7: cure main, complications preserved, Neglect reset
 - [ ] Сценарии 8a–8b: severe только по main
 - [ ] Сценарий 9: save/load persistence
 - [ ] Сценарий 10: migration / priority order
-- [ ] Быстрая регрессия 1→2→3→5→7→8b
+- [ ] Сценарий 11: NeglectStrikesByInjury per main
+- [ ] Быстрая регрессия 1→2→3→4b→5→5b→5d→7→8b→11
 - [ ] F10 / `injury_debug_dump` без рассинхрона main vs buffs
 - [ ] SMAPI: нет exception при apply/cure/migrate
 

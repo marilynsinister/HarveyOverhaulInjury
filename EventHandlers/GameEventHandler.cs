@@ -337,7 +337,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (_stateManager.State.LastInfectionEscalationDay == today)
             {
-                _stateManager.State.NeglectStrikes = 0;
+                _stateManager.ResetNeglectStrikes();
                 _monitor.Log(
                     "[Neglect] Пропуск: в этот день DirtyWound/WetBandage эскалировали в buffInfectedWound",
                     LogLevel.Debug);
@@ -358,23 +358,25 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (string.IsNullOrEmpty(untreatedInjury))
             {
-                _stateManager.State.NeglectStrikes = 0;
+                _stateManager.ResetNeglectStrikes();
                 return;
             }
 
             if (!_treatmentManager.HasMatchingTreatment(untreatedInjury))
             {
-                _stateManager.State.NeglectStrikes++;
-                _monitor.Log($"Заброшенность лечения: {_stateManager.State.NeglectStrikes} дней", LogLevel.Debug);
+                int strikes = _stateManager.IncrementNeglectStrikes(untreatedInjury);
+                _monitor.Log(
+                    $"Заброшенность лечения ({untreatedInjury}): {strikes} дней",
+                    LogLevel.Debug);
 
-                if (_stateManager.State.NeglectStrikes >= _config.NeglectDaysThreshold)
+                if (strikes >= _config.NeglectDaysThreshold)
                 {
                     ApplyNeglectPenalty();
                 }
             }
             else
             {
-                _stateManager.State.NeglectStrikes = 0;
+                _stateManager.ResetNeglectStrikes(untreatedInjury);
             }
         }
 

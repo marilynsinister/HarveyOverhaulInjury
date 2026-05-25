@@ -26,6 +26,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private int _lastStormPainFlareGameHour = -1;
         private int _lastOverworkComplicationGameHour = -1;
         private string? _lastWetBandageSkipLogKey;
+        private string? _lastDirtyWoundEligibilityLogKey;
 
         public ComplicationManager(
             IMonitor monitor,
@@ -87,19 +88,34 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 : null;
             bool treatmentStarted = mainDebuff?.TreatmentStarted ?? false;
 
-            if (string.IsNullOrEmpty(mainInjuryId) || mainDebuff == null || !treatmentStarted)
+            if (string.IsNullOrEmpty(mainInjuryId))
             {
-                LogWetBandageSkip(mainInjuryId ?? "none", treatmentStarted);
+                LogWetBandageSkip("none", treatmentStarted, "no main injury");
+                return false;
+            }
+
+            if (mainDebuff == null || !treatmentStarted)
+            {
+                LogWetBandageSkip(mainInjuryId, treatmentStarted, "treatment not started");
+                return false;
+            }
+
+            if (!InjurySets.WetBandageSensitive.Contains(mainInjuryId))
+            {
+                LogWetBandageSkip(mainInjuryId, treatmentStarted, "main not WetBandageSensitive");
                 return false;
             }
 
             if (!HasActiveBandageOrWoundDressing())
             {
-                LogWetBandageSkip(mainInjuryId, treatmentStarted);
+                LogWetBandageSkip(mainInjuryId, treatmentStarted, "no active bandage/treatment");
                 return false;
             }
 
             _lastWetBandageSkipLogKey = null;
+            _monitor.Log(
+                $"[WetBandage] allowed: main={mainInjuryId}, treatmentStarted={treatmentStarted}",
+                LogLevel.Debug);
             return true;
         }
 
@@ -133,6 +149,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             if (!_stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.WetBandage))
                 return false;
+
+            string? mainInjuryId = GetActiveMainInjuryId();
+            if (string.IsNullOrEmpty(mainInjuryId)
+                || !InjurySets.WetBandageSensitive.Contains(mainInjuryId))
+            {
+                return false;
+            }
 
             return HasBandageOrTreatmentForMainInjury();
         }
@@ -214,7 +237,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     return false;
 
                 reason = inActiveComplications
-                    ? "no active bandage/treatment"
+                    ? $"invalid for main={GetActiveMainInjuryId() ?? "none"} (no bandage/treatment or not WetBandageSensitive)"
                     : "stale (not in ActiveComplications)";
                 return true;
             }
@@ -241,28 +264,56 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 LogLevel.Info);
         }
 
-        private void LogWetBandageSkip(string mainInjuryId, bool treatmentStarted)
+        private void LogWetBandageSkip(string mainInjuryId, bool treatmentStarted, string reason)
         {
-            string key = $"{mainInjuryId}|{treatmentStarted}";
+            string key = $"{mainInjuryId}|{treatmentStarted}|{reason}";
             if (_lastWetBandageSkipLogKey == key)
                 return;
 
             _lastWetBandageSkipLogKey = key;
             _monitor.Log(
-                $"[WetBandage] skip: no active bandage/treatment, main={mainInjuryId}, treatmentStarted={treatmentStarted}",
+                $"[WetBandage] skip: {reason}, main={mainInjuryId}, treatmentStarted={treatmentStarted}",
+                LogLevel.Debug);
+        }
+
+        private void LogDirtyWoundEligibility(string? mainInjuryId, bool allowed, string reason)
+        {
+            string main = mainInjuryId ?? "none";
+            string key = $"{main}|{allowed}|{reason}";
+            if (_lastDirtyWoundEligibilityLogKey == key)
+                return;
+
+            _lastDirtyWoundEligibilityLogKey = key;
+            _monitor.Log(
+                allowed
+                    ? $"[DirtyWound] allowed: main={main}, reason={reason}"
+                    : $"[DirtyWound] skip: {reason}, main={main}",
                 LogLevel.Debug);
         }
 
         public bool CanReceiveMineDirtyWound()
         {
             string? mainInjuryId = GetActiveMainInjuryId();
-            if (string.IsNullOrEmpty(mainInjuryId)
-                || !InjurySets.MineDirtSensitive.Contains(mainInjuryId))
+            if (string.IsNullOrEmpty(mainInjuryId))
             {
+                LogDirtyWoundEligibility(mainInjuryId, false, "no main injury");
                 return false;
             }
 
-            return _injuryManager.HasInjuryOrPhase(mainInjuryId);
+            if (!InjurySets.DirtyInMines.Contains(mainInjuryId))
+            {
+                LogDirtyWoundEligibility(mainInjuryId, false, "main not in DirtyInMines");
+                return false;
+            }
+
+            if (!_injuryManager.HasInjuryOrPhase(mainInjuryId))
+            {
+                LogDirtyWoundEligibility(mainInjuryId, false, "no base buff or phase for main");
+                return false;
+            }
+
+            LogDirtyWoundEligibility(mainInjuryId, true, "open or treated wound surface");
+            return true;
         }
 
         public bool TryApplyComplication(
@@ -310,7 +361,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             bool applied = TryApplyComplication(
                 InjuryBuffs.DirtyWound,
-                InjurySets.MineDirtSensitive,
+                InjurySets.DirtyInMines,
                 topicDays: 4,
                 new HUDMessage("Рана загрязнилась! Риск инфекции!", HUDMessage.error_type));
 
@@ -331,13 +382,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!CanReceiveWetBandageFromWater())
                 return false;
 
-            HashSet<string>? requiredSet = IsMainInjuryIn(InjurySets.BandageSensitive)
-                ? InjurySets.BandageSensitive
-                : null;
-
             bool applied = TryApplyComplication(
                 InjuryBuffs.WetBandage,
-                requiredSet,
+                InjurySets.WetBandageSensitive,
                 topicDays,
                 hudMessage);
 
@@ -424,8 +471,21 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private bool IsInfectionEscalationAllowed()
         {
             string? mainInjuryId = GetActiveMainInjuryId();
-            return !string.IsNullOrEmpty(mainInjuryId)
-                && InjurySets.InfectionSensitive.Contains(mainInjuryId);
+            if (string.IsNullOrEmpty(mainInjuryId))
+                return false;
+
+            if (string.Equals(mainInjuryId, "buffInfectedWound", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return InjurySets.InfectionSensitive.Contains(mainInjuryId);
+        }
+
+        private bool IsInfectedWoundActive()
+        {
+            if (string.Equals(GetActiveMainInjuryId(), "buffInfectedWound", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return _injuryManager.HasInjuryOrPhase("buffInfectedWound");
         }
 
         private const string InfectionEscalationHudMessage = "Рана инфицирована! Срочно к врачу!";
@@ -467,7 +527,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     cleared.Add(complicationId);
             }
 
-            _stateManager.State.NeglectStrikes = 0;
+            _stateManager.ResetNeglectStrikes();
             _stateManager.State.SavedActiveBuffs.RemoveAll(id => woundIds.Contains(id));
 
             if (cleared.Count > 0)
@@ -532,12 +592,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             bool escalated = _injuryManager.TryEscalateComplicationToInfectedWound(sourceComplicationId);
 
-            if (escalated)
+            if (escalated || IsInfectedWoundActive())
             {
                 FinalizeInfectionEscalation(sourceComplicationId, wasAlreadyInfected);
 
                 if (string.Equals(sourceComplicationId, InjuryBuffs.DirtyWound, StringComparison.OrdinalIgnoreCase)
-                    && !wasAlreadyInfected)
+                    && !wasAlreadyInfected
+                    && escalated)
                 {
                     _monitor.Log(
                         $"[Complication] DirtyWound escalated: {mainInjuryId} -> buffInfectedWound",
@@ -550,7 +611,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                         : $"[Complication] MainInjury=buffInfectedWound, complication={sourceComplicationId}→buffInfectedWound (replaced {mainInjuryId})",
                     LogLevel.Warn);
 
-                if (!wasAlreadyInfected)
+                if (!wasAlreadyInfected && escalated)
                 {
                     Game1.addHUDMessage(new HUDMessage(InfectionEscalationHudMessage, HUDMessage.error_type));
                     if (_config.SendLetters)
@@ -565,6 +626,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
             RemoveComplication(sourceComplicationId);
 
             ApplyInfectionEscalationFallback(mainInjuryId, sourceComplicationId);
+
+            if (IsInfectedWoundActive())
+                FinalizeInfectionEscalation(sourceComplicationId, wasAlreadyInfected);
+
             return false;
         }
 
@@ -927,8 +992,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     {
                         _buffManager.AddBuff(InjuryBuffs.Neglect, -2);
                         _dialogueManager.AddTopic(ConversationTopics.Neglect, 7);
-                        _stateManager.State.NeglectStrikes++;
-                        _monitor.Log($"📊 Счетчик небрежности: {_stateManager.State.NeglectStrikes}", LogLevel.Warn);
+                        int strikes = _stateManager.IncrementNeglectStrikes(injuryId);
+                        _monitor.Log(
+                            $"📊 Счетчик небрежности ({injuryId}): {strikes}",
+                            LogLevel.Warn);
                     }
 
                     if (!sentNeglect)

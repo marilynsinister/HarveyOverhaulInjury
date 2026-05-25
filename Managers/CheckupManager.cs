@@ -128,9 +128,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 {
                     debuffState.CheckupOverduePenaltyApplied = true;
                     _complianceManager.AddCompliance(-1, $"checkup_overdue:{injuryId}");
-                    _stateManager.State.NeglectStrikes++;
+                    int strikes = _stateManager.IncrementNeglectStrikes(injuryId);
                     _monitor.Log(
-                        $"[Checkup] Overdue penalty {injuryId}: TreatmentComplianceScore -1, NeglectStrikes={_stateManager.State.NeglectStrikes}",
+                        $"[Checkup] Overdue penalty {injuryId}: TreatmentComplianceScore -1, NeglectStrikes={strikes}",
                         LogLevel.Warn);
                 }
             }

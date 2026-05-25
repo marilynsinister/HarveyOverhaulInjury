@@ -289,10 +289,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (violationCount >= NeglectStrikeViolationThreshold)
             {
-                _stateManager.State.NeglectStrikes++;
-                _monitor.Log(
-                    $"Предписание: {NeglectStrikeViolationThreshold}-е нарушение → NeglectStrikes={_stateManager.State.NeglectStrikes}",
-                    LogLevel.Warn);
+                string? mainInjuryId = _stateManager.GetMainInjuryId();
+                if (!string.IsNullOrEmpty(mainInjuryId))
+                {
+                    int strikes = _stateManager.IncrementNeglectStrikes(mainInjuryId);
+                    _monitor.Log(
+                        $"Предписание: {NeglectStrikeViolationThreshold}-е нарушение → NeglectStrikes({mainInjuryId})={strikes}",
+                        LogLevel.Warn);
+                }
             }
         }
 

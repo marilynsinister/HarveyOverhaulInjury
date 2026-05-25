@@ -43,6 +43,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             EnsureRehabState();
             EnsureSelfCareState();
             EnsureMedicalMailState();
+            EnsureNeglectStrikesState();
 
             // Миграция старых данных ActivePhases в новую систему ActiveDebuffs
             MigrateOldPhaseData();
@@ -372,18 +373,29 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
                 return;
 
+            string? previousMain = _state.MainInjuryId;
+
             if (!force
-                && !string.IsNullOrEmpty(_state.MainInjuryId)
-                && !string.Equals(_state.MainInjuryId, buffId, StringComparison.OrdinalIgnoreCase))
+                && !string.IsNullOrEmpty(previousMain)
+                && !string.Equals(previousMain, buffId, StringComparison.OrdinalIgnoreCase))
             {
                 string? preferred = InjurySets.SelectMainInjuryByPriority(
-                    new[] { _state.MainInjuryId, buffId });
+                    new[] { previousMain, buffId });
 
                 if (preferred == null
-                    || string.Equals(preferred, _state.MainInjuryId, StringComparison.OrdinalIgnoreCase))
+                    || string.Equals(preferred, previousMain, StringComparison.OrdinalIgnoreCase))
                 {
                     return;
                 }
+            }
+
+            if (!string.IsNullOrEmpty(previousMain)
+                && !string.Equals(previousMain, buffId, StringComparison.OrdinalIgnoreCase))
+            {
+                ResetNeglectStrikes(previousMain);
+                _monitor.Log(
+                    $"[Neglect] Сброс счётчика при смене MainInjuryId: {previousMain} -> {buffId}",
+                    LogLevel.Debug);
             }
 
             _state.MainInjuryId = buffId;
@@ -412,6 +424,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!IsMainInjury(injuryId))
                 return;
 
+            ResetNeglectStrikes(injuryId);
             ClearMainInjury(injuryId);
             _monitor.Log($"[MainInjury] Основная травма завершена: {injuryId}", LogLevel.Info);
         }
@@ -586,9 +599,65 @@ namespace HarveyOverhaul.InjuryCare.Managers
             {
                 debuffState.StartTreatment(currentDay);
                 debuffState.HarveyConversationHappened = true;
+                ResetNeglectStrikes(buffId);
                 Save();
                 
                 _monitor.Log($"Начато лечение: {buffId} (фаза 1/{debuffState.TotalPhases})", LogLevel.Info);
+            }
+        }
+
+        private void EnsureNeglectStrikesState()
+        {
+            _state.NeglectStrikesByInjury ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            if (_state.NeglectStrikes <= 0 || _state.NeglectStrikesByInjury.Count > 0)
+                return;
+
+            if (!string.IsNullOrEmpty(_state.MainInjuryId))
+            {
+                _state.NeglectStrikesByInjury[_state.MainInjuryId] = _state.NeglectStrikes;
+                _monitor.Log(
+                    $"[Neglect] Миграция NeglectStrikes={_state.NeglectStrikes} -> {_state.MainInjuryId}",
+                    LogLevel.Debug);
+            }
+
+            _state.NeglectStrikes = 0;
+        }
+
+        public int GetNeglectStrikes(string injuryId)
+        {
+            if (string.IsNullOrEmpty(injuryId))
+                return 0;
+
+            EnsureNeglectStrikesState();
+            return _state.NeglectStrikesByInjury.TryGetValue(injuryId, out int strikes) ? strikes : 0;
+        }
+
+        public int IncrementNeglectStrikes(string injuryId)
+        {
+            EnsureNeglectStrikesState();
+            int strikes = GetNeglectStrikes(injuryId) + 1;
+            _state.NeglectStrikesByInjury[injuryId] = strikes;
+            return strikes;
+        }
+
+        public void ResetNeglectStrikes(string? injuryId = null)
+        {
+            EnsureNeglectStrikesState();
+
+            if (string.IsNullOrEmpty(injuryId))
+            {
+                if (_state.NeglectStrikesByInjury.Count == 0)
+                    return;
+
+                _state.NeglectStrikesByInjury.Clear();
+                _monitor.Log("[Neglect] Сброс всех NeglectStrikesByInjury", LogLevel.Debug);
+                return;
+            }
+
+            if (_state.NeglectStrikesByInjury.Remove(injuryId))
+            {
+                _monitor.Log($"[Neglect] Сброс NeglectStrikesByInjury для {injuryId}", LogLevel.Debug);
             }
         }
 
