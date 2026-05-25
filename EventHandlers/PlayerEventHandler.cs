@@ -285,7 +285,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (_stateManager.State.NeedsMineRescueEvent)
                 return;
 
-            // === ПРЕДУПРЕЖДЕНИЕ НА ВХОДЕ В ШАХТУ (раз в день) ===
             bool hasSevereInjury = _buffManager.HasAnyBuff(InjurySets.Severe.ToArray());
             bool hasLimitedActivity = _buffManager.HasAnyBuff(InjurySets.LimitedActivity.ToArray());
             bool hasAnyInjury    = hasSevereInjury
@@ -293,20 +292,16 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 || _stateManager.GetAllActiveDebuffStates().Count > 0
                 || _stateManager.State.ActiveComplications.Count > 0;
 
-            if (hasAnyInjury && _lastMineWarningDay != today)
+            if (hasSevereInjury)
+            {
+                if (!TryHandleSevereMineEntry(today))
+                    return;
+            }
+            else if (hasAnyInjury && _lastMineWarningDay != today)
             {
                 _lastMineWarningDay = today;
 
-                if (hasSevereInjury)
-                {
-                    // Серьёзная травма — строгое предупреждение; на следующий день придёт письмо и наложится дебафф (см. GameEventHandler)
-                    Game1.addHUDMessage(new HUDMessage(
-                        "Харви: У тебя серьёзные раны — ты не должна идти в шахту! Возможны осложнения.",
-                        HUDMessage.error_type));
-                    _stateManager.State.MineWarningDay = today;
-                    _monitor.Log("⚠️ [Шахта] Вход с серьёзными ранами — предупреждение Харви, письмо и дебафф завтра", LogLevel.Warn);
-                }
-                else if (hasLimitedActivity)
+                if (hasLimitedActivity)
                 {
                     Game1.addHUDMessage(new HUDMessage(
                         "Харви: С такой травмой шахта — плохая идея. Хотя бы не перегружайся.",
@@ -330,8 +325,62 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
         }
 
+        /// <summary>
+        /// Severe без MineForbidden: первый вход за день — предупреждение; повторный — выход наружу.
+        /// </summary>
+        /// <returns>true, если игрок может остаться в подземелье; false, если уже выгнан.</returns>
+        private bool TryHandleSevereMineEntry(int today)
+        {
+            var state = _stateManager.State;
+
+            if (state.LastMineSevereWarningDay != today)
+            {
+                state.LastMineSevereWarningDay = today;
+                state.MineWarningDay = today;
+                _stateManager.Save();
+
+                Game1.addHUDMessage(new HUDMessage(
+                    "Харви: У тебя серьёзные раны — ты не должна идти в шахту! Возможны осложнения.",
+                    HUDMessage.error_type));
+                _monitor.Log("⚠️ [Шахта] Вход с серьёзными ранами — предупреждение Харви, письмо и дебафф завтра", LogLevel.Warn);
+                return true;
+            }
+
+            GameLocation location = Game1.currentLocation;
+            bool repeatAttempt = state.LastMineSevereForcedExitDay == today;
+
+            if (!repeatAttempt)
+            {
+                state.LastMineSevereForcedExitDay = today;
+                _stateManager.Save();
+                _monitor.Log("⚠️ [Шахта] Повторный вход с Severe после предупреждения — принудительный выход", LogLevel.Warn);
+            }
+            else
+            {
+                _monitor.Log("⚠️ [Шахта] Повторная попытка входа с Severe после принудительного выхода", LogLevel.Debug);
+            }
+
+            Game1.addHUDMessage(new HUDMessage(
+                repeatAttempt
+                    ? "Сегодня шахта закончена."
+                    : "Харви уже предупреждал тебя. Сегодня шахта закончена.",
+                HUDMessage.error_type));
+            Game1.playSound("cancel");
+            WarpOutOfForbiddenDungeon(location);
+            return false;
+        }
+
         private void HandleMineForbiddenEntry(int today)
         {
+            GameLocation location = Game1.currentLocation;
+
+            if (IsVolcanoLocation(location))
+            {
+                _monitor.Log("[MineForbidden] Игрок вошёл в вулкан при активном запрете Харви", LogLevel.Warn);
+                ShowMineForbiddenHudAndWarpOut(today, location);
+                return;
+            }
+
             _monitor.Log("[MineForbidden] Игрок вошёл в шахту при активном запрете Харви", LogLevel.Warn);
 
             if (_stateManager.State.LastMineForbiddenInterceptionDay != today)
@@ -345,35 +394,92 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _monitor.Log("[MineForbidden] Событие не запустилось — fallback HUD + warp", LogLevel.Warn);
             }
 
-            ShowMineForbiddenHudAndWarpOut();
+            ShowMineForbiddenHudAndWarpOut(today, location);
         }
 
-        private void ShowMineForbiddenHudAndWarpOut()
+        private int GetMineForbiddenDaysLeft(int today)
         {
+            int appliedDay = _stateManager.State.MineForbiddenAppliedDay;
+            int duration = Math.Max(1, _config.MineForbiddenDurationDays);
+
+            if (appliedDay < 0)
+                return duration;
+
+            return Math.Max(1, appliedDay + duration - today);
+        }
+
+        private string GetMineForbiddenMessage(int today)
+        {
+            int daysLeft = GetMineForbiddenDaysLeft(today);
+
+            if (daysLeft == 1)
+                return "Харви запретил шахту до окончания лечения. Остался 1 день.";
+
+            return $"Харви запретил шахту до окончания лечения. Осталось: {daysLeft} дн.";
+        }
+
+        private string GetVolcanoForbiddenMessage(int today)
+        {
+            int daysLeft = GetMineForbiddenDaysLeft(today);
+
+            if (daysLeft == 1)
+                return "Харви запретил тебе ходить в опасные подземелья до окончания лечения. Остался 1 день.";
+
+            return $"Харви запретил тебе ходить в опасные подземелья до окончания лечения. Осталось: {daysLeft} дн.";
+        }
+
+        private void ShowMineForbiddenHudAndWarpOut(int today, GameLocation location)
+        {
+            bool isVolcano = IsVolcanoLocation(location);
+
             Game1.addHUDMessage(new HUDMessage(
-                "Харви запретил тебе спускаться в шахту до окончания лечения.",
+                isVolcano ? GetVolcanoForbiddenMessage(today) : GetMineForbiddenMessage(today),
                 HUDMessage.error_type));
 
-            Game1.playSound("cancel");
-            Game1.warpFarmer("Mountain", 53, 8, 2);
+            Game1.playSound(isVolcano ? "debuffHit" : "cancel");
+            WarpOutOfForbiddenDungeon(location);
         }
 
         private void WarpOutOfMineIfStillInside()
         {
-            if (!IsInsideMineOrVolcano(Game1.currentLocation))
+            GameLocation location = Game1.currentLocation;
+            if (!IsInsideMineOrVolcano(location))
                 return;
 
             _monitor.Log(
-                "[MineForbidden] Событие завершено, игрок всё ещё в шахте — warp на Mountain (CP без changeLocation)",
+                "[MineForbidden] Событие завершено, игрок всё ещё в подземелье — warp наружу (CP без changeLocation)",
                 LogLevel.Info);
+            WarpOutOfForbiddenDungeon(location);
+        }
+
+        private bool IsVolcanoLocation(GameLocation? location)
+        {
+            return location is VolcanoDungeon
+                || string.Equals(location?.NameOrUniqueName, "VolcanoDungeon", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool IsMineLocation(GameLocation? location)
+        {
+            return location is MineShaft
+                || string.Equals(location?.NameOrUniqueName, "Mine", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(location?.NameOrUniqueName, "UndergroundMine", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void WarpOutOfForbiddenDungeon(GameLocation location)
+        {
+            if (IsVolcanoLocation(location))
+            {
+                // TODO: уточнить тайл у входа в вулкан на IslandNorth при тесте на Ginger Island.
+                Game1.warpFarmer("IslandNorth", 31, 17, 2);
+                return;
+            }
+
             Game1.warpFarmer("Mountain", 53, 8, 2);
         }
 
-        private static bool IsInsideMineOrVolcano(GameLocation? location)
+        private bool IsInsideMineOrVolcano(GameLocation? location)
         {
-            return location is MineShaft
-                || location is VolcanoDungeon
-                || string.Equals(location?.NameOrUniqueName, "Mine", StringComparison.OrdinalIgnoreCase);
+            return IsMineLocation(location) || IsVolcanoLocation(location);
         }
 
         private bool TryStartEventByName(string eventId, string locationName, Action? onFinished = null)

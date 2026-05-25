@@ -110,6 +110,18 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         public int MineWarningDay { get; set; } = -1;
 
         /// <summary>
+        /// День первого строгого предупреждения при входе в шахту/вулкан с Severe (до MineForbidden).
+        /// -1 = сегодня ещё не предупреждали.
+        /// </summary>
+        public int LastMineSevereWarningDay { get; set; } = -1;
+
+        /// <summary>
+        /// День принудительного выхода из шахты после повторного нарушения Severe-предупреждения.
+        /// -1 = сегодня принудительно не выгоняли.
+        /// </summary>
+        public int LastMineSevereForcedExitDay { get; set; } = -1;
+
+        /// <summary>
         /// День, когда был наложен дебафф «Харви запретил шахту».
         /// Снимается через MineForbiddenDurationDays дней. -1 = не наложен.
         /// </summary>

@@ -1400,7 +1400,7 @@ namespace HarveyOverhaul.InjuryCare
             sb.AppendLine($"NeedsMineRescueEvent: {YesNo(state.NeedsMineRescueEvent)}  WasPassedOut: {YesNo(state.WasPassedOut)}");
             sb.AppendLine($"WasExhausted: {YesNo(state.WasExhausted)}  WasUpTooLate: {YesNo(state.WasUpTooLate)}");
             sb.AppendLine($"LastPassedOutHealth: {state.LastPassedOutHealth}  LastPassedOutLocation: {(string.IsNullOrEmpty(state.LastPassedOutLocation) ? "-" : state.LastPassedOutLocation)}");
-            sb.AppendLine($"MineWarningDay: {state.MineWarningDay}  MineForbiddenAppliedDay: {state.MineForbiddenAppliedDay}  LastMineForbiddenInterceptionDay: {state.LastMineForbiddenInterceptionDay}");
+            sb.AppendLine($"MineWarningDay: {state.MineWarningDay}  LastMineSevereWarningDay: {state.LastMineSevereWarningDay}  LastMineSevereForcedExitDay: {state.LastMineSevereForcedExitDay}  MineForbiddenAppliedDay: {state.MineForbiddenAppliedDay}  LastMineForbiddenInterceptionDay: {state.LastMineForbiddenInterceptionDay}");
             sb.AppendLine($"LastHealth: {state.LastHealth}  Rain: {state.TimeUnderRainTicks}t/{state.TotalTimeUnderRainToday}t");
 
             var saved = state.SavedActiveBuffs ?? new List<string>();
