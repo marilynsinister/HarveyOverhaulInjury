@@ -26,6 +26,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
             { "buffBadlyHurt", CureBuffs.IntensiveCare },
             { "buffSurgicalWound", CureBuffs.PostSurgical }
         };
+
+        /// <summary>
+        /// Простое (нефазовое) лечение: buffHurt, buffBadlyHurt, buffSurgicalWound.
+        /// Для них не используются injury_phase_ready / injury_phase_advance.
+        /// </summary>
+        public static bool IsSimpleTreatmentInjury(string injuryId) =>
+            CureByInjury.ContainsKey(injuryId);
         
         // Травмы с фазовой системой (используют свои фазовые баффы травм)
         public static readonly HashSet<string> PhasedInjuries = new()
@@ -40,7 +47,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
             "buffInfectedWound",
             "buffBackStrain",
             "buffShrapnelWounds",
-            "buffBadlyHurt",
             "buffCold" // Простуда (2 фазы: острая + восстановление)
         };
 
@@ -74,17 +80,26 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             currentPhase = 0;
             nextPhase = 0;
-            
+
             var debuffState = _stateManager.GetDebuffState(injuryId);
-            if (debuffState == null || !debuffState.IsInTreatment)
-            {
+            if (debuffState == null)
                 return false;
-            }
-            
+
+            if (debuffState.TotalPhases <= 0)
+                return false;
+
+            if (!debuffState.IsInTreatment)
+                return false;
+
+            if (debuffState.CurrentPhase <= 0)
+                return false;
+
+            if (debuffState.CurrentPhase >= debuffState.TotalPhases)
+                return false;
+
             currentPhase = debuffState.CurrentPhase;
             nextPhase = currentPhase + 1;
-            
-            // Проверяем флаг готовности из DebuffState
+
             return debuffState.ReadyForNextPhase;
         }
         
@@ -115,24 +130,18 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
             }
 
-            if (debuffState.TotalPhases <= 0)
+            if (debuffState.TotalPhases <= 0 || debuffState.CurrentPhase >= debuffState.TotalPhases)
             {
-                _monitor.Log($"⚠️ {injuryId}: не фазовая травма (TotalPhases={debuffState.TotalPhases}), смена фазы пропущена", LogLevel.Warn);
+                _monitor.Log(
+                    $"⚠️ {injuryId}: смена фазы невозможна (TotalPhases={debuffState.TotalPhases}, CurrentPhase={debuffState.CurrentPhase}). " +
+                    "Для простого лечения используйте injury_phase_recovery или injury_phase_cure.",
+                    LogLevel.Warn);
                 return;
             }
 
             if (debuffState.CurrentPhase <= 0)
             {
                 _monitor.Log($"⚠️ {injuryId}: лечение не начато (CurrentPhase={debuffState.CurrentPhase}), смена фазы пропущена", LogLevel.Warn);
-                return;
-            }
-
-            if (debuffState.CurrentPhase >= debuffState.TotalPhases)
-            {
-                _monitor.Log(
-                    $"⚠️ {injuryId}: уже на последней фазе ({debuffState.CurrentPhase}/{debuffState.TotalPhases}). " +
-                    "Используйте CompleteInjuryRecovery / injury_phase_cure для выздоровления.",
-                    LogLevel.Warn);
                 return;
             }
 
@@ -254,10 +263,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
             {
                 StartPhasedTreatment(injuryId);
             }
-            else if (Core.SimpleInjuryCures.Map.TryGetValue(injuryId, out var cureBuff))
+            else if (IsSimpleTreatmentInjury(injuryId))
             {
                 _buffManager.RemoveBuff(injuryId);
-                _buffManager.AddBuff(cureBuff, -2);
+                _buffManager.AddBuff(CureByInjury[injuryId], -2);
 
                 // Записываем в DebuffState: лечение началось, PhaseStartDay = сегодня,
                 // Phase1Duration = срок лечения (для CheckSimpleTreatmentCompletion)
@@ -273,7 +282,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     _stateManager.UpdateDebuffState(injuryId, ds);
                 }
 
-                _monitor.Log($"Нефазовое лечение начато: {cureBuff}, срок={treatmentDays} дней", LogLevel.Info);
+                _monitor.Log($"Нефазовое лечение начато: {CureByInjury[injuryId]}, срок={treatmentDays} дней", LogLevel.Info);
 
                 if (string.Equals(injuryId, "buffSurgicalWound", StringComparison.OrdinalIgnoreCase))
                     _dialogueManager.TryAddDiagnosisCompleteTopic(injuryId);

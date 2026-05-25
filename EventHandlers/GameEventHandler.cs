@@ -80,6 +80,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         // 1. Восстанавливаем баффы из снапшота конца прошлого дня
                         RestoreBuffsFromSnapshot();
 
+                        // 1b. Сброс некорректного ReadyForNextPhase у простого лечения (TotalPhases == 0)
+                        _stateManager.SanitizeNonPhasedReadyFlags();
+
                         // 2. Письмо и дебафф «Харви запретил шахту» — на следующий день после предупреждения в шахте
                         ApplyMineForbiddenIfWarningWasYesterday();
 

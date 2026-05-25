@@ -11,6 +11,7 @@ namespace HarveyOverhaul.InjuryCare.Core
         public static readonly System.Collections.Generic.Dictionary<string, string> Map = new()
         {
             ["buffHurt"]          = CureBuffs.Treatment,
+            ["buffBadlyHurt"]     = CureBuffs.IntensiveCare,
             ["buffSurgicalWound"] = CureBuffs.PostSurgical,
         };
     }

@@ -14,7 +14,7 @@ namespace HarveyOverhaul.InjuryCare.Core
         public int ProximityTiles { get; set; } = 3;
         public string HospitalLocationName { get; set; } = "Hospital";
         public int HospitalBedX { get; set; } = 20;
-        public int HospitalBedY { get; set; } = 5;
+        public int HospitalBedY { get; set; } = 4;
         public int HospitalActivityIntervalMinutes { get; set; } = 40;
         public int MaxHospitalActivitiesPerStay { get; set; } = 3;
 

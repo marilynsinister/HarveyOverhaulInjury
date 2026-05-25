@@ -82,17 +82,17 @@ namespace HarveyOverhaul.InjuryCare
 
             helper.ConsoleCommands.Add(
                 "injury_phase_ready",
-                "Готовность к смене фазы: injury_phase_ready <buffId> [1|0]. Пример: injury_phase_ready buffDeepCuts 1",
+                "Только фазовые травмы: injury_phase_ready <buffId> [1|0]. Для buffHurt/buffBadlyHurt/buffSurgicalWound — injury_phase_recovery или injury_phase_cure.",
                 (_, args) => CmdPhaseReady(args));
 
             helper.ConsoleCommands.Add(
                 "injury_phase_recovery",
-                "Готовность к выздоровлению: injury_phase_recovery <buffId> [1|0]. Пример: injury_phase_recovery buffDeepCuts 1",
+                "Готовность к выздоровлению: injury_phase_recovery <buffId> [1|0]. Для простого лечения (buffHurt, buffBadlyHurt, buffSurgicalWound) и последней фазы фазовых травм.",
                 (_, args) => CmdPhaseRecovery(args));
 
             helper.ConsoleCommands.Add(
                 "injury_phase_advance",
-                "Переключить травму на следующую фазу (баффы и state). injury_phase_advance <buffId>. Пример: injury_phase_advance buffDeepCuts",
+                "Только фазовые травмы: переключить на следующую фазу. injury_phase_advance <buffId>. Для простого лечения — injury_phase_cure.",
                 (_, args) => CmdPhaseAdvance(args));
 
             helper.ConsoleCommands.Add(
@@ -277,7 +277,7 @@ namespace HarveyOverhaul.InjuryCare
                 if (ds.TreatmentStarted) flags += " в лечении";
                 Monitor.Log($"  {ds.BuffId}: {phaseInfo}{flags}", LogLevel.Info);
             }
-            Monitor.Log("Команды: injury_phase_ready <id> [1|0], injury_phase_recovery <id> [1|0], injury_phase_advance <id>, injury_phase_cure <id>", LogLevel.Info);
+            Monitor.Log("Команды: injury_phase_ready/advance — только фазовые; injury_phase_recovery/injury_phase_cure — buffHurt, buffBadlyHurt, buffSurgicalWound и финал фазовых.", LogLevel.Info);
         }
 
         private static bool ParseBoolArg(string[] args, int index, bool defaultVal)
@@ -289,14 +289,52 @@ namespace HarveyOverhaul.InjuryCare
         private void CmdPhaseReady(string[] args)
         {
             if (!Context.IsWorldReady) { Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn); return; }
-            if (args.Length == 0) { Monitor.Log("Использование: injury_phase_ready <buffId> [1|0]. injury_phase_list — список.", LogLevel.Info); return; }
+            if (args.Length == 0)
+            {
+                Monitor.Log(
+                    "Использование: injury_phase_ready <buffId> [1|0] — только фазовые травмы. " +
+                    "Для buffHurt, buffBadlyHurt, buffSurgicalWound: injury_phase_recovery или injury_phase_cure.",
+                    LogLevel.Info);
+                return;
+            }
             string id = args[0].Trim();
             if (!_stateManager.State.ActiveDebuffs.TryGetValue(id, out _))
             {
                 Monitor.Log($"Дебафф «{id}» не найден в состоянии. injury_phase_list — список активных.", LogLevel.Warn);
                 return;
             }
+
+            if (TreatmentManager.IsSimpleTreatmentInjury(id))
+            {
+                Monitor.Log(
+                    $"«{id}» — простое лечение (buffHurt, buffBadlyHurt, buffSurgicalWound). " +
+                    "injury_phase_ready не применяется; используйте injury_phase_recovery или injury_phase_cure.",
+                    LogLevel.Warn);
+                return;
+            }
+
+            var ds = _stateManager.GetDebuffState(id)!;
             bool ready = ParseBoolArg(args, 1, true);
+
+            if (ready)
+            {
+                if (ds.TotalPhases <= 0)
+                {
+                    Monitor.Log(
+                        $"Дебафф «{id}» не является фазовой травмой; используйте injury_phase_recovery или injury_phase_cure.",
+                        LogLevel.Warn);
+                    return;
+                }
+
+                if (ds.CurrentPhase >= ds.TotalPhases)
+                {
+                    Monitor.Log(
+                        $"Травма «{id}» уже на последней фазе ({ds.CurrentPhase}/{ds.TotalPhases}). Используйте injury_phase_recovery.",
+                        LogLevel.Warn);
+                    return;
+                }
+            }
+
             _stateManager.SetReadyForNextPhase(id, ready);
             Monitor.Log($"ReadyForNextPhase({id}) = {ready}. Клик по Харви откроет смену фазы.", LogLevel.Info);
             Game1.addHUDMessage(new HUDMessage($"[Фаза] {id}: готовность к смене фазы = {(ready ? "да" : "нет")}", HUDMessage.health_type));
@@ -321,8 +359,25 @@ namespace HarveyOverhaul.InjuryCare
         private void CmdPhaseAdvance(string[] args)
         {
             if (!Context.IsWorldReady) { Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn); return; }
-            if (args.Length == 0) { Monitor.Log("Использование: injury_phase_advance <buffId>. Переключает на следующую фазу (баффы + state).", LogLevel.Info); return; }
+            if (args.Length == 0)
+            {
+                Monitor.Log(
+                    "Использование: injury_phase_advance <buffId> — только фазовые травмы. " +
+                    "Для buffHurt, buffBadlyHurt, buffSurgicalWound: injury_phase_cure.",
+                    LogLevel.Info);
+                return;
+            }
             string id = args[0].Trim();
+
+            if (TreatmentManager.IsSimpleTreatmentInjury(id))
+            {
+                Monitor.Log(
+                    $"«{id}» — простое лечение (buffHurt, buffBadlyHurt, buffSurgicalWound). " +
+                    "injury_phase_advance не применяется; используйте injury_phase_cure.",
+                    LogLevel.Warn);
+                return;
+            }
+
             var ds = _stateManager.GetDebuffState(id);
             if (ds == null)
             {
@@ -984,7 +1039,8 @@ namespace HarveyOverhaul.InjuryCare
                 return "CLICK: start treatment";
             if (d.TreatmentStarted && d.ReadyForRecovery)
                 return "CLICK: complete recovery";
-            if (d.TreatmentStarted && d.ReadyForNextPhase)
+            if (d.TreatmentStarted && d.IsPhasedInjury && d.ReadyForNextPhase
+                && d.CurrentPhase > 0 && d.CurrentPhase < d.TotalPhases)
                 return "CLICK: next phase";
             if (d.TreatmentStarted)
                 return "WAIT";
@@ -1032,6 +1088,9 @@ namespace HarveyOverhaul.InjuryCare
 
             if (expectPhaseBuff && !string.IsNullOrEmpty(phaseBuffExpected) && !hasPhaseBuff)
                 issues.Add("PHASE_BUFF_MISSING");
+
+            if (d.ReadyForNextPhase && (d.TotalPhases == 0 || TreatmentManager.IsSimpleTreatmentInjury(d.BuffId)))
+                issues.Add("INVALID_READY_FOR_SIMPLE_TREATMENT");
 
             if (d.ReadyForNextPhase && d.ReadyForRecovery)
                 issues.Add("BOTH_READY_FLAGS");

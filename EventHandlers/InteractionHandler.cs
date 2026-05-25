@@ -73,6 +73,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (_pendingMedicalAction is { Applied: false })
                 return "BLOCKED: pending medical action in progress";
 
+            if (_hospitalizationManager.IsHospitalized)
+                return "ALLOWED: hospitalized — medical pipeline idle";
+
             var resolved = TryResolveMedicalAction(_injuryManager.CollectAllInjuries());
             if (resolved != null)
                 return $"BLOCKED: InjuryCare medical action ({FormatMedicalActionLabel(resolved)})";
@@ -205,6 +208,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
+            _stateManager.SanitizeNonPhasedReadyFlags();
+
             var injuries = _injuryManager.CollectAllInjuries();
             var resolved = TryResolveMedicalAction(injuries);
             if (resolved == null)
@@ -280,6 +285,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (_pendingMedicalAction is { Applied: false } pending)
                 return $"BLOCKED pending={FormatMedicalActionLabel(pending)}";
 
+            if (_hospitalizationManager.IsHospitalized)
+                return "none (hospitalized — pipeline idle)";
+
             var resolved = TryResolveMedicalAction(_injuryManager.CollectAllInjuries());
             if (resolved == null)
                 return "none (standard dialogue allowed)";
@@ -332,9 +340,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 };
             }
 
-            // B. AdvancePhase
+            // B. AdvancePhase — только фазовые травмы в допустимом диапазоне фаз
             var readyPhase = treatableStates
-                .Where(d => d.TreatmentStarted && !d.IsLastPhase && d.ReadyForNextPhase)
+                .Where(d => d.IsPhasedInjury
+                    && d.TreatmentStarted
+                    && d.CurrentPhase > 0
+                    && d.CurrentPhase < d.TotalPhases
+                    && d.ReadyForNextPhase)
                 .OrderByDescending(d => GetInjuryPriority(d.BuffId))
                 .FirstOrDefault();
 
@@ -385,14 +397,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     Type = MedicalActionType.SimpleCompletionTopic,
                     TopicId = completionTopic
                 };
-            }
-
-            var inTreatmentNotReady = treatableStates.Where(d => d.TreatmentStarted).ToList();
-            if (inTreatmentNotReady.Count > 0)
-            {
-                _monitor.Log(
-                    $"Травмы в лечении ({inTreatmentNotReady.Count}), но ни одна не готова к переходу: {string.Join(", ", inTreatmentNotReady.Select(d => d.BuffId))}",
-                    LogLevel.Debug);
             }
 
             return null;
@@ -485,6 +489,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
+            if (!debuffState.IsPhasedInjury || debuffState.CurrentPhase >= debuffState.TotalPhases)
+            {
+                _monitor.Log(
+                    $"[MedicalAction] AdvanceToNextPhase пропущен: {injuryId} не фазовая или уже на последней фазе",
+                    LogLevel.Warn);
+                return;
+            }
+
             if (!debuffState.ReadyForNextPhase)
             {
                 _monitor.Log(
@@ -531,7 +543,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private bool TryBeginAdvancePhase(NPC harvey, string injuryId)
         {
             var debuffState = _stateManager.GetDebuffState(injuryId);
-            if (debuffState == null || !debuffState.ReadyForNextPhase)
+            if (debuffState == null
+                || !debuffState.IsPhasedInjury
+                || !debuffState.ReadyForNextPhase
+                || debuffState.CurrentPhase <= 0
+                || debuffState.CurrentPhase >= debuffState.TotalPhases)
                 return false;
 
             AdvanceToNextPhase(harvey, injuryId, debuffState);
@@ -553,13 +569,18 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// </summary>
         private bool CheckAndHandlePhaseTransition(NPC harvey, string injuryId, DebuffState debuffState)
         {
+            if (debuffState.TotalPhases <= 0)
+                return false;
+
             if (debuffState.IsLastPhase && debuffState.ReadyForRecovery)
             {
                 CompleteRecovery(harvey, injuryId);
                 return _pendingMedicalAction != null;
             }
 
-            if (debuffState.ReadyForNextPhase)
+            if (debuffState.ReadyForNextPhase
+                && debuffState.CurrentPhase > 0
+                && debuffState.CurrentPhase < debuffState.TotalPhases)
             {
                 AdvanceToNextPhase(harvey, injuryId, debuffState);
                 return _pendingMedicalAction != null;
@@ -840,6 +861,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (debuffState == null)
             {
                 LogStaleApply(action, $"состояние {injuryId} не найдено");
+                return false;
+            }
+
+            if (!debuffState.IsPhasedInjury || debuffState.CurrentPhase >= debuffState.TotalPhases)
+            {
+                LogStaleApply(action, $"{injuryId} не фазовая или уже на последней фазе");
+                _stateManager.SanitizeNonPhasedReadyFlags();
                 return false;
             }
 

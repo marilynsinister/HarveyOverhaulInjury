@@ -424,6 +424,35 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// Сбросить ReadyForNextPhase у нефазовых травм (TotalPhases == 0).
+        /// ReadyForRecovery не трогаем — он может использоваться для завершения простого лечения.
+        /// </summary>
+        public int SanitizeNonPhasedReadyFlags()
+        {
+            int fixedCount = 0;
+
+            foreach (var (buffId, debuffState) in _state.ActiveDebuffs)
+            {
+                if (!debuffState.ReadyForNextPhase)
+                    continue;
+
+                if (debuffState.TotalPhases != 0 && !TreatmentManager.IsSimpleTreatmentInjury(buffId))
+                    continue;
+
+                debuffState.ReadyForNextPhase = false;
+                fixedCount++;
+                _monitor.Log(
+                    $"🔧 Санитарная очистка: {buffId} ReadyForNextPhase сброшен (TotalPhases=0, не фазовая травма)",
+                    LogLevel.Warn);
+            }
+
+            if (fixedCount > 0)
+                Save();
+
+            return fixedCount;
+        }
+
+        /// <summary>
         /// Установить флаг готовности к следующей фазе
         /// </summary>
         public void SetReadyForNextPhase(string buffId, bool ready = true)
