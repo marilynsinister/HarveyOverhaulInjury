@@ -9,6 +9,7 @@
 | [`FOR_TEST.md`](FOR_TEST.md) | Справочник: SMAPI-команды, травмы, pass-out, mail, debug-HUD (F10) |
 | [`EVENTS_TEST_CHECKLIST.md`](EVENTS_TEST_CHECKLIST.md) | Чеклист всех CP-событий + сценарии S01–S18 с галочками |
 | [`manual-test-scenarios-topics-mail.md`](manual-test-scenarios-topics-mail.md) | Детальные сценарии topics/mail/тон Харви (1–14) |
+| [`main-injury-testcases.md`](main-injury-testcases.md) | MainInjury + Complications: сценарии 1–10, реестр событий |
 | [`final-validation-topics-mail.md`](final-validation-topics-mail.md) | Автоматическая сверка topic/mail ID (read-only аудит) |
 
 ## Быстрый старт

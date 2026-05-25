@@ -163,6 +163,11 @@ namespace HarveyOverhaul.InjuryCare
                 (_, _) => CmdDebugDump());
 
             helper.ConsoleCommands.Add(
+                "injury_cleanup_invalid_complications",
+                "Удалить невалидные/stale осложнения из текущего сейва (WetBandage без лечения, orphan DebuffState/SavedActiveBuffs).",
+                (_, _) => CmdCleanupInvalidComplications());
+
+            helper.ConsoleCommands.Add(
                 "injury_medical_snapshot",
                 "Снимок medical pipeline: decision/gate/pending, DebuffState, фазовые баффы (до/после клика по Харви).",
                 (_, _) => CmdMedicalSnapshot());
@@ -250,7 +255,7 @@ namespace HarveyOverhaul.InjuryCare
             ("buffBackStrain", "topicBackStrain", 2, 4, 0),
             ("buffDeepCuts", "topicDeepCuts", 2, 3, 2),
             ("buffBurnWounds", "topicBurnWounds", 3, 5, 0),
-            ("buffInfectedWound", "topicInfectedWound", 2, 4, 0),
+            ("buffInfectedWound", "topicInfectedWound", 3, 11, 0),
             ("buffTornMuscles", "topicTornMuscles", 3, 5, 3),
             ("buffConcussion", "topicConcussion", 2, 4, 3),
             ("buffFracturedBone", "topicFracturedBone", 4, 10, 4),
@@ -341,16 +346,6 @@ namespace HarveyOverhaul.InjuryCare
             bool forceReplace)
         {
             string? currentMain = _stateManager.GetMainInjuryId();
-            if (!string.IsNullOrEmpty(currentMain)
-                && !string.Equals(currentMain, trauma.BuffId, StringComparison.OrdinalIgnoreCase)
-                && !forceReplace)
-            {
-                Monitor.Log(
-                    $"Отказ: MainInjury={currentMain}, попытка добавить {trauma.BuffId}. " +
-                    "Используйте --force для замены основной травмы.",
-                    LogLevel.Warn);
-                return;
-            }
 
             if (!string.IsNullOrEmpty(currentMain)
                 && string.Equals(currentMain, trauma.BuffId, StringComparison.OrdinalIgnoreCase))
@@ -366,13 +361,14 @@ namespace HarveyOverhaul.InjuryCare
             bool applied = _injuryManager.TryApplyMainInjury(
                 trauma.BuffId,
                 () => ApplyDebugTraumaEffects(trauma, minutes),
-                allowUpgrade: forceReplace || string.IsNullOrEmpty(currentMain));
+                allowUpgrade: !forceReplace,
+                forceReplace: forceReplace);
 
             if (!applied)
             {
                 Monitor.Log(
-                    $"Не удалось применить основную травму {trauma.BuffId} через MainInjury. " +
-                    "Попробуйте --force или injury_main_clear.",
+                    $"Отказ: MainInjury={currentMain ?? "(none)"}, попытка добавить {trauma.BuffId}. " +
+                    "Используйте --force для замены основной травмы.",
                     LogLevel.Warn);
                 return;
             }
@@ -393,6 +389,8 @@ namespace HarveyOverhaul.InjuryCare
             int topicDays = trauma.P1 + trauma.P2 + trauma.P3;
             if (topicDays <= 0) topicDays = 7;
             _dialogueManager.AddTopic(trauma.TopicId, topicDays);
+            if (string.Equals(trauma.BuffId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
+                _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 4);
             _dialogueManager.TryAddHarveyNeedsFirstTreatmentTopic(trauma.BuffId);
         }
 
@@ -405,6 +403,23 @@ namespace HarveyOverhaul.InjuryCare
             }
 
             _stateManager.DebugClearMainInjuryId();
+        }
+
+        private void CmdCleanupInvalidComplications()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log(
+                $"[ComplicationCleanup] before: ActiveComplications={FormatComplicationsList(_stateManager.State)}",
+                LogLevel.Info);
+            _complicationManager.CleanupInvalidComplications();
+            Monitor.Log(
+                "Готово. Проверьте: injury_phase_list, injury_debug_dump",
+                LogLevel.Info);
         }
 
         private void CmdMainSet(string[] args)
@@ -1429,6 +1444,7 @@ namespace HarveyOverhaul.InjuryCare
                 _complianceManager,
                 _selfCareManager
             );
+            _injuryManager.SetComplicationManager(_complicationManager);
 
             Monitor.Log("Все менеджеры инициализированы", LogLevel.Debug);
         }

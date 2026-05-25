@@ -25,6 +25,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private int _lastStormPainFlareGameHour = -1;
         private int _lastOverworkComplicationGameHour = -1;
+        private string? _lastWetBandageSkipLogKey;
 
         public ComplicationManager(
             IMonitor monitor,
@@ -59,8 +60,198 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _buffManager.HasBuff(complicationId)
             || _stateManager.State.ActiveComplications.ContainsKey(complicationId);
 
-        public bool CanReceiveWetBandageFromWater(bool hasTreatmentBandage) =>
-            hasTreatmentBandage || IsMainInjuryIn(InjurySets.BandageSensitive);
+        /// <summary>
+        /// Есть реальная повязка/обработка раны: cure-бaff Харви или фазовое лечение main-травмы.
+        /// </summary>
+        public bool HasActiveBandageOrWoundDressing()
+        {
+            if (_buffManager.HasBuff(InjuryBuffs.WetBandage))
+                return false;
+
+            return HasBandageOrTreatmentForMainInjury();
+        }
+
+        /// <summary>
+        /// Есть реальная повязка/швы: лечебный бафф Харви или фазовая main-травма в активном лечении.
+        /// </summary>
+        public bool HasActiveTreatmentBandage() => HasActiveBandageOrWoundDressing();
+
+        /// <summary>
+        /// Мокрая повязка — только при реальном лечении/повязке, не при открытой нелеченной ране.
+        /// </summary>
+        public bool CanReceiveWetBandageFromWater()
+        {
+            string? mainInjuryId = GetActiveMainInjuryId();
+            DebuffState? mainDebuff = !string.IsNullOrEmpty(mainInjuryId)
+                ? _stateManager.GetDebuffState(mainInjuryId)
+                : null;
+            bool treatmentStarted = mainDebuff?.TreatmentStarted ?? false;
+
+            if (string.IsNullOrEmpty(mainInjuryId) || mainDebuff == null || !treatmentStarted)
+            {
+                LogWetBandageSkip(mainInjuryId ?? "none", treatmentStarted);
+                return false;
+            }
+
+            if (!HasActiveBandageOrWoundDressing())
+            {
+                LogWetBandageSkip(mainInjuryId, treatmentStarted);
+                return false;
+            }
+
+            _lastWetBandageSkipLogKey = null;
+            return true;
+        }
+
+        private bool HasCureBandageBuff() =>
+            _buffManager.HasBuff(CureBuffs.Treatment)
+            || _buffManager.HasBuff(CureBuffs.IntensiveCare)
+            || _buffManager.HasBuff(CureBuffs.PostSurgical)
+            || _buffManager.HasBuff(CureBuffs.BadlyHurtOutpatientCare);
+
+        private bool HasBandageOrTreatmentForMainInjury()
+        {
+            if (HasCureBandageBuff())
+                return true;
+
+            string? mainInjuryId = GetActiveMainInjuryId();
+            if (string.IsNullOrEmpty(mainInjuryId))
+                return false;
+
+            DebuffState? mainDebuff = _stateManager.GetDebuffState(mainInjuryId);
+            if (mainDebuff == null || !mainDebuff.TreatmentStarted || mainDebuff.CurrentPhase <= 0)
+                return false;
+
+            string phaseBuff = _injuryManager.GetPhaseBuffId(mainInjuryId, mainDebuff.CurrentPhase);
+            return _buffManager.HasBuff(phaseBuff);
+        }
+
+        /// <summary>
+        /// WetBandage валиден только при активном лечении main-травмы и реальной повязке/обработке.
+        /// </summary>
+        public bool IsWetBandageComplicationValid()
+        {
+            if (!_stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.WetBandage))
+                return false;
+
+            return HasBandageOrTreatmentForMainInjury();
+        }
+
+        /// <summary>
+        /// Debug/repair: удалить невалидные и stale осложнения из текущего сейва.
+        /// </summary>
+        public void CleanupInvalidComplications()
+        {
+            var removed = new List<string>();
+
+            foreach (string compId in CollectTrackedComplicationIds())
+            {
+                if (!ShouldRemoveComplication(compId, out string reason))
+                    continue;
+
+                LogComplicationCleanupRemoval(compId, reason);
+                RemoveComplication(compId);
+                removed.Add(compId);
+            }
+
+            if (removed.Count == 0)
+            {
+                _monitor.Log("[ComplicationCleanup] nothing to remove", LogLevel.Info);
+                return;
+            }
+
+            _monitor.Log(
+                $"[ComplicationCleanup] done, removed {removed.Count}: {string.Join(", ", removed)}",
+                LogLevel.Info);
+            _stateManager.Save();
+        }
+
+        private HashSet<string> CollectTrackedComplicationIds()
+        {
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string id in _stateManager.State.ActiveComplications.Keys)
+                ids.Add(id);
+
+            foreach (string id in _stateManager.State.ActiveDebuffs.Keys)
+            {
+                if (InjurySets.KnownComplicationBuffIds.Contains(id))
+                    ids.Add(id);
+            }
+
+            foreach (string id in _stateManager.State.SavedActiveBuffs)
+            {
+                if (InjurySets.KnownComplicationBuffIds.Contains(id))
+                    ids.Add(id);
+            }
+
+            foreach (string id in _buffManager.GetActiveModBuffs())
+            {
+                if (InjurySets.KnownComplicationBuffIds.Contains(id))
+                    ids.Add(id);
+            }
+
+            return ids;
+        }
+
+        private bool ShouldRemoveComplication(string compId, out string reason)
+        {
+            reason = string.Empty;
+            bool inActiveComplications = _stateManager.State.ActiveComplications.ContainsKey(compId);
+            bool hasDebuffState = _stateManager.HasDebuffState(compId);
+            bool hasBuff = _buffManager.HasBuff(compId);
+            bool inSaved = _stateManager.State.SavedActiveBuffs.Any(id =>
+                string.Equals(id, compId, StringComparison.OrdinalIgnoreCase));
+            string topicId = GetComplicationTopic(compId);
+            bool hasTopic = _dialogueManager.HasTopic(topicId);
+
+            if (!inActiveComplications && !hasDebuffState && !hasBuff && !inSaved && !hasTopic)
+                return false;
+
+            if (string.Equals(compId, InjuryBuffs.WetBandage, StringComparison.OrdinalIgnoreCase))
+            {
+                if (inActiveComplications && IsWetBandageComplicationValid())
+                    return false;
+
+                reason = inActiveComplications
+                    ? "no active bandage/treatment"
+                    : "stale (not in ActiveComplications)";
+                return true;
+            }
+
+            if (!inActiveComplications)
+            {
+                reason = "stale (not in ActiveComplications)";
+                return true;
+            }
+
+            return false;
+        }
+
+        private void LogComplicationCleanupRemoval(string compId, string reason)
+        {
+            string topicId = GetComplicationTopic(compId);
+            _monitor.Log(
+                $"[ComplicationCleanup] removing {compId}: reason={reason}, " +
+                $"buff={_buffManager.HasBuff(compId)}, " +
+                $"ActiveComplications={_stateManager.State.ActiveComplications.ContainsKey(compId)}, " +
+                $"DebuffState={_stateManager.HasDebuffState(compId)}, " +
+                $"SavedActiveBuffs={_stateManager.State.SavedActiveBuffs.Any(id => string.Equals(id, compId, StringComparison.OrdinalIgnoreCase))}, " +
+                $"topic={topicId}={_dialogueManager.HasTopic(topicId)}",
+                LogLevel.Info);
+        }
+
+        private void LogWetBandageSkip(string mainInjuryId, bool treatmentStarted)
+        {
+            string key = $"{mainInjuryId}|{treatmentStarted}";
+            if (_lastWetBandageSkipLogKey == key)
+                return;
+
+            _lastWetBandageSkipLogKey = key;
+            _monitor.Log(
+                $"[WetBandage] skip: no active bandage/treatment, main={mainInjuryId}, treatmentStarted={treatmentStarted}",
+                LogLevel.Debug);
+        }
 
         public bool CanReceiveMineDirtyWound()
         {
@@ -133,12 +324,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         public bool TryApplyWetBandageFromWater(
-            bool hasTreatmentBandage,
             int topicDays,
             HUDMessage hudMessage,
             string logContext)
         {
-            if (!CanReceiveWetBandageFromWater(hasTreatmentBandage))
+            if (!CanReceiveWetBandageFromWater())
                 return false;
 
             HashSet<string>? requiredSet = IsMainInjuryIn(InjurySets.BandageSensitive)
@@ -244,11 +434,80 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             _buffManager.RemoveBuff(complicationId);
             _stateManager.State.ActiveComplications.Remove(complicationId);
-            _stateManager.RemoveDebuffState(complicationId);
+            if (_stateManager.State.ActiveDebuffs.ContainsKey(complicationId))
+                _stateManager.RemoveDebuffState(complicationId);
             _dialogueManager.RemoveTopic(GetComplicationTopic(complicationId));
+            _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
+                string.Equals(id, complicationId, StringComparison.OrdinalIgnoreCase));
         }
 
-        private void TryEscalateComplicationToInfection(
+        /// <summary>
+        /// Снять осложнения раны/повязки после эскалации в buffInfectedWound.
+        /// Не трогает unrelated осложнения (PainFlare, AllergicRash и т.п.).
+        /// </summary>
+        public void ClearWoundRelatedComplicationsAfterInfection()
+        {
+            var cleared = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var woundIds = new HashSet<string>(
+                InjurySets.WoundComplicationsClearedOnInfectionEscalation,
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (string complicationId in InjurySets.WoundComplicationsClearedOnInfectionEscalation)
+            {
+                if (TryClearWoundComplication(complicationId))
+                    cleared.Add(complicationId);
+            }
+
+            foreach (string complicationId in _stateManager.State.ActiveComplications.Keys.ToList())
+            {
+                if (!woundIds.Contains(complicationId) || cleared.Contains(complicationId))
+                    continue;
+
+                if (TryClearWoundComplication(complicationId))
+                    cleared.Add(complicationId);
+            }
+
+            _stateManager.State.NeglectStrikes = 0;
+            _stateManager.State.SavedActiveBuffs.RemoveAll(id => woundIds.Contains(id));
+
+            if (cleared.Count > 0)
+            {
+                _monitor.Log(
+                    $"[Complication] Cleared wound-related complications after infection: {string.Join(", ", cleared)}",
+                    LogLevel.Info);
+            }
+        }
+
+        private bool TryClearWoundComplication(string complicationId)
+        {
+            bool hadBuff = _buffManager.HasBuff(complicationId);
+            bool hadComplication = _stateManager.State.ActiveComplications.ContainsKey(complicationId);
+            bool hadDebuffState = _stateManager.HasDebuffState(complicationId);
+            bool hadTopic = _dialogueManager.HasTopic(GetComplicationTopic(complicationId));
+
+            if (!hadBuff && !hadComplication && !hadDebuffState && !hadTopic)
+                return false;
+
+            RemoveComplication(complicationId);
+            return true;
+        }
+
+        private void FinalizeInfectionEscalation(string sourceComplicationId, bool wasAlreadyInfected)
+        {
+            int today = GameUtils.Today();
+            _stateManager.State.LastInfectionEscalationDay = today;
+
+            ClearWoundRelatedComplicationsAfterInfection();
+
+            _stateManager.State.SavedActiveBuffs = _buffManager.GetActiveModBuffs();
+            _stateManager.Save();
+
+            _monitor.Log(
+                $"[Complication] Infection escalation finalized (day {today}, source={sourceComplicationId}, alreadyInfected={wasAlreadyInfected})",
+                LogLevel.Info);
+        }
+
+        private bool TryEscalateComplicationToInfection(
             string sourceComplicationId,
             int days,
             string mailId,
@@ -259,7 +518,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _monitor.Log(
                     $"[Complication] MainInjury={GetActiveMainInjuryId() ?? "none"}, escalation=infection blocked (not InfectionSensitive)",
                     LogLevel.Debug);
-                return;
+                return false;
             }
 
             string mainInjuryId = GetActiveMainInjuryId() ?? "none";
@@ -272,10 +531,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 LogLevel.Warn);
 
             bool escalated = _injuryManager.TryEscalateComplicationToInfectedWound(sourceComplicationId);
-            RemoveComplication(sourceComplicationId);
 
             if (escalated)
             {
+                FinalizeInfectionEscalation(sourceComplicationId, wasAlreadyInfected);
+
+                if (string.Equals(sourceComplicationId, InjuryBuffs.DirtyWound, StringComparison.OrdinalIgnoreCase)
+                    && !wasAlreadyInfected)
+                {
+                    _monitor.Log(
+                        $"[Complication] DirtyWound escalated: {mainInjuryId} -> buffInfectedWound",
+                        LogLevel.Warn);
+                }
+
                 _monitor.Log(
                     wasAlreadyInfected
                         ? $"[Complication] MainInjury=buffInfectedWound, complication={sourceComplicationId} cleared (already infected)"
@@ -288,12 +556,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     if (_config.SendLetters)
                         Game1.addMailForTomorrow(mailId);
                     _complianceManager.AddCompliance(-2, complianceReason);
+                    return true;
                 }
 
-                return;
+                return false;
             }
 
+            RemoveComplication(sourceComplicationId);
+
             ApplyInfectionEscalationFallback(mainInjuryId, sourceComplicationId);
+            return false;
         }
 
         private void ApplyInfectionEscalationFallback(string mainInjuryId, string sourceComplicationId)
@@ -320,32 +592,36 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
-        /// Проверить завершение/осложнения лечения (вызывается каждый день)
+        /// Проверить завершение/осложнения лечения (вызывается каждый день).
+        /// Возвращает true, если осложнение эскалировало в buffInfectedWound в этом вызове.
         /// </summary>
-        public void CheckTreatmentCompletion()
+        public bool CheckTreatmentCompletion()
         {
             int today = GameUtils.Today();
+            bool infectionEscalated = false;
 
             // Проверка осложнений от грязной раны
-            CheckDirtyWoundComplication(today);
+            infectionEscalated |= CheckDirtyWoundComplication(today);
 
             // Проверка осложнений от мокрой повязки
-            CheckWetBandageComplication(today);
+            infectionEscalated |= CheckWetBandageComplication(today);
 
             // Проверка фазовых травм на небрежность
             CheckPhaseNeglect(today);
 
             // Травмы без начатого лечения
             CheckUntreatedInjuries(today);
+
+            return infectionEscalated;
         }
 
         /// <summary>
         /// Проверить осложнение: Грязная рана → Инфекция
         /// </summary>
-        private void CheckDirtyWoundComplication(int today)
+        private bool CheckDirtyWoundComplication(int today)
         {
             if (!_stateManager.State.ActiveComplications.TryGetValue(InjuryBuffs.DirtyWound, out int startDay))
-                return;
+                return false;
 
             int days = today - startDay;
             double infectionChance = days switch
@@ -356,9 +632,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _ => 1.0
             };
 
-            if (!GameUtils.Roll(infectionChance)) return;
+            if (!GameUtils.Roll(infectionChance)) return false;
 
-            TryEscalateComplicationToInfection(
+            return TryEscalateComplicationToInfection(
                 InjuryBuffs.DirtyWound,
                 days,
                 MailIds.DirtyWoundInfection,
@@ -368,10 +644,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>
         /// Проверить осложнение: Мокрая повязка → Инфекция
         /// </summary>
-        private void CheckWetBandageComplication(int today)
+        private bool CheckWetBandageComplication(int today)
         {
             if (!_stateManager.State.ActiveComplications.TryGetValue(InjuryBuffs.WetBandage, out int startDay))
-                return;
+                return false;
 
             int days = today - startDay;
             double infectionChance = CalculateWetBandageInfectionChance(days);
@@ -380,7 +656,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (infectionChance <= 0)
             {
                 _monitor.Log($"[WetBandage] Инфекция не проверяется: days={days}, startDay={startDay}, today={today}", LogLevel.Debug);
-                return;
+                return false;
             }
 
             _monitor.Log(
@@ -390,9 +666,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (_selfCareManager.HasSelfCareProtection(SelfCareProtectionTypes.CleanBandage))
                 _selfCareManager.ConsumeSelfCareProtection(SelfCareProtectionTypes.CleanBandage);
 
-            if (!GameUtils.Roll(infectionChance)) return;
+            if (!GameUtils.Roll(infectionChance)) return false;
 
-            TryEscalateComplicationToInfection(
+            return TryEscalateComplicationToInfection(
                 InjuryBuffs.WetBandage,
                 days,
                 MailIds.WetBandageInfection,
@@ -581,8 +857,21 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 string injuryId = kv.Key;
                 var debuffState = kv.Value;
 
-                // Небрежность — только фазовые травмы в активной фазе (не buffHurt и не осложнения)
-                if (!debuffState.IsPhasedInjury || !debuffState.IsInTreatment)
+                if (IsComplicationEntry(injuryId, debuffState)
+                    || _stateManager.State.ActiveComplications.ContainsKey(injuryId)
+                    || InjurySets.KnownComplicationBuffIds.Contains(injuryId))
+                    continue;
+
+                if (injuryId.StartsWith("HarveyMod_", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Небрежность — только фазовые main-травмы в активной фазе
+                if (debuffState.TotalPhases == 0 || !debuffState.IsPhasedInjury || !debuffState.IsInTreatment)
+                    continue;
+
+                string? mainInjuryId = GetActiveMainInjuryId();
+                if (!string.IsNullOrEmpty(mainInjuryId)
+                    && !string.Equals(injuryId, mainInjuryId, StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 int daysSincePhaseStart = today - debuffState.PhaseStartDay;

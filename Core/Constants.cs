@@ -480,6 +480,20 @@ namespace HarveyOverhaul.InjuryCare.Core
             "buffInfectedWound"
         };
 
+        /// <summary>
+        /// Разрешённые замены основной травмы до начала лечения (from → to).
+        /// </summary>
+        public static readonly Dictionary<string, string> MainInjuryUpgradeAllowlist =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["buffHurt"] = "buffBadlyHurt",
+            };
+
+        /// <summary>Проверить, что пара from→to входит в allowlist upgrade main.</summary>
+        public static bool IsMainInjuryUpgradePair(string fromInjuryId, string toInjuryId) =>
+            MainInjuryUpgradeAllowlist.TryGetValue(fromInjuryId, out string? target)
+            && string.Equals(target, toInjuryId, StringComparison.OrdinalIgnoreCase);
+
         /// <summary>Приоритет основных травм (от серьёзных к лёгким).</summary>
         public static readonly string[] MainInjuryPriorityOrder =
         {
@@ -557,6 +571,17 @@ namespace HarveyOverhaul.InjuryCare.Core
             InjuryBuffs.AllergicRash,
             InjuryBuffs.PainFlare,
             InjuryBuffs.Neglect,
+        };
+
+        /// <summary>
+        /// Осложнения раны/повязки, снимаемые при эскалации в buffInfectedWound (не PainFlare и т.п.).
+        /// </summary>
+        public static readonly string[] WoundComplicationsClearedOnInfectionEscalation =
+        {
+            InjuryBuffs.WetBandage,
+            InjuryBuffs.Neglect,
+            InjuryBuffs.WetStitches,
+            InjuryBuffs.DirtyWound,
         };
 
         /// <summary>Травмы, после начала лечения которых ставится topicDiagnosisComplete.</summary>

@@ -764,7 +764,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
             
             bool keepDryActive = _prescriptionManager.HasActivePrescription(PrescriptionIds.KeepDry);
-            bool bandageLogic = _complicationManager.CanReceiveWetBandageFromWater(HasActiveTreatmentBandage());
+            bool bandageLogic = CanGetWetBandage();
 
             if (!keepDryActive && !bandageLogic)
             {
@@ -799,7 +799,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private void ApplyWetBandageComplication(int secondsUnderRain)
         {
             if (_complicationManager.TryApplyWetBandageFromWater(
-                    HasActiveTreatmentBandage(),
                     topicDays: 4,
                     new HUDMessage("Повязка промокла!", HUDMessage.error_type),
                     $"Повязка промокла после {secondsUnderRain}с под дождём"))
@@ -849,15 +848,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
         }
 
-        private bool HasActiveTreatmentBandage()
-        {
-            if (_buffManager.HasBuff(InjuryBuffs.WetBandage))
-                return false;
+        private bool HasActiveTreatmentBandage() =>
+            _complicationManager.HasActiveBandageOrWoundDressing();
 
-            return _buffManager.HasBuff(CureBuffs.Treatment)
-                || _buffManager.HasBuff(CureBuffs.IntensiveCare)
-                || _buffManager.HasBuff(CureBuffs.BadlyHurtOutpatientCare);
-        }
+        private bool CanGetWetBandage() =>
+            _complicationManager.CanReceiveWetBandageFromWater();
 
         /// <summary>
         /// Вычислить вероятность промокания повязки в зависимости от времени под дождем
@@ -1020,7 +1015,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 && Helpers.GameUtils.Roll(Math.Clamp(wetBandageBonus, 0.0, 1.0)))
             {
                 _complicationManager.TryApplyWetBandageFromWater(
-                    HasActiveTreatmentBandage(),
                     topicDays: 4,
                     new HUDMessage("Повязка промокла!", HUDMessage.error_type),
                     "[Prescription] WetBandage после нарушения KeepDry");
@@ -1059,10 +1053,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 }
             }
 
-            if (_complicationManager.CanReceiveWetBandageFromWater(HasActiveTreatmentBandage()))
+            if (CanGetWetBandage())
             {
                 if (_complicationManager.TryApplyWetBandageFromWater(
-                        HasActiveTreatmentBandage(),
                         topicDays: 4,
                         new HUDMessage("Повязка промокла! Нельзя было купаться с повязкой!", HUDMessage.error_type),
                         "Повязка промокла при купании"))

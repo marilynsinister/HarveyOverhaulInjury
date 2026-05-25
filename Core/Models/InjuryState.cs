@@ -134,6 +134,12 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// Ключ — ID баффа осложнения. Значение — день появления (для таймера заражения).
         /// </summary>
         public Dictionary<string, int> ActiveComplications { get; set; } = new();
+
+        /// <summary>
+        /// День эскалации DirtyWound/WetBandage → buffInfectedWound.
+        /// В этот день CheckNeglect не наказывает main-травму повторно.
+        /// </summary>
+        public int LastInfectionEscalationDay { get; set; } = -1;
         
         public int LastProximityCheckDay { get; set; } = -1;
         public int LastSupportDay { get; set; } = -1;

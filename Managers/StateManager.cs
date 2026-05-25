@@ -367,12 +367,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
             !string.IsNullOrEmpty(_state.MainInjuryId)
             && string.Equals(_state.MainInjuryId, buffId, StringComparison.OrdinalIgnoreCase);
 
-        public void SetMainInjury(string buffId)
+        public void SetMainInjury(string buffId, bool force = false)
         {
             if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
                 return;
 
-            if (!string.IsNullOrEmpty(_state.MainInjuryId)
+            if (!force
+                && !string.IsNullOrEmpty(_state.MainInjuryId)
                 && !string.Equals(_state.MainInjuryId, buffId, StringComparison.OrdinalIgnoreCase))
             {
                 string? preferred = InjurySets.SelectMainInjuryByPriority(

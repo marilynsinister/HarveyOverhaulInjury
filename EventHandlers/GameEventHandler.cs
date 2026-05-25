@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using HarveyOverhaul.InjuryCare.Core;
+using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.Managers;
 using StardewModdingAPI;
@@ -110,13 +112,24 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         _passOutHandler?.TriggerMineRescueEvents();
 
                         // 5. Проверяем осложнения (перерастание в инфекцию и т.д.)
-                        _complicationManager.CheckTreatmentCompletion();
+                        bool infectionEscalated = _complicationManager.CheckTreatmentCompletion();
 
-                        // 6. Проверяем завершение нефазового лечения (buffHurt, buffBadlyHurt, buffSurgicalWound)
-                        CheckSimpleTreatmentCompletion();
+                        // 6–7. После эскалации в buffInfectedWound не проверяем завершение/фазы —
+                        // старые DebuffState уже сняты, но защита от ложных HUD обязательна.
+                        if (!infectionEscalated)
+                        {
+                            // 6. Проверяем завершение нефазового лечения (buffHurt, buffBadlyHurt, buffSurgicalWound)
+                            CheckSimpleTreatmentCompletion();
 
-                        // 7. Проверяем прогресс фаз и устанавливаем флаги готовности
-                        CheckInjuryPhases();
+                            // 7. Проверяем прогресс фаз и устанавливаем флаги готовности
+                            CheckInjuryPhases();
+                        }
+                        else
+                        {
+                            _monitor.Log(
+                                "[DayStarted] Пропуск CheckSimpleTreatmentCompletion/CheckInjuryPhases после эскалации инфекции",
+                                LogLevel.Debug);
+                        }
 
                         _checkupManager.ProcessMissedCheckupsDaily(GetToday());
                         _complianceManager.TryShowLowComplianceReminder();
@@ -184,14 +197,26 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private void CheckInjuryPhases()
         {
             int today = GetToday();
+            string? mainInjuryId = _stateManager.GetMainInjuryId();
             
             foreach (var kvp in _stateManager.State.ActiveDebuffs)
             {
                 string injuryId = kvp.Key;
                 var debuffState = kvp.Value;
 
+                if (_stateManager.State.ActiveComplications.ContainsKey(injuryId)
+                    || InjurySets.KnownComplicationBuffIds.Contains(injuryId))
+                    continue;
+
+                if (injuryId.StartsWith("HarveyMod_", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 // Пропускаем осложнения (TotalPhases == 0) — ими управляет ComplicationManager
                 if (debuffState.TotalPhases == 0) continue;
+
+                if (!string.IsNullOrEmpty(mainInjuryId)
+                    && !string.Equals(injuryId, mainInjuryId, StringComparison.OrdinalIgnoreCase))
+                    continue;
                 
                 // Пропускаем нелеченные травмы (CurrentPhase = 0)
                 if (!debuffState.IsInTreatment)
@@ -308,20 +333,36 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private void CheckNeglect()
         {
-            // Проверяем нелеченные нефазовые травмы по баффам
-            string? untreatedInjury = _injuryManager.GetActiveInjury();
+            int today = GetToday();
 
-            // Если бафф не найден — ищем нелеченные фазовые травмы по DebuffState
-            // (базовый бафф к этому моменту убран, но лечение не начато)
-            if (untreatedInjury == null)
+            if (_stateManager.State.LastInfectionEscalationDay == today)
             {
-                var untreatedDebuff = _stateManager.GetAllActiveDebuffStates()
-                    .FirstOrDefault(d => d.IsPhasedInjury && !d.TreatmentStarted);
-                if (untreatedDebuff != null)
-                    untreatedInjury = untreatedDebuff.BuffId;
+                _stateManager.State.NeglectStrikes = 0;
+                _monitor.Log(
+                    "[Neglect] Пропуск: в этот день DirtyWound/WetBandage эскалировали в buffInfectedWound",
+                    LogLevel.Debug);
+                return;
             }
 
-            if (untreatedInjury != null && !_treatmentManager.HasMatchingTreatment(untreatedInjury))
+            string? mainInjuryId = _stateManager.GetMainInjuryId() ?? _injuryManager.GetActiveInjury();
+            string? untreatedInjury = mainInjuryId;
+
+            // Нелеченная main-травма: базовый бафф мог быть снят, DebuffState остался
+            if (!string.IsNullOrEmpty(mainInjuryId)
+                && !_injuryManager.HasInjuryOrPhase(mainInjuryId))
+            {
+                var mainDebuff = _stateManager.GetDebuffState(mainInjuryId);
+                if (mainDebuff is not { IsPhasedInjury: true, TreatmentStarted: false })
+                    untreatedInjury = null;
+            }
+
+            if (string.IsNullOrEmpty(untreatedInjury))
+            {
+                _stateManager.State.NeglectStrikes = 0;
+                return;
+            }
+
+            if (!_treatmentManager.HasMatchingTreatment(untreatedInjury))
             {
                 _stateManager.State.NeglectStrikes++;
                 _monitor.Log($"Заброшенность лечения: {_stateManager.State.NeglectStrikes} дней", LogLevel.Debug);
@@ -392,6 +433,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         /// <summary>
         /// Восстанавливает баффы мода из снапшота, сделанного в конце прошлого дня.
+        /// Complication/main buffs восстанавливаются только при валидном состоянии InjuryState.
         /// </summary>
         private void RestoreBuffsFromSnapshot()
         {
@@ -402,13 +444,134 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
-            foreach (var buffId in saved)
+            int restored = 0;
+            foreach (string buffId in saved.ToList())
             {
-                if (!_buffManager.HasBuff(buffId))
-                    _buffManager.AddBuff(buffId, -2);
+                if (ShouldRestoreSavedBuff(buffId, out string? skipReason))
+                {
+                    if (!_buffManager.HasBuff(buffId))
+                    {
+                        _buffManager.AddBuff(buffId, -2);
+                        restored++;
+                    }
+
+                    continue;
+                }
+
+                LogBuffRestoreSkip(buffId, skipReason);
+
+                if (RemoveStaleSavedBuff(buffId))
+                {
+                    _monitor.Log(
+                        $"[BuffRestore] removed stale saved buff: {buffId}",
+                        LogLevel.Debug);
+                }
             }
 
-            _monitor.Log($"Восстановлено баффов из снапшота: {saved.Count}", LogLevel.Debug);
+            _stateManager.Save();
+            _monitor.Log(
+                $"[BuffRestore] restored {restored} buff(s), snapshot now has {_stateManager.State.SavedActiveBuffs.Count} entries",
+                LogLevel.Debug);
+        }
+
+        private bool ShouldRestoreSavedBuff(string buffId, out string? skipReason)
+        {
+            skipReason = null;
+
+            if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
+                return ShouldRestoreComplicationBuff(buffId, out skipReason);
+
+            if (IsMainInjuryBaseBuff(buffId))
+                return ShouldRestoreMainInjuryBuff(buffId, out skipReason);
+
+            return true;
+        }
+
+        private static bool IsMainInjuryBaseBuff(string buffId) =>
+            InjurySets.HarveyTreatable.Contains(buffId)
+            && !InjurySets.KnownComplicationBuffIds.Contains(buffId);
+
+        private bool ShouldRestoreMainInjuryBuff(string buffId, out string? skipReason)
+        {
+            skipReason = null;
+            string? mainInjuryId = _stateManager.GetMainInjuryId();
+
+            if (string.IsNullOrEmpty(mainInjuryId)
+                || !string.Equals(buffId, mainInjuryId, StringComparison.OrdinalIgnoreCase)
+                || !_stateManager.HasDebuffState(buffId))
+            {
+                skipReason = "main injury mismatch or missing DebuffState";
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool ShouldRestoreComplicationBuff(string buffId, out string? skipReason)
+        {
+            skipReason = null;
+
+            if (!_stateManager.State.ActiveComplications.ContainsKey(buffId))
+            {
+                skipReason = "not in ActiveComplications";
+                return false;
+            }
+
+            if (string.Equals(buffId, InjuryBuffs.WetBandage, StringComparison.OrdinalIgnoreCase)
+                && !_complicationManager.IsWetBandageComplicationValid())
+            {
+                skipReason = "no active bandage/treatment";
+                return false;
+            }
+
+            return true;
+        }
+
+        private void LogBuffRestoreSkip(string buffId, string? skipReason)
+        {
+            if (string.IsNullOrEmpty(skipReason))
+                return;
+
+            if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
+            {
+                _monitor.Log(
+                    $"[BuffRestore] skip invalid complication buff: {buffId}, reason={skipReason}",
+                    LogLevel.Debug);
+                return;
+            }
+
+            if (IsMainInjuryBaseBuff(buffId))
+            {
+                _monitor.Log(
+                    $"[BuffRestore] skip invalid main injury buff: {buffId}, reason={skipReason}",
+                    LogLevel.Debug);
+            }
+        }
+
+        private bool RemoveStaleSavedBuff(string buffId)
+        {
+            bool removedFromSaved = _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
+                string.Equals(id, buffId, StringComparison.OrdinalIgnoreCase)) > 0;
+
+            if (!removedFromSaved)
+                return false;
+
+            _buffManager.RemoveBuff(buffId);
+
+            if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
+                RemoveStaleComplicationState(buffId);
+
+            return true;
+        }
+
+        private void RemoveStaleComplicationState(string complicationId)
+        {
+            _stateManager.State.ActiveComplications.Remove(complicationId);
+
+            if (_stateManager.HasDebuffState(complicationId))
+                _stateManager.RemoveDebuffState(complicationId);
+
+            _dialogueManager.RemoveTopic(TopicIds.GetComplicationTopic(complicationId));
         }
 
         /// <summary>
@@ -418,20 +581,49 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private void CheckSimpleTreatmentCompletion()
         {
             int today = GetToday();
+            string? mainInjuryId = _stateManager.GetMainInjuryId();
 
             foreach (var (buffId, ds) in _stateManager.State.ActiveDebuffs.ToList())
             {
-                // Только нефазовое лечение (buffHurt, buffBadlyHurt, buffSurgicalWound)
-                if (ds.IsPhasedInjury || !ds.TreatmentStarted) continue;
+                if (WouldHaveLegacySimpleCompletion(ds, today))
+                {
+                    bool isComplication = _stateManager.State.ActiveComplications.ContainsKey(buffId)
+                        || InjurySets.KnownComplicationBuffIds.Contains(buffId);
+                    bool isSimpleMain = SimpleInjuryCures.Map.ContainsKey(buffId)
+                        && string.Equals(buffId, mainInjuryId, StringComparison.OrdinalIgnoreCase);
+
+                    if (isComplication || !isSimpleMain)
+                    {
+                        _monitor.Log(
+                            $"[SimpleTreatment] skip non-main/non-simple: {buffId}",
+                            LogLevel.Debug);
+                    }
+                }
+
+                if (!SimpleInjuryCures.Map.ContainsKey(buffId))
+                    continue;
+
+                if (!string.Equals(buffId, mainInjuryId, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (_stateManager.State.ActiveComplications.ContainsKey(buffId)
+                    || InjurySets.KnownComplicationBuffIds.Contains(buffId))
+                    continue;
+
+                if (ds.IsPhasedInjury || !ds.TreatmentStarted)
+                    continue;
+
+                if (!SimpleInjuryCures.Map.TryGetValue(buffId, out var cureBuff)
+                    || !_buffManager.HasBuff(cureBuff))
+                    continue;
 
                 int daysInTreatment = today - ds.PhaseStartDay;
-                if (daysInTreatment < ds.Phase1Duration) continue;
+                if (daysInTreatment < ds.Phase1Duration)
+                    continue;
 
                 _monitor.Log($"Нефазовое лечение завершено: {buffId} (прошло {daysInTreatment} из {ds.Phase1Duration} дней)", LogLevel.Info);
 
-                // Убираем лечебный бафф
-                if (SimpleInjuryCures.Map.TryGetValue(buffId, out var cureBuff))
-                    _buffManager.RemoveBuff(cureBuff);
+                _buffManager.RemoveBuff(cureBuff);
 
                 if (string.Equals(buffId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
                     _buffManager.RemoveBuff(CureBuffs.BadlyHurtOutpatientCare);
@@ -449,6 +641,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 Game1.addHUDMessage(new HUDMessage("Лечение завершено! Обратись к Харви для финального осмотра.", HUDMessage.health_type));
             }
         }
+
+        private static bool WouldHaveLegacySimpleCompletion(DebuffState ds, int today) =>
+            !ds.IsPhasedInjury
+            && ds.TreatmentStarted
+            && today - ds.PhaseStartDay >= ds.Phase1Duration;
     }
 }
 

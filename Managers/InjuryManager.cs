@@ -21,6 +21,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly DialogueManager _dialogueManager;
         private readonly HospitalizationManager _hospitalizationManager;
         private readonly ModConfig _config;
+        private ComplicationManager? _complicationManager;
         private int _lastInjuryGameTime = -999;
         private int _lastMainInjuryBlockedFeedbackHour = -1;
 
@@ -38,6 +39,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager = dialogueManager;
             _hospitalizationManager = hospitalizationManager;
             _config = config;
+        }
+
+        public void SetComplicationManager(ComplicationManager complicationManager)
+        {
+            _complicationManager = complicationManager;
         }
 
         /// <summary>
@@ -61,6 +67,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             string newInjuryId,
             Action applyAction,
             bool allowUpgrade = true,
+            bool forceReplace = false,
             bool suppressBlockedFeedback = false)
         {
             string? currentMain = _stateManager.GetMainInjuryId();
@@ -78,7 +85,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return false;
             }
 
-            if (allowUpgrade && CanUpgradeMainInjury(currentMain, newInjuryId))
+            if (forceReplace || (allowUpgrade && CanUpgradeMainInjury(currentMain, newInjuryId)))
             {
                 string oldInjuryId = currentMain;
                 RemoveAllPhaseBuffs(oldInjuryId);
@@ -86,7 +93,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _stateManager.RemoveDebuffState(oldInjuryId);
 
                 applyAction();
-                _stateManager.SetMainInjury(newInjuryId);
+                _stateManager.SetMainInjury(newInjuryId, force: forceReplace);
+
+                if (string.Equals(newInjuryId, "buffInfectedWound", StringComparison.OrdinalIgnoreCase))
+                    _complicationManager?.ClearWoundRelatedComplicationsAfterInfection();
+
                 _monitor.Log(
                     $"[MainInjury] Основная травма заменена: {oldInjuryId} -> {newInjuryId}",
                     LogLevel.Info);
@@ -178,21 +189,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private bool CanUpgradeMainInjury(string currentInjuryId, string newInjuryId)
         {
-            if (string.Equals(newInjuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase)
-                && string.Equals(currentInjuryId, "buffHurt", StringComparison.OrdinalIgnoreCase))
+            if (!InjurySets.IsMainInjuryUpgradePair(currentInjuryId, newInjuryId))
+                return false;
+
+            DebuffState? currentState = _stateManager.GetDebuffState(currentInjuryId);
+            if (currentState?.TreatmentStarted == true)
             {
-                return true;
+                _monitor.Log(
+                    $"[MainInjury] Upgrade заблокирован: {currentInjuryId} уже в лечении, попытка {newInjuryId}",
+                    LogLevel.Info);
+                return false;
             }
 
-            if (string.Equals(newInjuryId, "buffInfectedWound", StringComparison.OrdinalIgnoreCase)
-                && InjurySets.InfectionSensitive.Contains(currentInjuryId))
-            {
-                return true;
-            }
-
-            int currentPriority = GetInjuryPriorityPublic(currentInjuryId);
-            int newPriority = GetInjuryPriorityPublic(newInjuryId);
-            return newPriority - currentPriority >= InjuryPriorityStep;
+            return true;
         }
 
         private void RemoveMainInjuryTopics(string injuryId)
@@ -772,12 +781,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private void ApplyInfectedWoundCore()
         {
             _buffManager.AddBuff("buffInfectedWound", -2);
-            _dialogueManager.AddTopic(ConversationTopics.InfectedWound, 6);
+            _dialogueManager.AddTopic(ConversationTopics.InfectedWound, 14);
             Game1.playSound("debuffHit");
 
-            // Инициализируем состояние дебаффа (2 фазы: 2 + 4 = 6 дней)
+            // Инициализируем состояние дебаффа (2 фазы: 3 + 11 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffInfectedWound", currentDay, 2, 4, 0);
+            _stateManager.CreateDebuffState("buffInfectedWound", currentDay, 3, 11, 0);
         }
 
         public void ApplyInfectedWound()
@@ -830,7 +839,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             bool upgraded = TryApplyMainInjury(
                 "buffInfectedWound",
                 ApplyInfectedWoundCore,
-                allowUpgrade: true,
+                allowUpgrade: false,
+                forceReplace: true,
                 suppressBlockedFeedback: true);
 
             if (upgraded)
