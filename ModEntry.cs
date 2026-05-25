@@ -79,8 +79,18 @@ namespace HarveyOverhaul.InjuryCare
 
             helper.ConsoleCommands.Add(
                 "injury_debuff_add",
-                "Применить дебафф: injury_debuff_add <id> [минуты]. Минуты по умолчанию -2 (день). Пример: injury_debuff_add buffHurt",
+                "Применить дебафф: injury_debuff_add [--force] <id> [минуты]. Основная травма учитывает MainInjury; --force заменяет текущую main.",
                 (_, args) => CmdDebuffAdd(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_main_clear",
+                "[DEBUG] Очистить MainInjuryId без удаления баффов и DebuffState. Только для ремонта состояния.",
+                (_, _) => CmdMainClear());
+
+            helper.ConsoleCommands.Add(
+                "injury_main_set",
+                "[DEBUG] Установить MainInjuryId: injury_main_set <buffId> (нужен DebuffState). Только для ремонта состояния.",
+                (_, args) => CmdMainSet(args));
 
             helper.ConsoleCommands.Add(
                 "injury_phase_list",
@@ -278,28 +288,29 @@ namespace HarveyOverhaul.InjuryCare
                 Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
                 return;
             }
-            if (args.Length == 0)
+
+            bool forceReplace = args.Any(a => string.Equals(a, "--force", StringComparison.OrdinalIgnoreCase));
+            var positionalArgs = args
+                .Where(a => !string.Equals(a, "--force", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+            if (positionalArgs.Length == 0)
             {
-                Monitor.Log("Использование: injury_debuff_add <id> [минуты]. injury_debuff_list — список ID.", LogLevel.Info);
+                Monitor.Log(
+                    "Использование: injury_debuff_add [--force] <id> [минуты]. injury_debuff_list — список ID.",
+                    LogLevel.Info);
                 return;
             }
-            string id = args[0].Trim();
+
+            string id = positionalArgs[0].Trim();
             int minutes = -2;
-            if (args.Length >= 2 && int.TryParse(args[1], out int m))
+            if (positionalArgs.Length >= 2 && int.TryParse(positionalArgs[1], out int m))
                 minutes = m;
 
             var trauma = KnownTraumas.FirstOrDefault(t => t.BuffId.Equals(id, StringComparison.OrdinalIgnoreCase));
             if (trauma.BuffId != null)
             {
-                int today = (int)Game1.stats.DaysPlayed;
-                _buffManager.AddBuff(trauma.BuffId, minutes);
-                _stateManager.CreateDebuffState(trauma.BuffId, today, trauma.P1, trauma.P2, trauma.P3);
-                int topicDays = trauma.P1 + trauma.P2 + trauma.P3;
-                if (topicDays <= 0) topicDays = 7;
-                _dialogueManager.AddTopic(trauma.TopicId, topicDays);
-                _dialogueManager.TryAddHarveyNeedsFirstTreatmentTopic(trauma.BuffId);
-                Monitor.Log($"Применена травма: {trauma.BuffId}, топик {trauma.TopicId} на {topicDays} д.", LogLevel.Info);
-                Game1.addHUDMessage(new HUDMessage($"[ДЕБАГ] Дебафф: {trauma.BuffId}", HUDMessage.achievement_type));
+                CmdDebuffAddTrauma(trauma, minutes, forceReplace);
                 return;
             }
 
@@ -324,6 +335,149 @@ namespace HarveyOverhaul.InjuryCare
             Game1.addHUDMessage(new HUDMessage($"[ДЕБАГ] Бафф: {id}", HUDMessage.achievement_type));
         }
 
+        private void CmdDebuffAddTrauma(
+            (string BuffId, string TopicId, int P1, int P2, int P3) trauma,
+            int minutes,
+            bool forceReplace)
+        {
+            string? currentMain = _stateManager.GetMainInjuryId();
+            if (!string.IsNullOrEmpty(currentMain)
+                && !string.Equals(currentMain, trauma.BuffId, StringComparison.OrdinalIgnoreCase)
+                && !forceReplace)
+            {
+                Monitor.Log(
+                    $"Отказ: MainInjury={currentMain}, попытка добавить {trauma.BuffId}. " +
+                    "Используйте --force для замены основной травмы.",
+                    LogLevel.Warn);
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(currentMain)
+                && string.Equals(currentMain, trauma.BuffId, StringComparison.OrdinalIgnoreCase))
+            {
+                ApplyDebugTraumaEffects(trauma, minutes);
+                Monitor.Log(
+                    $"MainInjury уже {trauma.BuffId} — обновлены бафф/состояние/топик.",
+                    LogLevel.Info);
+                Game1.addHUDMessage(new HUDMessage($"[ДЕБАГ] Main: {trauma.BuffId}", HUDMessage.achievement_type));
+                return;
+            }
+
+            bool applied = _injuryManager.TryApplyMainInjury(
+                trauma.BuffId,
+                () => ApplyDebugTraumaEffects(trauma, minutes),
+                allowUpgrade: forceReplace || string.IsNullOrEmpty(currentMain));
+
+            if (!applied)
+            {
+                Monitor.Log(
+                    $"Не удалось применить основную травму {trauma.BuffId} через MainInjury. " +
+                    "Попробуйте --force или injury_main_clear.",
+                    LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log(
+                $"Применена основная травма: {trauma.BuffId}, MainInjuryId={_stateManager.GetMainInjuryId()}",
+                LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage($"[ДЕБАГ] Main injury: {trauma.BuffId}", HUDMessage.achievement_type));
+        }
+
+        private void ApplyDebugTraumaEffects(
+            (string BuffId, string TopicId, int P1, int P2, int P3) trauma,
+            int minutes)
+        {
+            int today = (int)Game1.stats.DaysPlayed;
+            _buffManager.AddBuff(trauma.BuffId, minutes);
+            _stateManager.CreateDebuffState(trauma.BuffId, today, trauma.P1, trauma.P2, trauma.P3);
+            int topicDays = trauma.P1 + trauma.P2 + trauma.P3;
+            if (topicDays <= 0) topicDays = 7;
+            _dialogueManager.AddTopic(trauma.TopicId, topicDays);
+            _dialogueManager.TryAddHarveyNeedsFirstTreatmentTopic(trauma.BuffId);
+        }
+
+        private void CmdMainClear()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            _stateManager.DebugClearMainInjuryId();
+        }
+
+        private void CmdMainSet(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log("Использование: injury_main_set <buffId>", LogLevel.Info);
+                return;
+            }
+
+            string buffId = args[0].Trim();
+            if (_stateManager.DebugSetMainInjuryId(buffId))
+            {
+                Monitor.Log(
+                    $"MainInjuryId={_stateManager.GetMainInjuryId()}, valid={YesNo(IsMainInjuryStateValid(_stateManager.GetMainInjuryId()))}",
+                    LogLevel.Info);
+            }
+        }
+
+        private bool IsMainInjuryStateValid(string? mainInjuryId)
+        {
+            if (string.IsNullOrEmpty(mainInjuryId))
+                return false;
+
+            if (InjurySets.KnownComplicationBuffIds.Contains(mainInjuryId))
+                return false;
+
+            if (_stateManager.GetDebuffState(mainInjuryId) == null)
+                return false;
+
+            return _injuryManager.HasInjuryOrPhase(mainInjuryId);
+        }
+
+        private static string FormatComplicationsList(InjuryState state)
+        {
+            if (state.ActiveComplications.Count == 0)
+                return "(none)";
+
+            return string.Join(", ", state.ActiveComplications.Keys);
+        }
+
+        private void AppendMainInjuryDebugBlock(StringBuilder sb, InjuryState state)
+        {
+            string? mainId = _stateManager.GetMainInjuryId() ?? _injuryManager.GetActiveInjury();
+            bool valid = IsMainInjuryStateValid(mainId);
+
+            sb.AppendLine($"Main injury: {(string.IsNullOrEmpty(mainId) ? "(none)" : mainId)}  valid: {YesNo(valid)}");
+
+            var mainState = string.IsNullOrEmpty(mainId) ? null : _stateManager.GetDebuffState(mainId);
+            if (mainState == null)
+            {
+                sb.AppendLine("Main injury phase: -");
+                sb.AppendLine("Main injury treatment started: -");
+                sb.AppendLine("ReadyForNextPhase / ReadyForRecovery: - / -");
+            }
+            else
+            {
+                sb.AppendLine($"Main injury phase: {GetInjuryStateLabel(mainState)}");
+                sb.AppendLine($"Main injury treatment started: {YesNo(mainState.TreatmentStarted)}");
+                sb.AppendLine(
+                    $"ReadyForNextPhase / ReadyForRecovery: {YesNo(mainState.ReadyForNextPhase)} / {YesNo(mainState.ReadyForRecovery)}");
+            }
+
+            sb.AppendLine($"Complications: {FormatComplicationsList(state)}");
+            sb.AppendLine($"SavedActiveBuffs count: {state.SavedActiveBuffs?.Count ?? 0}");
+        }
+
         private void CmdPhaseList()
         {
             if (!Context.IsWorldReady)
@@ -331,6 +485,13 @@ namespace HarveyOverhaul.InjuryCare
                 Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
                 return;
             }
+
+            var state = _stateManager.State;
+            string? mainId = _stateManager.GetMainInjuryId();
+            Monitor.Log($"MainInjuryId: {(string.IsNullOrEmpty(mainId) ? "(none)" : mainId)}", LogLevel.Info);
+            Monitor.Log($"Active main injury valid: {YesNo(IsMainInjuryStateValid(mainId))}", LogLevel.Info);
+            Monitor.Log($"Complications: {FormatComplicationsList(state)}", LogLevel.Info);
+
             var all = _stateManager.GetAllActiveDebuffStates();
             if (all.Count == 0)
             {
@@ -1307,7 +1468,8 @@ namespace HarveyOverhaul.InjuryCare
                 _harveyReactionManager,
                 _prescriptionManager,
                 _complianceManager,
-                _rehabManager
+                _rehabManager,
+                _complicationManager
             );
 
             _interactionHandler = new InteractionHandler(
@@ -1335,7 +1497,8 @@ namespace HarveyOverhaul.InjuryCare
                 _dialogueManager,
                 _hospitalizationManager,
                 _hospitalActivityManager,
-                _treatmentManager
+                _treatmentManager,
+                _injuryManager
             );
 
             _passOutHandler = new PassOutHandler(
@@ -1594,6 +1757,9 @@ namespace HarveyOverhaul.InjuryCare
 
         private void AppendInjuriesDiagnosticBlock(StringBuilder sb, InjuryState state, int today)
         {
+            sb.AppendLine("=== MAIN INJURY ===");
+            AppendMainInjuryDebugBlock(sb, state);
+
             sb.AppendLine("=== INJURIES ===");
             if (state.ActiveDebuffs.Count == 0)
             {
@@ -1804,6 +1970,7 @@ namespace HarveyOverhaul.InjuryCare
 
         private void AppendCompactInjuriesSummary(StringBuilder sb, InjuryState state)
         {
+            AppendMainInjuryDebugBlock(sb, state);
             sb.AppendLine($"Active injuries ({state.ActiveDebuffs.Count}):");
             if (state.ActiveDebuffs.Count == 0)
             {
@@ -1936,7 +2103,7 @@ namespace HarveyOverhaul.InjuryCare
 
             sb.AppendLine($"location: {Game1.currentLocation?.NameOrUniqueName ?? "-"}");
             sb.AppendLine($"time: {Game1.timeOfDay}  health: {Game1.player.health}/{Game1.player.maxHealth}  stamina: {(int)Game1.player.Stamina}/{(int)Game1.player.MaxStamina}");
-            sb.AppendLine($"has Severe: {YesNo(_buffManager.HasAnyBuff(InjurySets.Severe.ToArray()))}  has Critical: {YesNo(_buffManager.HasAnyBuff(InjurySets.Critical.ToArray()))}");
+            sb.AppendLine($"MainInjury serious: {YesNo(_injuryManager.IsMainInjurySerious())}  dirty+serious: {YesNo(_injuryManager.HasSeriousMainInjuryWithDirtyWound())}");
         }
 
         private void BuildCompactDebugHud(StringBuilder sb, InjuryState state)

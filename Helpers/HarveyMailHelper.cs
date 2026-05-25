@@ -74,6 +74,17 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             return true;
         }
 
+        /// <summary>Было ли письмо с этим dedupeKey уже запланировано сегодня.</summary>
+        public static bool WasSentToday(StateManager stateManager, string dedupeKey)
+        {
+            if (string.IsNullOrWhiteSpace(dedupeKey))
+                return false;
+
+            int today = (int)Game1.stats.DaysPlayed;
+            return stateManager.State.SentMedicalMailDays.TryGetValue(dedupeKey, out int sentDay)
+                && sentDay == today;
+        }
+
         /// <summary>Базовый ID письма о нарушении предписания по reason.</summary>
         public static string GetPrescriptionViolationMailBase(string reason) =>
             reason switch

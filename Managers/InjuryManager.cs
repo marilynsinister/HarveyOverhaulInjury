@@ -6,6 +6,7 @@ using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
 using StardewModdingAPI;
 using StardewValley;
+using StardewValley.Locations;
 
 namespace HarveyOverhaul.InjuryCare.Managers
 {
@@ -21,24 +22,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly HospitalizationManager _hospitalizationManager;
         private readonly ModConfig _config;
         private int _lastInjuryGameTime = -999;
-
-        // Приоритет травм (от серьёзных к лёгким)
-        private static readonly string[] InjuryPriority = new[]
-        {
-            "buffConcussion",
-            "buffInfectedWound",
-            "buffFracturedBone",
-            "buffSurgicalWound",
-            "buffShrapnelWounds",
-            "buffBurnWounds",
-            "buffDeepCuts",
-            "buffTornMuscles",
-            "buffBackStrain",
-            "buffBruisedRibs",
-            "buffSprainedAnkle",
-            "buffBadlyHurt",
-            "buffHurt"
-        };
+        private int _lastMainInjuryBlockedFeedbackHour = -1;
 
         public InjuryManager(
             IMonitor monitor, 
@@ -57,43 +41,280 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
-        /// Получить активную травму по приоритету (только базовый buff* на игроке).
+        /// Числовой приоритет основной травмы (выше = серьёнее). Шаг между соседними рангами — 20.
+        /// </summary>
+        public int GetInjuryPriorityPublic(string injuryId)
+        {
+            for (int i = 0; i < InjurySets.MainInjuryPriorityOrder.Length; i++)
+            {
+                if (string.Equals(InjurySets.MainInjuryPriorityOrder[i], injuryId, StringComparison.OrdinalIgnoreCase))
+                    return (InjurySets.MainInjuryPriorityOrder.Length - i) * InjuryPriorityStep;
+            }
+
+            return 0;
+        }
+
+        /// <summary>
+        /// Попытаться применить основную травму с учётом правила «только одна основная».
+        /// </summary>
+        public bool TryApplyMainInjury(
+            string newInjuryId,
+            Action applyAction,
+            bool allowUpgrade = true,
+            bool suppressBlockedFeedback = false)
+        {
+            string? currentMain = _stateManager.GetMainInjuryId();
+
+            if (string.IsNullOrEmpty(currentMain))
+            {
+                applyAction();
+                _stateManager.SetMainInjury(newInjuryId);
+                return true;
+            }
+
+            if (string.Equals(currentMain, newInjuryId, StringComparison.OrdinalIgnoreCase))
+            {
+                _monitor.Log($"[MainInjury] Травма уже активна: {newInjuryId}", LogLevel.Debug);
+                return false;
+            }
+
+            if (allowUpgrade && CanUpgradeMainInjury(currentMain, newInjuryId))
+            {
+                string oldInjuryId = currentMain;
+                RemoveAllPhaseBuffs(oldInjuryId);
+                RemoveMainInjuryTopics(oldInjuryId);
+                _stateManager.RemoveDebuffState(oldInjuryId);
+
+                applyAction();
+                _stateManager.SetMainInjury(newInjuryId);
+                _monitor.Log(
+                    $"[MainInjury] Основная травма заменена: {oldInjuryId} -> {newInjuryId}",
+                    LogLevel.Info);
+                return true;
+            }
+
+            _monitor.Log(
+                $"[MainInjury] Новая травма заблокирована, уже есть основная: {currentMain}, попытка: {newInjuryId}",
+                LogLevel.Debug);
+            if (!suppressBlockedFeedback)
+                HandleMainInjuryBlocked(currentMain, newInjuryId);
+            return false;
+        }
+
+        private void HandleMainInjuryBlocked(string currentMain, string newInjuryId)
+        {
+            int currentPriority = GetInjuryPriorityPublic(currentMain);
+            int newPriority = GetInjuryPriorityPublic(newInjuryId);
+            bool isHeavierAttempt = newPriority > currentPriority;
+
+            if (isHeavierAttempt && !ShouldSkipPainFlareForMineDirtyWound(currentMain))
+                TryApplyPainFlareInsteadOfInjury(newInjuryId);
+
+            TryShowMainInjuryBlockedHud(newInjuryId, isHeavierAttempt);
+        }
+
+        /// <summary>
+        /// В шахте при DirtyInMines-травме осложнение — DirtyWound, не PainFlare.
+        /// </summary>
+        private static bool ShouldSkipPainFlareForMineDirtyWound(string currentMainInjuryId)
+        {
+            if (!InjurySets.DirtyInMines.Contains(currentMainInjuryId))
+                return false;
+
+            return IsInsideMineOrVolcano(Game1.player?.currentLocation);
+        }
+
+        private static bool IsInsideMineOrVolcano(GameLocation? location)
+        {
+            if (location == null)
+                return false;
+
+            return location is MineShaft or VolcanoDungeon
+                || string.Equals(location.NameOrUniqueName, "Mine", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(location.NameOrUniqueName, "UndergroundMine", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(location.NameOrUniqueName, "VolcanoDungeon", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void TryApplyPainFlareInsteadOfInjury(string attemptedInjuryId)
+        {
+            if (_buffManager.HasBuff(InjuryBuffs.PainFlare)
+                || _stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.PainFlare))
+            {
+                return;
+            }
+
+            int today = GameUtils.Today();
+            _buffManager.AddBuff(InjuryBuffs.PainFlare, -2);
+            _stateManager.State.ActiveComplications[InjuryBuffs.PainFlare] = today;
+            _stateManager.CreateComplicationState(InjuryBuffs.PainFlare, today);
+            _dialogueManager.AddTopic(ConversationTopics.PainFlare, 2);
+            _monitor.Log(
+                $"[MainInjury] Вместо новой травмы добавлено обострение боли (попытка: {attemptedInjuryId})",
+                LogLevel.Info);
+        }
+
+        private void TryShowMainInjuryBlockedHud(string newInjuryId, bool isHeavierAttempt)
+        {
+            int currentHour = Game1.timeOfDay / 100;
+            if (_lastMainInjuryBlockedFeedbackHour == currentHour)
+                return;
+
+            _lastMainInjuryBlockedFeedbackHour = currentHour;
+
+            bool isSevereCase = isHeavierAttempt
+                || InjurySets.Severe.Contains(newInjuryId)
+                || InjurySets.Critical.Contains(newInjuryId);
+
+            string message = isSevereCase
+                ? "Твоё состояние ухудшилось. Лучше показаться Харви."
+                : "Старая травма дала о себе знать...";
+
+            Game1.addHUDMessage(new HUDMessage(
+                message,
+                isSevereCase ? HUDMessage.error_type : HUDMessage.health_type));
+        }
+
+        private const int InjuryPriorityStep = 20;
+
+        private bool CanUpgradeMainInjury(string currentInjuryId, string newInjuryId)
+        {
+            if (string.Equals(newInjuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(currentInjuryId, "buffHurt", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (string.Equals(newInjuryId, "buffInfectedWound", StringComparison.OrdinalIgnoreCase)
+                && InjurySets.InfectionSensitive.Contains(currentInjuryId))
+            {
+                return true;
+            }
+
+            int currentPriority = GetInjuryPriorityPublic(currentInjuryId);
+            int newPriority = GetInjuryPriorityPublic(newInjuryId);
+            return newPriority - currentPriority >= InjuryPriorityStep;
+        }
+
+        private void RemoveMainInjuryTopics(string injuryId)
+        {
+            _dialogueManager.RemoveTopic(TopicIds.GetInjuryTopic(injuryId));
+            _dialogueManager.RemoveTopic(TopicIds.GetTreatmentTopic(injuryId));
+            for (int phase = 1; phase <= 3; phase++)
+                _dialogueManager.RemoveTopic(GetPhaseTopicId(injuryId, phase));
+
+            switch (injuryId)
+            {
+                case "buffBadlyHurt":
+                case "buffFracturedBone":
+                case "buffShrapnelWounds":
+                    _dialogueManager.RemoveTopic(ConversationTopics.HealthDamageCritical);
+                    break;
+                case "buffTornMuscles":
+                case "buffConcussion":
+                    _dialogueManager.RemoveTopic(ConversationTopics.HealthDamageSevere);
+                    break;
+            }
+
+            if (string.Equals(injuryId, "buffShrapnelWounds", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(injuryId, "buffSurgicalWound", StringComparison.OrdinalIgnoreCase))
+            {
+                _dialogueManager.RemoveTopic(ConversationTopics.PostOperativeCare);
+            }
+        }
+
+        /// <summary>
+        /// Получить активную основную травму (базовый buffId, не фазовый бафф).
         /// </summary>
         public string? GetActiveInjury()
         {
-            foreach (var injury in InjuryPriority)
+            string? mainInjuryId = _stateManager.GetMainInjuryId();
+
+            if (!string.IsNullOrEmpty(mainInjuryId))
             {
-                if (_buffManager.HasBuff(injury))
-                    return injury;
+                if (!IsBaseMainInjuryId(mainInjuryId))
+                {
+                    _stateManager.ClearMainInjury(mainInjuryId);
+                }
+                else if (HasInjuryOrPhase(mainInjuryId))
+                {
+                    LogActiveMainInjury(mainInjuryId);
+                    return mainInjuryId;
+                }
+                else
+                {
+                    _stateManager.ClearMainInjury(mainInjuryId);
+                }
             }
+
+            foreach (string injuryId in InjurySets.MainInjuryPriorityOrder)
+            {
+                if (!HasInjuryOrPhase(injuryId))
+                    continue;
+
+                _stateManager.SetMainInjury(injuryId);
+                LogActiveMainInjury(injuryId);
+                return injuryId;
+            }
+
             return null;
         }
 
         /// <summary>
         /// Получить активную травму или её фазу по приоритету (для госпитализации и мед. пайплайна).
         /// </summary>
-        public string? GetActiveInjuryOrPhaseByPriority()
+        public string? GetActiveInjuryOrPhaseByPriority() => GetActiveInjury();
+
+        private static bool IsBaseMainInjuryId(string injuryId) =>
+            InjurySets.HarveyTreatable.Contains(injuryId)
+            && !InjurySets.KnownComplicationBuffIds.Contains(injuryId);
+
+        private void LogActiveMainInjury(string injuryId)
         {
-            foreach (var injuryId in InjuryPriority)
-            {
-                if (HasInjuryOrPhase(injuryId))
-                    return injuryId;
-            }
-            return null;
+            _monitor.Log($"[MainInjury] Активная основная травма: {injuryId}", LogLevel.Trace);
         }
 
         /// <summary>
-        /// Есть ли хотя бы одна Severe-травма (базовый buff или фазовый бафф лечения).
+        /// MainInjury ∈ Severe ∪ Critical (без учёта осложнений вроде PainFlare).
         /// </summary>
-        public bool HasAnySevereInjuryOrPhase()
+        public static bool IsSeriousMainInjuryId(string? injuryId)
         {
-            foreach (var injuryId in InjurySets.Severe)
-            {
-                if (HasInjuryOrPhase(injuryId))
-                    return true;
-            }
-            return false;
+            if (string.IsNullOrEmpty(injuryId))
+                return false;
+
+            return InjurySets.Severe.Contains(injuryId)
+                || InjurySets.Critical.Contains(injuryId);
         }
+
+        /// <summary>
+        /// Серьёзная основная травма: MainInjury ∈ Severe ∪ Critical и активна (база или фаза).
+        /// Осложнения сами по себе не считаются серьёзной травмой.
+        /// </summary>
+        public bool IsMainInjurySerious()
+        {
+            string? mainInjuryId = GetActiveInjury();
+            if (string.IsNullOrEmpty(mainInjuryId))
+                return false;
+
+            if (!IsSeriousMainInjuryId(mainInjuryId))
+                return false;
+
+            return HasInjuryOrPhase(mainInjuryId);
+        }
+
+        public bool HasDirtyWoundComplication() =>
+            _buffManager.HasBuff(InjuryBuffs.DirtyWound)
+            || _stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.DirtyWound);
+
+        /// <summary>
+        /// Серьёзная основная + грязная рана — усиленный риск (шахта, госпитализация).
+        /// </summary>
+        public bool HasSeriousMainInjuryWithDirtyWound() =>
+            IsMainInjurySerious() && HasDirtyWoundComplication();
+
+        /// <summary>
+        /// Есть серьёзная основная травма (MainInjury, не «любой severe buff»).
+        /// </summary>
+        public bool HasAnySevereInjuryOrPhase() => IsMainInjurySerious();
 
         /// <summary>
         /// Проверить наличие травмы или её фазы
@@ -217,10 +438,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             var result = new InjuryCollection
             {
-                MainInjury = GetActiveInjuryOrPhaseByPriority()
+                MainInjury = GetActiveInjury()
             };
-
-            //_monitor.Log($"📊 Основная травма = {result.MainInjury ?? "нет"}", LogLevel.Debug);
 
             // Проверяем осложнения
             CheckAndAddComplication(result, InjuryBuffs.DirtyWound, "DirtyWound");
@@ -229,7 +448,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
             CheckAndAddComplication(result, InjuryBuffs.AllergicRash, "AllergicRash");
             CheckAndAddComplication(result, InjuryBuffs.PainFlare, "PainFlare");
 
-            //_monitor.Log($"📊 Итого: основная травма={result.MainInjury ?? "нет"}, осложнений={result.Complications.Count}", LogLevel.Info);
             return result;
         }
 
@@ -353,7 +571,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 }
 
                 _monitor.Log($"Применяем травму {injuryId}", LogLevel.Info);
-                applyFunc();
+                if (!TryApplyMainInjury(injuryId, applyFunc))
+                    return;
+
                 _dialogueManager.TryAddHarveyNeedsFirstTreatmentTopic(injuryId);
 
                 if (storyOneShot)
@@ -386,7 +606,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         // === ЛЁГКИЕ ТРАВМЫ ===
 
-        public void ApplyHurt()
+        private void ApplyHurtCore()
         {
             _buffManager.AddBuff("buffHurt", -2);
             _dialogueManager.AddTopic(ConversationTopics.Hurt, 2);
@@ -395,12 +615,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.CreateDebuffState("buffHurt", currentDay, 2, 0, 0);
         }
 
-        public void ApplyHurtSafe()
+        public void ApplyHurt()
         {
-            ApplyInjurySafe("buffHurt", ApplyHurt, Triggers.Hurt);
+            TryApplyMainInjury("buffHurt", ApplyHurtCore);
         }
 
-        public void ApplyBadlyHurt()
+        public void ApplyHurtSafe()
+        {
+            ApplyInjurySafe("buffHurt", ApplyHurtCore, Triggers.Hurt);
+        }
+
+        private void ApplyBadlyHurtCore()
         {
             _buffManager.AddBuff("buffBadlyHurt", -2);
             _dialogueManager.AddTopic(ConversationTopics.BadlyHurt, 4);
@@ -414,27 +639,28 @@ namespace HarveyOverhaul.InjuryCare.Managers
             // с информативным сообщением через CheckHarveyProximity() или HandleHospitalLogic()
         }
 
+        public void ApplyBadlyHurt()
+        {
+            TryApplyMainInjury("buffBadlyHurt", ApplyBadlyHurtCore);
+        }
+
         public void ApplyBadlyHurtSafe()
         {
-            ApplyInjurySafe("buffBadlyHurt", ApplyBadlyHurt, Triggers.BadlyHurt);
+            ApplyInjurySafe("buffBadlyHurt", ApplyBadlyHurtCore, Triggers.BadlyHurt);
         }
 
         public void ApplyBadlyHurtFromMinePassOut()
         {
-            if (_buffManager.HasBuff("buffBadlyHurt"))
-            {
-                _monitor.Log("[MineRescue] buffBadlyHurt уже активен, повторно не накладываем", LogLevel.Debug);
-                return;
-            }
-
             _monitor.Log("[MineRescue] Принудительно применяем buffBadlyHurt после смерти в шахте", LogLevel.Warn);
-            ApplyBadlyHurt();
+            if (!TryApplyMainInjury("buffBadlyHurt", ApplyBadlyHurtCore))
+                return;
+
             _dialogueManager.TryAddHarveyNeedsFirstTreatmentTopic("buffBadlyHurt");
         }
 
         // === СРЕДНИЕ ТРАВМЫ ===
 
-        public void ApplySprainedAnkle()
+        private void ApplySprainedAnkleCore()
         {
             _buffManager.AddBuff("buffSprainedAnkle", -2);
             _dialogueManager.AddTopic(ConversationTopics.SprainedAnkle, 7);
@@ -445,12 +671,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.CreateDebuffState("buffSprainedAnkle", currentDay, 3, 4, 0);
         }
 
-        public void ApplySprainedAnkleSafe()
+        public void ApplySprainedAnkle()
         {
-            ApplyInjurySafe("buffSprainedAnkle", ApplySprainedAnkle, Triggers.SprainedAnkle);
+            TryApplyMainInjury("buffSprainedAnkle", ApplySprainedAnkleCore);
         }
 
-        public void ApplyBruisedRibs()
+        public void ApplySprainedAnkleSafe()
+        {
+            ApplyInjurySafe("buffSprainedAnkle", ApplySprainedAnkleCore, Triggers.SprainedAnkle);
+        }
+
+        private void ApplyBruisedRibsCore()
         {
             _buffManager.AddBuff("buffBruisedRibs", -2);
             _dialogueManager.AddTopic(ConversationTopics.BruisedRibs, 9);
@@ -461,12 +692,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.CreateDebuffState("buffBruisedRibs", currentDay, 4, 5, 0);
         }
 
-        public void ApplyBruisedRibsSafe()
+        public void ApplyBruisedRibs()
         {
-            ApplyInjurySafe("buffBruisedRibs", ApplyBruisedRibs, Triggers.BruisedRibs);
+            TryApplyMainInjury("buffBruisedRibs", ApplyBruisedRibsCore);
         }
 
-        public void ApplyBackStrain()
+        public void ApplyBruisedRibsSafe()
+        {
+            ApplyInjurySafe("buffBruisedRibs", ApplyBruisedRibsCore, Triggers.BruisedRibs);
+        }
+
+        private void ApplyBackStrainCore()
         {
             _buffManager.AddBuff("buffBackStrain", -2);
             _dialogueManager.AddTopic(ConversationTopics.BackStrain, 6);
@@ -477,12 +713,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.CreateDebuffState("buffBackStrain", currentDay, 2, 4, 0);
         }
 
-        public void ApplyBackStrainSafe()
+        public void ApplyBackStrain()
         {
-            ApplyInjurySafe("buffBackStrain", ApplyBackStrain, Triggers.BackStrain);
+            TryApplyMainInjury("buffBackStrain", ApplyBackStrainCore);
         }
 
-        public void ApplyDeepCuts(string source = "generic")
+        public void ApplyBackStrainSafe()
+        {
+            ApplyInjurySafe("buffBackStrain", ApplyBackStrainCore, Triggers.BackStrain);
+        }
+
+        private void ApplyDeepCutsCore()
         {
             // Применяем базовый бафф травмы (до лечения)
             _buffManager.AddBuff("buffDeepCuts", -2);
@@ -494,15 +735,20 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.CreateDebuffState("buffDeepCuts", currentDay, 2, 3, 2);
         }
 
+        public void ApplyDeepCuts(string source = "generic")
+        {
+            TryApplyMainInjury("buffDeepCuts", ApplyDeepCutsCore);
+        }
+
         public void ApplyDeepCutsSafe(string source = "generic")
         {
             string trigger = source == "combat" 
                 ? Triggers.DeepCutsCombat 
                 : Triggers.DeepCutsFarming;
-            ApplyInjurySafe("buffDeepCuts", () => ApplyDeepCuts(source), trigger);
+            ApplyInjurySafe("buffDeepCuts", ApplyDeepCutsCore, trigger);
         }
 
-        public void ApplyBurnWounds()
+        private void ApplyBurnWoundsCore()
         {
             _buffManager.AddBuff("buffBurnWounds", -2);
             _dialogueManager.AddTopic(ConversationTopics.BurnWounds, 8);
@@ -511,15 +757,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
             // Инициализируем состояние дебаффа (2 фазы: 3 + 5 = 8 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
             _stateManager.CreateDebuffState("buffBurnWounds", currentDay, 3, 5, 0);
+        }
 
+        public void ApplyBurnWounds()
+        {
+            TryApplyMainInjury("buffBurnWounds", ApplyBurnWoundsCore);
         }
 
         public void ApplyBurnWoundsSafe()
         {
-            ApplyInjurySafe("buffBurnWounds", ApplyBurnWounds, Triggers.BurnWounds);
+            ApplyInjurySafe("buffBurnWounds", ApplyBurnWoundsCore, Triggers.BurnWounds);
         }
 
-        public void ApplyInfectedWound()
+        private void ApplyInfectedWoundCore()
         {
             _buffManager.AddBuff("buffInfectedWound", -2);
             _dialogueManager.AddTopic(ConversationTopics.InfectedWound, 6);
@@ -528,17 +778,70 @@ namespace HarveyOverhaul.InjuryCare.Managers
             // Инициализируем состояние дебаффа (2 фазы: 2 + 4 = 6 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
             _stateManager.CreateDebuffState("buffInfectedWound", currentDay, 2, 4, 0);
+        }
 
+        public void ApplyInfectedWound()
+        {
+            TryApplyMainInjury("buffInfectedWound", ApplyInfectedWoundCore);
         }
 
         public void ApplyInfectedWoundSafe()
         {
-            ApplyInjurySafe("buffInfectedWound", ApplyInfectedWound, Triggers.InfectedWound);
+            ApplyInjurySafe("buffInfectedWound", ApplyInfectedWoundCore, Triggers.InfectedWound);
+        }
+
+        /// <summary>
+        /// Эскалация осложнения (DirtyWound/WetBandage) в основную травму buffInfectedWound.
+        /// Заменяет InfectionSensitive MainInjury через TryApplyMainInjury, без cooldown ApplyInjurySafe.
+        /// </summary>
+        public bool TryEscalateComplicationToInfectedWound(string sourceComplicationId)
+        {
+            string? currentMain = _stateManager.GetMainInjuryId();
+            if (string.IsNullOrEmpty(currentMain))
+                currentMain = GetActiveInjury();
+
+            if (string.IsNullOrEmpty(currentMain))
+            {
+                _monitor.Log(
+                    $"[MainInjury] Эскалация инфекции отменена: нет основной травмы (source={sourceComplicationId})",
+                    LogLevel.Warn);
+                return false;
+            }
+
+            if (!InjurySets.InfectionSensitive.Contains(currentMain))
+            {
+                _monitor.Log(
+                    $"[MainInjury] Эскалация инфекции отменена: {currentMain} не InfectionSensitive (source={sourceComplicationId})",
+                    LogLevel.Debug);
+                return false;
+            }
+
+            if (string.Equals(currentMain, "buffInfectedWound", StringComparison.OrdinalIgnoreCase))
+            {
+                _monitor.Log(
+                    $"[MainInjury] Эскалация инфекции: уже buffInfectedWound (source={sourceComplicationId})",
+                    LogLevel.Info);
+                return true;
+            }
+
+            if (string.IsNullOrEmpty(_stateManager.GetMainInjuryId()))
+                _stateManager.SetMainInjury(currentMain);
+
+            bool upgraded = TryApplyMainInjury(
+                "buffInfectedWound",
+                ApplyInfectedWoundCore,
+                allowUpgrade: true,
+                suppressBlockedFeedback: true);
+
+            if (upgraded)
+                _dialogueManager.TryAddHarveyNeedsFirstTreatmentTopic("buffInfectedWound");
+
+            return upgraded;
         }
 
         // === ТЯЖЁЛЫЕ ТРАВМЫ (3 фазы) ===
 
-        public void ApplyTornMuscles()
+        private void ApplyTornMusclesCore()
         {
             _buffManager.AddBuff("buffTornMuscles", -2);
             _dialogueManager.AddTopic(ConversationTopics.TornMuscles, 11);
@@ -550,12 +853,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.CreateDebuffState("buffTornMuscles", currentDay, 3, 5, 3);
         }
 
-        public void ApplyTornMusclesSafe()
+        public void ApplyTornMuscles()
         {
-            ApplyInjurySafe("buffTornMuscles", ApplyTornMuscles, Triggers.TornMuscles);
+            TryApplyMainInjury("buffTornMuscles", ApplyTornMusclesCore);
         }
 
-        public void ApplyConcussion()
+        public void ApplyTornMusclesSafe()
+        {
+            ApplyInjurySafe("buffTornMuscles", ApplyTornMusclesCore, Triggers.TornMuscles);
+        }
+
+        private void ApplyConcussionCore()
         {
             _buffManager.AddBuff("buffConcussion", -2);
             _dialogueManager.AddTopic(ConversationTopics.Concussion, 9);
@@ -573,12 +881,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
         }
 
-        public void ApplyConcussionSafe()
+        public void ApplyConcussion()
         {
-            ApplyInjurySafe("buffConcussion", ApplyConcussion, Triggers.Concussion);
+            TryApplyMainInjury("buffConcussion", ApplyConcussionCore);
         }
 
-        public void ApplyFracturedBone()
+        public void ApplyConcussionSafe()
+        {
+            ApplyInjurySafe("buffConcussion", ApplyConcussionCore, Triggers.Concussion);
+        }
+
+        private void ApplyFracturedBoneCore()
         {
             _buffManager.AddBuff("buffFracturedBone", -2);
             _dialogueManager.AddTopic(ConversationTopics.FracturedBone, 18);
@@ -588,15 +901,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
             // Инициализируем состояние дебаффа (3 фазы: 4 + 10 + 4 = 18 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
             _stateManager.CreateDebuffState("buffFracturedBone", currentDay, 4, 10, 4);
+        }
 
+        public void ApplyFracturedBone()
+        {
+            TryApplyMainInjury("buffFracturedBone", ApplyFracturedBoneCore);
         }
 
         public void ApplyFracturedBoneSafe()
         {
-            ApplyInjurySafe("buffFracturedBone", ApplyFracturedBone, Triggers.FracturedBone);
+            ApplyInjurySafe("buffFracturedBone", ApplyFracturedBoneCore, Triggers.FracturedBone);
         }
 
-        public void ApplyShrapnelWounds()
+        private void ApplyShrapnelWoundsCore()
         {
             _buffManager.AddBuff("buffShrapnelWounds", -2);
             _dialogueManager.AddTopic(ConversationTopics.ShrapnelWounds, 11);
@@ -607,17 +924,21 @@ namespace HarveyOverhaul.InjuryCare.Managers
             // Инициализируем состояние дебаффа (3 фазы: 3 + 5 + 3 = 11 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
             _stateManager.CreateDebuffState("buffShrapnelWounds", currentDay, 3, 5, 3);
+        }
 
+        public void ApplyShrapnelWounds()
+        {
+            TryApplyMainInjury("buffShrapnelWounds", ApplyShrapnelWoundsCore);
         }
 
         public void ApplyShrapnelWoundsSafe()
         {
-            ApplyInjurySafe("buffShrapnelWounds", ApplyShrapnelWounds, Triggers.ShrapnelWounds);
+            ApplyInjurySafe("buffShrapnelWounds", ApplyShrapnelWoundsCore, Triggers.ShrapnelWounds);
         }
 
         // === СПЕЦИАЛЬНЫЕ ТРАВМЫ ===
 
-        public void ApplySurgicalWound()
+        private void ApplySurgicalWoundCore()
         {
             _buffManager.AddBuff("buffSurgicalWound", -2);
             _dialogueManager.AddTopic(ConversationTopics.SurgicalWound, 7);
@@ -627,15 +948,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.CreateDebuffState("buffSurgicalWound", currentDay, 7, 0, 0);
         }
 
-        public void ApplySurgicalWoundSafe()
+        public void ApplySurgicalWound()
         {
-            ApplyInjurySafe("buffSurgicalWound", ApplySurgicalWound, Triggers.SurgicalWound);
+            TryApplyMainInjury("buffSurgicalWound", ApplySurgicalWoundCore);
         }
 
-        /// <summary>
-        /// Применить простуду (2 фазы: острая + восстановление)
-        /// </summary>
-        public void ApplyCold()
+        public void ApplySurgicalWoundSafe()
+        {
+            ApplyInjurySafe("buffSurgicalWound", ApplySurgicalWoundCore, Triggers.SurgicalWound);
+        }
+
+        private void ApplyColdCore()
         {
             _monitor.Log("🤧 Применяем простуду (Cold)", LogLevel.Info);
             
@@ -651,9 +974,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
             Game1.addHUDMessage(new HUDMessage("Простуда! Температура, слабость...", HUDMessage.error_type));
         }
 
+        /// <summary>
+        /// Применить простуду (2 фазы: острая + восстановление)
+        /// </summary>
+        public void ApplyCold()
+        {
+            TryApplyMainInjury(InjuryBuffs.Cold, ApplyColdCore);
+        }
+
         public void ApplyColdSafe()
         {
-            ApplyInjurySafe(InjuryBuffs.Cold, ApplyCold, Triggers.Cold);
+            ApplyInjurySafe(InjuryBuffs.Cold, ApplyColdCore, Triggers.Cold);
         }
     }
 }

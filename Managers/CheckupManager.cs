@@ -93,23 +93,35 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     Game1.addHUDMessage(new HUDMessage(
                         $"Харви ждёт тебя на контрольный осмотр ({injuryName}). Не откладывай лечение.",
                         HUDMessage.health_type));
-                    HarveyMailHelper.TryScheduleTieredMail(
+                    _monitor.Log($"[Checkup] Soft reminder day 2: {injuryId}", LogLevel.Info);
+                    if (HarveyMailHelper.TryScheduleTieredMail(
                         _config,
                         _stateManager,
                         _monitor,
                         MailIds.CheckupReminder,
-                        $"{MailIds.CheckupReminder}:{injuryId}");
-                    _monitor.Log($"[Checkup] Soft reminder day 2: {injuryId}", LogLevel.Info);
+                        MailIds.CheckupReminder))
+                    {
+                        _monitor.Log($"[Checkup] Reminder mail scheduled ({injuryId})", LogLevel.Debug);
+                    }
+                    else if (_config.SendLetters
+                        && HarveyMailHelper.WasSentToday(_stateManager, MailIds.CheckupReminder))
+                    {
+                        _monitor.Log(
+                            $"[Checkup] Reminder mail уже отправлено сегодня — пропуск письма ({injuryId})",
+                            LogLevel.Debug);
+                    }
                 }
 
                 if (debuffState.MissedCheckupDays == 4 && !debuffState.CheckupLateLetterSent)
                 {
                     debuffState.CheckupLateLetterSent = true;
-                    if (_config.SendLetters)
-                    {
-                        Game1.addMailForTomorrow(MailIds.CheckupOverdue);
-                        _monitor.Log($"[Checkup] Overdue letter scheduled: {injuryId}", LogLevel.Info);
-                    }
+                    HarveyMailHelper.TryScheduleTieredMail(
+                        _config,
+                        _stateManager,
+                        _monitor,
+                        MailIds.CheckupOverdue,
+                        $"{MailIds.CheckupOverdue}:{injuryId}");
+                    _monitor.Log($"[Checkup] Overdue letter scheduled: {injuryId}", LogLevel.Info);
                 }
 
                 if (debuffState.MissedCheckupDays >= 5 && !debuffState.CheckupOverduePenaltyApplied)

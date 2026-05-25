@@ -287,7 +287,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
 
             // Боевая смерть в шахте → только major rescue (minor — отдельный триггер в HandleMineEntryWarning)
-            bool hasSevere = _buffManager.HasAnyBuff(InjurySets.Severe.ToArray());
+            bool hasSevere = _injuryManager.IsMainInjurySerious();
             string eventId = ResolveSevereMineRescueEventId();
 
             _monitor.Log($"[MineRescue] Выбран eventId: {eventId} (серьёзные травмы: {hasSevere})", LogLevel.Info);
@@ -448,7 +448,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (!IsPlayerInMineOrVolcano(Game1.currentLocation))
                 return false;
 
-            if (_buffManager.HasAnyBuff(InjurySets.Severe.ToArray()))
+            if (_injuryManager.IsMainInjurySerious())
                 return false;
 
             bool hasAnyInjury = _stateManager.GetAllActiveDebuffStates().Count > 0

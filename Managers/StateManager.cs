@@ -49,6 +49,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             
             // Миграция осложнений из ActiveComplications в ActiveDebuffs (DebuffState)
             MigrateComplicationsToDebuffState();
+
+            MigrateMainInjuryId();
             
             _monitor.Log($"Состояние загружено: {_state.ActiveDebuffs.Count} активных дебаффов", LogLevel.Debug);
         }
@@ -82,6 +84,40 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
             if (_state.ActiveComplications.Count > 0)
                 Save();
+        }
+
+        /// <summary>
+        /// Миграция MainInjuryId для старых сохранений и восстановление при рассинхроне.
+        /// </summary>
+        private void MigrateMainInjuryId()
+        {
+            if (!string.IsNullOrEmpty(_state.MainInjuryId))
+            {
+                if (InjurySets.KnownComplicationBuffIds.Contains(_state.MainInjuryId)
+                    || !_state.ActiveDebuffs.ContainsKey(_state.MainInjuryId))
+                {
+                    _state.MainInjuryId = null;
+                }
+                else
+                {
+                    return;
+                }
+            }
+
+            var candidates = _state.ActiveDebuffs.Keys
+                .Where(id => !InjurySets.KnownComplicationBuffIds.Contains(id))
+                .ToList();
+
+            if (candidates.Count == 0)
+                return;
+
+            string? selected = InjurySets.SelectMainInjuryByPriority(candidates);
+            if (selected == null)
+                return;
+
+            _state.MainInjuryId = selected;
+            Save();
+            _monitor.Log($"[MainInjury] Миграция: основная травма = {selected}", LogLevel.Info);
         }
 
         /// <summary>
@@ -320,6 +356,115 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         // ============================================================================
+        // ОСНОВНАЯ ТРАВМА
+        // ============================================================================
+
+        public string? GetMainInjuryId() => _state.MainInjuryId;
+
+        public bool HasMainInjury() => !string.IsNullOrEmpty(_state.MainInjuryId);
+
+        public bool IsMainInjury(string buffId) =>
+            !string.IsNullOrEmpty(_state.MainInjuryId)
+            && string.Equals(_state.MainInjuryId, buffId, StringComparison.OrdinalIgnoreCase);
+
+        public void SetMainInjury(string buffId)
+        {
+            if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
+                return;
+
+            if (!string.IsNullOrEmpty(_state.MainInjuryId)
+                && !string.Equals(_state.MainInjuryId, buffId, StringComparison.OrdinalIgnoreCase))
+            {
+                string? preferred = InjurySets.SelectMainInjuryByPriority(
+                    new[] { _state.MainInjuryId, buffId });
+
+                if (preferred == null
+                    || string.Equals(preferred, _state.MainInjuryId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            _state.MainInjuryId = buffId;
+            Save();
+            _monitor.Log($"[MainInjury] Установлена основная травма: {buffId}", LogLevel.Debug);
+        }
+
+        public void ClearMainInjury(string buffId)
+        {
+            if (string.IsNullOrEmpty(_state.MainInjuryId))
+                return;
+
+            if (!string.Equals(_state.MainInjuryId, buffId, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _state.MainInjuryId = null;
+            Save();
+            _monitor.Log($"[MainInjury] Снята основная травма: {buffId}", LogLevel.Debug);
+        }
+
+        /// <summary>
+        /// Полное выздоровление от основной травмы: очистить MainInjuryId с логом завершения.
+        /// </summary>
+        public void CompleteMainInjury(string injuryId)
+        {
+            if (!IsMainInjury(injuryId))
+                return;
+
+            ClearMainInjury(injuryId);
+            _monitor.Log($"[MainInjury] Основная травма завершена: {injuryId}", LogLevel.Info);
+        }
+
+        /// <summary>
+        /// DEBUG ONLY: очистить MainInjuryId без удаления баффов и DebuffState.
+        /// </summary>
+        public void DebugClearMainInjuryId()
+        {
+            if (string.IsNullOrEmpty(_state.MainInjuryId))
+            {
+                _monitor.Log("[MainInjury][Debug] MainInjuryId уже пуст", LogLevel.Info);
+                return;
+            }
+
+            string previous = _state.MainInjuryId;
+            _state.MainInjuryId = null;
+            Save();
+            _monitor.Log(
+                $"[MainInjury][Debug] MainInjuryId очищен (было: {previous}). Баффы не удалены.",
+                LogLevel.Info);
+        }
+
+        /// <summary>
+        /// DEBUG ONLY: установить MainInjuryId, если есть DebuffState для buffId.
+        /// </summary>
+        public bool DebugSetMainInjuryId(string buffId)
+        {
+            if (string.IsNullOrWhiteSpace(buffId))
+                return false;
+
+            if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
+            {
+                _monitor.Log(
+                    $"[MainInjury][Debug] Отказ: {buffId} — осложнение, не основная травма",
+                    LogLevel.Warn);
+                return false;
+            }
+
+            if (!_state.ActiveDebuffs.ContainsKey(buffId))
+            {
+                _monitor.Log(
+                    $"[MainInjury][Debug] Отказ: DebuffState для {buffId} не найден",
+                    LogLevel.Warn);
+                return false;
+            }
+
+            _state.MainInjuryId = buffId;
+            Save();
+            _monitor.Log($"[MainInjury][Debug] MainInjuryId установлен: {buffId}", LogLevel.Info);
+            return true;
+        }
+
+        // ============================================================================
         // МЕТОДЫ РАБОТЫ С DEBUFFSTATE
         // ============================================================================
 
@@ -405,11 +550,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public void RemoveDebuffState(string buffId)
         {
-            if (_state.ActiveDebuffs.Remove(buffId))
-            {
-                Save();
-                _monitor.Log($"Удалено состояние дебаффа: {buffId}", LogLevel.Debug);
-            }
+            if (!_state.ActiveDebuffs.Remove(buffId))
+                return;
+
+            if (!InjurySets.KnownComplicationBuffIds.Contains(buffId))
+                ClearMainInjury(buffId);
+
+            Save();
+            _monitor.Log($"Удалено состояние дебаффа: {buffId}", LogLevel.Debug);
         }
 
         /// <summary>

@@ -300,6 +300,14 @@ namespace HarveyOverhaul.InjuryCare.Core
 
             ids.Add(CheckupTopics.CheckupDue);
             ids.Add(CheckupTopics.RecoveryCheckupDue);
+            foreach (string buffId in InjurySets.HarveyTreatable)
+            {
+                ids.Add(CheckupTopics.GetCheckupDueInjury(buffId));
+                ids.Add(CheckupTopics.GetRecoveryCheckupDueInjury(buffId));
+            }
+
+            for (int phase = 1; phase <= 3; phase++)
+                ids.Add(CheckupTopics.GetCheckupPhase(phase));
 
             ids.Add(TreatmentPlanTopics.Given);
             foreach (string buffId in InjurySets.HarveyTreatable)
@@ -355,17 +363,12 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string WetBandageInfection = "HarveyMod_WetBandageInfection";
         public const string TreatmentUrgentReminder = "HarveyMod_TreatmentUrgentReminder";
         public const string TreatmentFinalWarning = "HarveyMod_TreatmentFinalWarning";
-        /// <summary>Письмо при просрочке контрольного осмотра (4+ дня).</summary>
+        /// <summary>Письмо при просрочке контрольного осмотра (4+ дня; tiered).</summary>
         public const string CheckupOverdue = "HarveyMod_CheckupOverdue";
 
-        // --- План лечения (после начала лечения) ---
+        // --- План лечения (tiered: _LowHearts | _MidHearts | _Dating | _Married) ---
         public const string TreatmentPlanMinor = "mailHarveyTreatmentPlan_Minor";
         public const string TreatmentPlanSevere = "mailHarveyTreatmentPlan_Severe";
-        public const string TreatmentPlanInfection = "mailHarveyTreatmentPlan_Infection";
-        public const string TreatmentPlanConcussion = "mailHarveyTreatmentPlan_Concussion";
-        public const string TreatmentPlanFracture = "mailHarveyTreatmentPlan_Fracture";
-        public const string TreatmentPlanBurn = "mailHarveyTreatmentPlan_Burn";
-        public const string TreatmentPlanCold = "mailHarveyTreatmentPlan_Cold";
 
         // --- Письма по тону отношений (суффикс _LowHearts | _MidHearts | _Dating | _Married) ---
         public const string PrescriptionViolation = "mailHarveyPrescriptionViolation";
@@ -412,6 +415,51 @@ namespace HarveyOverhaul.InjuryCare.Core
             "buffShrapnelWounds"
         };
 
+        /// <summary>Основные травмы с повязкой/открытой раной — риск WetBandage от воды.</summary>
+        public static readonly HashSet<string> BandageSensitive = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            "buffDeepCuts",
+            "buffBurnWounds",
+            "buffShrapnelWounds",
+            "buffSurgicalWound",
+        };
+
+        /// <summary>Основные травмы — риск DirtyWound в шахте/от загрязнения.</summary>
+        public static readonly HashSet<string> MineDirtSensitive = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            "buffDeepCuts",
+            "buffBurnWounds",
+            "buffShrapnelWounds",
+        };
+
+        /// <summary>Основные травмы — риск PainFlare от грозы.</summary>
+        public static readonly HashSet<string> StormPainSensitive = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            "buffFracturedBone",
+            "buffShrapnelWounds",
+            "buffTornMuscles",
+            "buffBruisedRibs",
+        };
+
+        /// <summary>Основные травмы — риск обострения при перегрузке/работе инструментом.</summary>
+        public static readonly HashSet<string> OverworkSensitive = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            "buffFracturedBone",
+            "buffTornMuscles",
+            "buffBackStrain",
+            "buffSprainedAnkle",
+            "buffBruisedRibs",
+        };
+
+        /// <summary>Основные травмы — риск инфекции (DirtyWound/WetBandage → buffInfectedWound).</summary>
+        public static readonly HashSet<string> InfectionSensitive = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            "buffDeepCuts",
+            "buffBurnWounds",
+            "buffShrapnelWounds",
+            "buffSurgicalWound",
+        };
+
         public static readonly HashSet<string> PainFlareOnStorm = new()
         {
             "buffFracturedBone",
@@ -431,6 +479,44 @@ namespace HarveyOverhaul.InjuryCare.Core
             "buffBadlyHurt",
             "buffInfectedWound"
         };
+
+        /// <summary>Приоритет основных травм (от серьёзных к лёгким).</summary>
+        public static readonly string[] MainInjuryPriorityOrder =
+        {
+            "buffConcussion",
+            "buffInfectedWound",
+            "buffFracturedBone",
+            "buffSurgicalWound",
+            "buffShrapnelWounds",
+            "buffBurnWounds",
+            "buffDeepCuts",
+            "buffTornMuscles",
+            "buffBackStrain",
+            "buffBruisedRibs",
+            "buffSprainedAnkle",
+            "buffBadlyHurt",
+            "buffHurt",
+            InjuryBuffs.Cold,
+        };
+
+        /// <summary>Выбрать основную травму из кандидатов по приоритету.</summary>
+        public static string? SelectMainInjuryByPriority(IEnumerable<string> candidateIds)
+        {
+            var candidates = new HashSet<string>(candidateIds, StringComparer.OrdinalIgnoreCase);
+            foreach (string injuryId in MainInjuryPriorityOrder)
+            {
+                if (candidates.Contains(injuryId))
+                    return injuryId;
+            }
+
+            foreach (string injuryId in candidates)
+            {
+                if (HarveyTreatable.Contains(injuryId) && !KnownComplicationBuffIds.Contains(injuryId))
+                    return injuryId;
+            }
+
+            return null;
+        }
 
         /// <summary>Травмы, требующие лечения у Харви (не осложнения).</summary>
         public static readonly HashSet<string> HarveyTreatable = new(System.StringComparer.OrdinalIgnoreCase)

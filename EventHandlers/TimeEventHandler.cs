@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.Managers;
@@ -23,6 +22,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly HospitalizationManager _hospitalizationManager;
         private readonly HospitalActivityManager _hospitalActivityManager;
         private readonly TreatmentManager _treatmentManager;
+        private readonly InjuryManager _injuryManager;
 
         public TimeEventHandler(
             IMonitor monitor,
@@ -32,7 +32,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             DialogueManager dialogueManager,
             HospitalizationManager hospitalizationManager,
             HospitalActivityManager hospitalActivityManager,
-            TreatmentManager treatmentManager)
+            TreatmentManager treatmentManager,
+            InjuryManager injuryManager)
         {
             _monitor = monitor;
             _config = config;
@@ -42,6 +43,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _hospitalizationManager = hospitalizationManager;
             _hospitalActivityManager = hospitalActivityManager;
             _treatmentManager = treatmentManager;
+            _injuryManager = injuryManager;
         }
 
         /// <summary>
@@ -98,9 +100,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             bool atHome = Game1.player.currentLocation is FarmHouse;
             if (!atHome) return;
 
-            // Должна быть серьёзная травма
-            bool hasSevereInjury = InjurySets.Severe.Any(Game1.player.hasBuff);
-            if (!hasSevereInjury) return;
+            // Должна быть серьёзная основная травма (не PainFlare и не «случайный» severe buff)
+            if (!_injuryManager.IsMainInjurySerious())
+                return;
 
             if (!_dialogueManager.IsDatingOrMarriedToHarvey())
                 return;
@@ -156,27 +158,25 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             // Не напоминать слишком часто (раз в 2 часа игрового времени)
             if (newTime % 200 != 0) return;
 
-            // Проверяем наличие серьёзных травм без лечения
-            var severeInjuries = InjurySets.Severe
-                .Where(id => Game1.player.hasBuff(id))
-                .ToList();
-
-            if (severeInjuries.Count == 0) return;
-
-            // Проверяем, есть ли лечение
-            bool hasAnyCure = severeInjuries.Any(injury =>
+            string? mainInjuryId = _injuryManager.GetActiveInjury();
+            if (string.IsNullOrEmpty(mainInjuryId)
+                || !_injuryManager.HasInjuryOrPhase(mainInjuryId)
+                || !_injuryManager.IsMainInjurySerious())
             {
-                if (TreatmentManager.CureByInjury.TryGetValue(injury, out var cure))
-                {
-                    return Game1.player.hasBuff(cure);
-                }
-                return false;
-            });
+                return;
+            }
 
-            if (hasAnyCure) return; // Уже лечится
+            var debuffState = _stateManager.GetDebuffState(mainInjuryId);
+            if (debuffState?.TreatmentStarted == true)
+                return;
 
-            // Показываем напоминание
-            string injuryName = GetInjuryDisplayName(severeInjuries[0]);
+            if (TreatmentManager.CureByInjury.TryGetValue(mainInjuryId, out var cure)
+                && (_buffManager.HasBuff(cure) || _buffManager.HasBuff(CureBuffs.BadlyHurtOutpatientCare)))
+            {
+                return;
+            }
+
+            string injuryName = GetInjuryDisplayName(mainInjuryId);
             string message = $"У вас {injuryName}. Обратитесь к врачу!";
             ShowDoctorReminder(message, HUDMessage.error_type);
         }

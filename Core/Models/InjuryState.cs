@@ -60,6 +60,11 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         public Dictionary<string, DebuffState> ActiveDebuffs { get; set; } = new();
 
         /// <summary>
+        /// ID основной травмы (не осложнения). Одновременно может быть только одна.
+        /// </summary>
+        public string? MainInjuryId { get; set; }
+
+        /// <summary>
         /// Активные медицинские предписания Харви (ключ — PrescriptionIds.*).
         /// </summary>
         public Dictionary<string, PrescriptionState> ActivePrescriptions { get; set; } = new();

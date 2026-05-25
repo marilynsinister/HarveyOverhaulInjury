@@ -1079,12 +1079,33 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (_hospitalizationManager.IsHospitalized)
                 return false;
 
+            string? mainInjuryId = _injuryManager.GetActiveInjury();
+            if (string.IsNullOrEmpty(mainInjuryId))
+                return false;
+
+            if (!string.Equals(injuryId, mainInjuryId, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (!_injuryManager.HasInjuryOrPhase(mainInjuryId))
+                return false;
+
+            if (!InjuryManager.IsSeriousMainInjuryId(mainInjuryId))
+                return false;
+
             int today = GameUtils.Today();
 
-            return injuryId switch
+            if (string.Equals(mainInjuryId, "buffInfectedWound", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (_injuryManager.HasSeriousMainInjuryWithDirtyWound())
+            {
+                if (mainInjuryId is "buffBurnWounds" or "buffShrapnelWounds" or "buffSurgicalWound")
+                    return true;
+            }
+
+            return mainInjuryId switch
             {
                 "buffConcussion" => true,
-                "buffInfectedWound" => true,
                 "buffFracturedBone" => true,
                 "buffBadlyHurt" => today - state.InjuryStartDay <= 1,
                 "buffShrapnelWounds" => IsShrapnelMineOrExplosionRelated(state),

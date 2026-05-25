@@ -13,6 +13,14 @@ namespace HarveyOverhaul.InjuryCare.Helpers
     /// </summary>
     internal static class ContentAuditRunner
     {
+        private static readonly string[] RelationshipMailSuffixes =
+        {
+            "LowHearts",
+            "MidHearts",
+            "Dating",
+            "Married",
+        };
+
         private static readonly string[] HarveyDialogueAssetPaths =
         {
             "Characters/Dialogue/Harvey",
@@ -119,7 +127,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             int missing = 0;
             foreach (var (name, id) in GetStringConstants(typeof(MailIds)))
             {
-                if (mailKeys.Contains(id))
+                if (MailIdExistsInDataMail(mailKeys, id))
                     monitor.Log($"  OK  {name} = {id}", LogLevel.Trace);
                 else
                 {
@@ -306,6 +314,20 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 $"  MISSING dialogue  {buffId} [{kind}] → {topicId}  (asset: {dialogueAssetPath})",
                 LogLevel.Warn);
             return 1;
+        }
+
+        private static bool MailIdExistsInDataMail(HashSet<string> mailKeys, string mailId)
+        {
+            if (mailKeys.Contains(mailId))
+                return true;
+
+            foreach (string suffix in RelationshipMailSuffixes)
+            {
+                if (mailKeys.Contains($"{mailId}_{suffix}"))
+                    return true;
+            }
+
+            return false;
         }
 
         private static IEnumerable<(string Name, string Value)> GetStringConstants(Type type)

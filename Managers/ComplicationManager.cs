@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
@@ -22,6 +23,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly ComplianceManager _complianceManager;
         private readonly SelfCareManager _selfCareManager;
 
+        private int _lastStormPainFlareGameHour = -1;
+        private int _lastOverworkComplicationGameHour = -1;
+
         public ComplicationManager(
             IMonitor monitor,
             ModConfig config,
@@ -40,6 +44,279 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _injuryManager = injuryManager;
             _complianceManager = complianceManager;
             _selfCareManager = selfCareManager;
+        }
+
+        public string? GetActiveMainInjuryId() =>
+            _stateManager.GetMainInjuryId() ?? _injuryManager.GetActiveInjury();
+
+        public bool IsMainInjuryIn(HashSet<string> injurySet)
+        {
+            string? mainInjuryId = GetActiveMainInjuryId();
+            return !string.IsNullOrEmpty(mainInjuryId) && injurySet.Contains(mainInjuryId);
+        }
+
+        public bool HasComplication(string complicationId) =>
+            _buffManager.HasBuff(complicationId)
+            || _stateManager.State.ActiveComplications.ContainsKey(complicationId);
+
+        public bool CanReceiveWetBandageFromWater(bool hasTreatmentBandage) =>
+            hasTreatmentBandage || IsMainInjuryIn(InjurySets.BandageSensitive);
+
+        public bool CanReceiveMineDirtyWound()
+        {
+            string? mainInjuryId = GetActiveMainInjuryId();
+            if (string.IsNullOrEmpty(mainInjuryId)
+                || !InjurySets.MineDirtSensitive.Contains(mainInjuryId))
+            {
+                return false;
+            }
+
+            return _injuryManager.HasInjuryOrPhase(mainInjuryId);
+        }
+
+        public bool TryApplyComplication(
+            string complicationId,
+            HashSet<string>? requiredMainInjurySet,
+            int topicDays,
+            HUDMessage? hudMessage = null)
+        {
+            if (requiredMainInjurySet != null && !IsMainInjuryIn(requiredMainInjurySet))
+                return false;
+
+            if (HasComplication(complicationId))
+                return false;
+
+            string mainInjuryId = GetActiveMainInjuryId() ?? "none";
+            int today = GameUtils.Today();
+
+            _buffManager.AddBuff(complicationId, -2);
+            _stateManager.State.ActiveComplications[complicationId] = today;
+            _stateManager.CreateComplicationState(complicationId, today);
+            _dialogueManager.AddTopic(GetComplicationTopic(complicationId), topicDays);
+
+            if (hudMessage != null)
+                Game1.addHUDMessage(hudMessage);
+
+            _monitor.Log(
+                $"[Complication] MainInjury={mainInjuryId}, complication={complicationId}",
+                LogLevel.Info);
+            return true;
+        }
+
+        public bool TryApplyDirtyWoundFromMine(double chance, string reason)
+        {
+            if (!CanReceiveMineDirtyWound())
+                return false;
+
+            if (HasComplication(InjuryBuffs.DirtyWound))
+                return false;
+
+            if (!GameUtils.Roll(chance))
+            {
+                _monitor.Log($"[Шахта] Грязная рана не сработала: chance={chance:P0}, {reason}", LogLevel.Debug);
+                return false;
+            }
+
+            bool applied = TryApplyComplication(
+                InjuryBuffs.DirtyWound,
+                InjurySets.MineDirtSensitive,
+                topicDays: 4,
+                new HUDMessage("Рана загрязнилась! Риск инфекции!", HUDMessage.error_type));
+
+            if (applied)
+            {
+                _complianceManager.AddCompliance(-1, "dirty_wound");
+                _monitor.Log($"[Шахта] Рана загрязнилась: chance={chance:P0}, {reason}", LogLevel.Warn);
+            }
+
+            return applied;
+        }
+
+        public bool TryApplyWetBandageFromWater(
+            bool hasTreatmentBandage,
+            int topicDays,
+            HUDMessage hudMessage,
+            string logContext)
+        {
+            if (!CanReceiveWetBandageFromWater(hasTreatmentBandage))
+                return false;
+
+            HashSet<string>? requiredSet = IsMainInjuryIn(InjurySets.BandageSensitive)
+                ? InjurySets.BandageSensitive
+                : null;
+
+            bool applied = TryApplyComplication(
+                InjuryBuffs.WetBandage,
+                requiredSet,
+                topicDays,
+                hudMessage);
+
+            if (applied)
+                _monitor.Log(logContext, LogLevel.Info);
+
+            return applied;
+        }
+
+        public void TryApplyStormPainFlareIfEligible(bool isOutsideInStorm)
+        {
+            if (!isOutsideInStorm || !Game1.isLightning)
+                return;
+
+            if (!IsMainInjuryIn(InjurySets.StormPainSensitive))
+                return;
+
+            int gameHour = Game1.timeOfDay / 100;
+            if (_lastStormPainFlareGameHour == gameHour)
+                return;
+
+            if (!GameUtils.Roll(0.30))
+                return;
+
+            if (TryApplyComplication(
+                    InjuryBuffs.PainFlare,
+                    InjurySets.StormPainSensitive,
+                    topicDays: 2,
+                    new HUDMessage("Гроза усилила боль от травмы...", HUDMessage.health_type)))
+            {
+                _lastStormPainFlareGameHour = gameHour;
+            }
+        }
+
+        public bool TryRollOverworkComplication(float stamina, int toolUses, float staminaThreshold, int toolUsesThreshold)
+        {
+            if (!IsMainInjuryIn(InjurySets.OverworkSensitive))
+                return false;
+
+            if (stamina > staminaThreshold && toolUses < toolUsesThreshold)
+                return false;
+
+            int gameHour = Game1.timeOfDay / 100;
+            if (_lastOverworkComplicationGameHour == gameHour)
+                return false;
+
+            string? mainInjuryId = GetActiveMainInjuryId();
+
+            if (!HasComplication(InjuryBuffs.PainFlare) && GameUtils.Roll(0.40))
+            {
+                if (TryApplyComplication(
+                        InjuryBuffs.PainFlare,
+                        InjurySets.OverworkSensitive,
+                        topicDays: 2,
+                        new HUDMessage("Перегрузка обострила боль от травмы.", HUDMessage.health_type)))
+                {
+                    _lastOverworkComplicationGameHour = gameHour;
+                    return true;
+                }
+            }
+
+            _monitor.Log(
+                $"[Complication] MainInjury={mainInjuryId ?? "none"}, complication=NeglectWarning",
+                LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage(
+                "Харви предупреждает: не перегружай травмированное тело.",
+                HUDMessage.health_type));
+            _lastOverworkComplicationGameHour = gameHour;
+            return true;
+        }
+
+        private static string GetComplicationTopic(string complicationId) =>
+            complicationId switch
+            {
+                InjuryBuffs.WetBandage => ConversationTopics.WetBandage,
+                InjuryBuffs.DirtyWound => ConversationTopics.DirtyWound,
+                InjuryBuffs.WetStitches => ConversationTopics.WetStitches,
+                InjuryBuffs.Neglect => ConversationTopics.Neglect,
+                InjuryBuffs.AllergicRash => ConversationTopics.AllergicRash,
+                InjuryBuffs.PainFlare => ConversationTopics.PainFlare,
+                _ => TopicIds.GetComplicationTopic(complicationId),
+            };
+
+        private bool IsInfectionEscalationAllowed()
+        {
+            string? mainInjuryId = GetActiveMainInjuryId();
+            return !string.IsNullOrEmpty(mainInjuryId)
+                && InjurySets.InfectionSensitive.Contains(mainInjuryId);
+        }
+
+        private const string InfectionEscalationHudMessage = "Рана инфицирована! Срочно к врачу!";
+
+        private void RemoveComplication(string complicationId)
+        {
+            _buffManager.RemoveBuff(complicationId);
+            _stateManager.State.ActiveComplications.Remove(complicationId);
+            _stateManager.RemoveDebuffState(complicationId);
+            _dialogueManager.RemoveTopic(GetComplicationTopic(complicationId));
+        }
+
+        private void TryEscalateComplicationToInfection(
+            string sourceComplicationId,
+            int days,
+            string mailId,
+            string complianceReason)
+        {
+            if (!IsInfectionEscalationAllowed())
+            {
+                _monitor.Log(
+                    $"[Complication] MainInjury={GetActiveMainInjuryId() ?? "none"}, escalation=infection blocked (not InfectionSensitive)",
+                    LogLevel.Debug);
+                return;
+            }
+
+            string mainInjuryId = GetActiveMainInjuryId() ?? "none";
+            bool wasAlreadyInfected = string.Equals(
+                mainInjuryId,
+                "buffInfectedWound",
+                StringComparison.OrdinalIgnoreCase);
+            _monitor.Log(
+                $"[Complication] MainInjury={mainInjuryId}, escalation attempt: {sourceComplicationId}→buffInfectedWound (day {days})",
+                LogLevel.Warn);
+
+            bool escalated = _injuryManager.TryEscalateComplicationToInfectedWound(sourceComplicationId);
+            RemoveComplication(sourceComplicationId);
+
+            if (escalated)
+            {
+                _monitor.Log(
+                    wasAlreadyInfected
+                        ? $"[Complication] MainInjury=buffInfectedWound, complication={sourceComplicationId} cleared (already infected)"
+                        : $"[Complication] MainInjury=buffInfectedWound, complication={sourceComplicationId}→buffInfectedWound (replaced {mainInjuryId})",
+                    LogLevel.Warn);
+
+                if (!wasAlreadyInfected)
+                {
+                    Game1.addHUDMessage(new HUDMessage(InfectionEscalationHudMessage, HUDMessage.error_type));
+                    if (_config.SendLetters)
+                        Game1.addMailForTomorrow(mailId);
+                    _complianceManager.AddCompliance(-2, complianceReason);
+                }
+
+                return;
+            }
+
+            ApplyInfectionEscalationFallback(mainInjuryId, sourceComplicationId);
+        }
+
+        private void ApplyInfectionEscalationFallback(string mainInjuryId, string sourceComplicationId)
+        {
+            _monitor.Log(
+                $"[Complication] MainInjury={mainInjuryId}, escalation=infection failed, complication={sourceComplicationId}, fallback=PainFlare",
+                LogLevel.Warn);
+
+            if (!HasComplication(InjuryBuffs.PainFlare))
+            {
+                TryApplyComplication(
+                    InjuryBuffs.PainFlare,
+                    requiredMainInjurySet: null,
+                    topicDays: 2,
+                    hudMessage: null);
+            }
+
+            _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 3);
+            if (_config.SendLetters)
+                Game1.addMailForTomorrow(MailIds.TreatmentUrgentReminder);
+
+            Game1.addHUDMessage(new HUDMessage(InfectionEscalationHudMessage, HUDMessage.error_type));
+            _complianceManager.AddCompliance(-2, "infection_escalation_fallback");
         }
 
         /// <summary>
@@ -81,20 +358,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (!GameUtils.Roll(infectionChance)) return;
 
-            _monitor.Log($"ОСЛОЖНЕНИЕ: Грязная рана → инфекция (день {days})", LogLevel.Warn);
-
-            _buffManager.RemoveBuff(InjuryBuffs.DirtyWound);
-            _stateManager.State.ActiveComplications.Remove(InjuryBuffs.DirtyWound);
-            _stateManager.RemoveDebuffState(InjuryBuffs.DirtyWound);
-            _dialogueManager.RemoveTopic(ConversationTopics.DirtyWound);
-
-            _injuryManager.ApplyInfectedWoundSafe();
-
-            if (_config.SendLetters)
-                Game1.addMailForTomorrow(MailIds.DirtyWoundInfection);
-
-            Game1.addHUDMessage(new HUDMessage("Грязная рана инфицирована! Срочно к врачу!", HUDMessage.error_type));
-            _complianceManager.AddCompliance(-2, "infection_dirty_wound");
+            TryEscalateComplicationToInfection(
+                InjuryBuffs.DirtyWound,
+                days,
+                MailIds.DirtyWoundInfection,
+                "infection_dirty_wound");
         }
 
         /// <summary>
@@ -124,20 +392,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (!GameUtils.Roll(infectionChance)) return;
 
-            _monitor.Log($"ОСЛОЖНЕНИЕ: Мокрая повязка → инфекция (день {days})", LogLevel.Warn);
-
-            _buffManager.RemoveBuff(InjuryBuffs.WetBandage);
-            _stateManager.State.ActiveComplications.Remove(InjuryBuffs.WetBandage);
-            _stateManager.RemoveDebuffState(InjuryBuffs.WetBandage);
-            _dialogueManager.RemoveTopic(ConversationTopics.WetBandage);
-
-            _injuryManager.ApplyInfectedWoundSafe();
-
-            if (_config.SendLetters)
-                Game1.addMailForTomorrow(MailIds.WetBandageInfection);
-
-            Game1.addHUDMessage(new HUDMessage("Мокрая повязка привела к инфекции!", HUDMessage.error_type));
-            _complianceManager.AddCompliance(-2, "infection_wet_bandage");
+            TryEscalateComplicationToInfection(
+                InjuryBuffs.WetBandage,
+                days,
+                MailIds.WetBandageInfection,
+                "infection_wet_bandage");
         }
 
         // Баланс мокрой повязки: days = today - startDay
@@ -175,10 +434,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 && InjurySets.KnownComplicationBuffIds.Contains(injuryId);
         }
 
-        private static bool IsOpenWoundInjury(string injuryId)
-        {
-            return injuryId is "buffDeepCuts" or "buffBurnWounds" or "buffShrapnelWounds";
-        }
+        private static bool IsInfectionSensitiveInjury(string injuryId) =>
+            InjurySets.InfectionSensitive.Contains(injuryId);
 
         private static string GetUntreatedWarningKey(string injuryId, int injuryStartDay)
             => $"untreatedWarning_{injuryId}_{injuryStartDay}";
@@ -208,8 +465,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
                 int threshold = GetUntreatedThresholdDays(injuryId);
 
-                if (IsOpenWoundInjury(injuryId) && daysUntreated >= threshold + 1)
+                if (IsInfectionSensitiveInjury(injuryId)
+                    && string.Equals(injuryId, GetActiveMainInjuryId(), StringComparison.OrdinalIgnoreCase)
+                    && daysUntreated >= threshold + 1)
+                {
                     TryApplyDirtyWoundFromUntreated(injuryId, daysUntreated);
+                }
 
                 if (daysUntreated < threshold)
                     continue;
@@ -265,8 +526,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         private void TryApplyDirtyWoundFromUntreated(string injuryId, int daysUntreated)
         {
-            if (_buffManager.HasBuff(InjuryBuffs.DirtyWound)
-                || _stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.DirtyWound))
+            if (!IsInfectionSensitiveInjury(injuryId))
                 return;
 
             if (!GameUtils.Roll(0.25))
@@ -277,15 +537,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
             }
 
-            _monitor.Log(
-                $"ОСЛОЖНЕНИЕ: {injuryId} без осмотра → грязная рана (день {daysUntreated})",
-                LogLevel.Warn);
-
-            _buffManager.AddBuff(InjuryBuffs.DirtyWound, -2);
-            _stateManager.State.ActiveComplications[InjuryBuffs.DirtyWound] = GameUtils.Today();
-            _stateManager.CreateComplicationState(InjuryBuffs.DirtyWound, GameUtils.Today());
-            _dialogueManager.AddTopic(ConversationTopics.DirtyWound, 4);
-            Game1.addHUDMessage(new HUDMessage("Рана загрязнилась! Срочно к Харви!", HUDMessage.error_type));
+            if (TryApplyComplication(
+                    InjuryBuffs.DirtyWound,
+                    InjurySets.InfectionSensitive,
+                    topicDays: 4,
+                    new HUDMessage("Рана загрязнилась! Срочно к Харви!", HUDMessage.error_type)))
+            {
+                _monitor.Log(
+                    $"ОСЛОЖНЕНИЕ: {injuryId} без осмотра → грязная рана (день {daysUntreated})",
+                    LogLevel.Warn);
+            }
         }
 
         /// <summary>

@@ -19,19 +19,23 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly StateManager _stateManager;
         private readonly DialogueManager _dialogueManager;
 
+        /// <summary>
+        /// Базовые mailId для tiered-пакетов в CP (mailHarveyMedicalTiered.json).
+        /// Injury-specific письма — задел; пока Severe/Minor.
+        /// </summary>
         private static readonly Dictionary<string, string> InjuryMailMap =
             new(StringComparer.OrdinalIgnoreCase)
             {
-                ["buffConcussion"] = MailIds.TreatmentPlanConcussion,
-                ["buffFracturedBone"] = MailIds.TreatmentPlanFracture,
-                ["buffBurnWounds"] = MailIds.TreatmentPlanBurn,
-                ["buffInfectedWound"] = MailIds.TreatmentPlanInfection,
-                [InjuryBuffs.Cold] = MailIds.TreatmentPlanCold,
-                ["buffBadlyHurt"] = MailIds.TreatmentPlanSevere,
+                ["buffConcussion"] = MailIds.TreatmentPlanSevere,
+                ["buffFracturedBone"] = MailIds.TreatmentPlanSevere,
+                ["buffBurnWounds"] = MailIds.TreatmentPlanSevere,
+                ["buffInfectedWound"] = MailIds.TreatmentPlanSevere,
                 ["buffShrapnelWounds"] = MailIds.TreatmentPlanSevere,
+                ["buffSurgicalWound"] = MailIds.TreatmentPlanSevere,
+                ["buffBadlyHurt"] = MailIds.TreatmentPlanSevere,
                 ["buffTornMuscles"] = MailIds.TreatmentPlanSevere,
                 ["buffBruisedRibs"] = MailIds.TreatmentPlanSevere,
-                ["buffSurgicalWound"] = MailIds.TreatmentPlanSevere,
+                [InjuryBuffs.Cold] = MailIds.TreatmentPlanMinor,
                 ["buffHurt"] = MailIds.TreatmentPlanMinor,
                 ["buffSprainedAnkle"] = MailIds.TreatmentPlanMinor,
                 ["buffBackStrain"] = MailIds.TreatmentPlanMinor,
@@ -64,16 +68,21 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 "Харви составил план лечения. Завтра он пришлёт записку с рекомендациями.",
                 HUDMessage.health_type));
 
-            string dedupeKey = $"{mailBaseId}:{injuryId}";
-            if (HarveyMailHelper.TryScheduleTieredMail(_config, _stateManager, _monitor, mailBaseId, dedupeKey))
+            if (!_config.SendLetters)
+            {
+                _monitor.Log($"[TreatmentPlan] SendLetters=false, письмо пропущено ({injuryId})", LogLevel.Debug);
+            }
+            else if (HarveyMailHelper.WasSentToday(_stateManager, mailBaseId))
+            {
+                _monitor.Log(
+                    $"[TreatmentPlan] Письмо {mailBaseId} уже отправлено сегодня для этого типа плана — пропуск ({injuryId})",
+                    LogLevel.Debug);
+            }
+            else if (HarveyMailHelper.TryScheduleTieredMail(_config, _stateManager, _monitor, mailBaseId, mailBaseId))
             {
                 _monitor.Log(
                     $"[TreatmentPlan] Письмо {HarveyMailHelper.BuildRelationshipMailId(mailBaseId)} запланировано ({injuryId})",
                     LogLevel.Info);
-            }
-            else
-            {
-                _monitor.Log($"[TreatmentPlan] SendLetters=false, письмо пропущено ({injuryId})", LogLevel.Debug);
             }
 
             _monitor.Log(

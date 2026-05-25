@@ -222,6 +222,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyMechanicalPhasedRecovery(string injuryId, int careDurationMs = 2880000)
         {
             _injuryManager.RemoveAllPhaseBuffs(injuryId);
+            _stateManager.CompleteMainInjury(injuryId);
             _stateManager.RemoveDebuffState(injuryId);
             _injuryManager.NotifyInjuryRecovered(injuryId);
 
@@ -304,21 +305,33 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _buffManager.RemoveBuff(injuryId);
             _buffManager.AddBuff(CureByInjury[injuryId], -2);
 
-            // Записываем в DebuffState: лечение началось, PhaseStartDay = сегодня,
-            // Phase1Duration = срок лечения (для CheckSimpleTreatmentCompletion)
-            int today = (int)StardewValley.Game1.stats.DaysPlayed;
+            // DebuffState: PhaseStartDay + Phase1Duration — для CheckSimpleTreatmentCompletion
+            int today = (int)Game1.stats.DaysPlayed;
             int treatmentDays = CalculateTopicDuration(injuryId);
 
             var ds = _stateManager.GetDebuffState(injuryId);
-            if (ds != null)
+            if (ds == null)
             {
-                ds.TreatmentStarted = true;
-                ds.PhaseStartDay    = today;
-                ds.Phase1Duration   = treatmentDays;
-                _stateManager.UpdateDebuffState(injuryId, ds);
+                _monitor.Log(
+                    $"[Treatment] DebuffState для {injuryId} отсутствует — создаём для simple treatment",
+                    LogLevel.Warn);
+                ds = _stateManager.CreateDebuffState(injuryId, today, treatmentDays, 0, 0);
             }
 
-            _monitor.Log($"Нефазовое лечение начато: {CureByInjury[injuryId]}, срок={treatmentDays} дней", LogLevel.Info);
+            if (ds == null)
+            {
+                _monitor.Log($"⚠️ Не удалось создать DebuffState для {injuryId}, simple treatment отменено", LogLevel.Error);
+                return false;
+            }
+
+            ds.TreatmentStarted = true;
+            ds.PhaseStartDay = today;
+            ds.Phase1Duration = treatmentDays;
+            _stateManager.UpdateDebuffState(injuryId, ds);
+
+            _monitor.Log(
+                $"Нефазовое лечение начато: {CureByInjury[injuryId]}, срок={treatmentDays} дней (PhaseStartDay={today})",
+                LogLevel.Info);
 
             if (string.Equals(injuryId, "buffSurgicalWound", StringComparison.OrdinalIgnoreCase))
                 _dialogueManager.TryAddDiagnosisCompleteTopic(injuryId);

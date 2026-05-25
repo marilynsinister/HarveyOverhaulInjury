@@ -436,6 +436,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 if (string.Equals(buffId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
                     _buffManager.RemoveBuff(CureBuffs.BadlyHurtOutpatientCare);
 
+                _stateManager.CompleteMainInjury(buffId);
+
                 // Удаляем состояние травмы
                 _stateManager.RemoveDebuffState(buffId);
                 _injuryManager.NotifyInjuryRecovered(buffId);

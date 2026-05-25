@@ -27,6 +27,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly PrescriptionManager _prescriptionManager;
         private readonly ComplianceManager _complianceManager;
         private readonly RehabManager _rehabManager;
+        private readonly ComplicationManager _complicationManager;
 
         private PassOutHandler? _passOutHandler;
 
@@ -64,7 +65,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             HarveyReactionManager harveyReactionManager,
             PrescriptionManager prescriptionManager,
             ComplianceManager complianceManager,
-            RehabManager rehabManager)
+            RehabManager rehabManager,
+            ComplicationManager complicationManager)
         {
             _monitor = monitor;
             _config = config;
@@ -78,6 +80,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _prescriptionManager = prescriptionManager;
             _complianceManager = complianceManager;
             _rehabManager = rehabManager;
+            _complicationManager = complicationManager;
         }
 
         public void SetPassOutHandler(PassOutHandler passOutHandler)
@@ -284,9 +287,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             // Проверка: игрок в госпитале после спасения из шахты
             bool hasMineInjuryTopic = Helpers.GameUtils.HasConversationTopic(ConversationTopics.MineInjuryRescue);
-            bool hasCriticalInjuries = _injuryManager.HasAnySevereInjuryOrPhase();
+            bool hasSeriousMainInjury = _injuryManager.IsMainInjurySerious();
             
-            if (_config.ForceHospitalization && hasMineInjuryTopic && hasCriticalInjuries)
+            if (_config.ForceHospitalization && hasMineInjuryTopic && hasSeriousMainInjury)
             {
                 // Если уже госпитализирован, не запускаем снова
                 if (_hospitalizationManager.IsHospitalized)
@@ -324,7 +327,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             CheckNoMinePrescriptionViolation(today);
             _rehabManager.CheckRehabViolationOnMine();
 
-            bool hasSevereInjury = _buffManager.HasAnyBuff(InjurySets.Severe.ToArray());
+            bool hasSevereInjury = _injuryManager.IsMainInjurySerious();
             bool hasLimitedActivity = _buffManager.HasAnyBuff(InjurySets.LimitedActivity.ToArray());
             bool hasAnyInjury    = hasSevereInjury
                 || hasLimitedActivity
@@ -656,16 +659,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             return location is MineShaft || location is VolcanoDungeon;
         }
 
-        private bool HasDirtyMineInjury()
-        {
-            foreach (var injuryId in InjurySets.DirtyInMines)
-            {
-                if (_buffManager.HasBuff(injuryId))
-                    return true;
-            }
-
-            return false;
-        }
+        private bool HasDirtyMineInjury() => _complicationManager.CanReceiveMineDirtyWound();
 
         private static int ToGameMinutes(int timeOfDay)
         {
@@ -695,18 +689,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private void TryApplyDirtyWoundFromMine(double chance, string reason)
         {
-            if (!Helpers.GameUtils.Roll(chance))
-            {
-                _monitor.Log($"[Шахта] Грязная рана не сработала: chance={chance:P0}, {reason}", LogLevel.Debug);
+            if (!_complicationManager.TryApplyDirtyWoundFromMine(chance, reason))
                 return;
-            }
-
-            int today = Helpers.GameUtils.Today();
-
-            _buffManager.AddBuff(InjuryBuffs.DirtyWound, -2);
-            _stateManager.State.ActiveComplications[InjuryBuffs.DirtyWound] = today;
-            _stateManager.CreateComplicationState(InjuryBuffs.DirtyWound, today);
-            _dialogueManager.AddTopic(ConversationTopics.DirtyWound, 4);
 
             var harvey = HarveyHelper.FindHarveyInLocation(Game1.currentLocation);
             if (harvey != null)
@@ -719,10 +703,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     _dialogueManager.ShowEmoteWithText(harvey, plan.Emote, text);
                 }
             }
-
-            Game1.addHUDMessage(new HUDMessage("Рана загрязнилась! Риск инфекции!", HUDMessage.error_type));
-            _complianceManager.AddCompliance(-1, "dirty_wound");
-            _monitor.Log($"[Шахта] Рана загрязнилась: chance={chance:P0}, {reason}", LogLevel.Warn);
         }
 
         private void CheckRainExposure()
@@ -742,6 +722,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (isOutsideInRain)
             {
                 HandleRainLogic();
+
+                bool isOutsideInStorm = location.IsOutdoors && Game1.isLightning;
+                _complicationManager.TryApplyStormPainFlareIfEligible(isOutsideInStorm);
             }
             else
             {
@@ -781,7 +764,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
             
             bool keepDryActive = _prescriptionManager.HasActivePrescription(PrescriptionIds.KeepDry);
-            bool bandageLogic = HasActiveTreatmentBandage();
+            bool bandageLogic = _complicationManager.CanReceiveWetBandageFromWater(HasActiveTreatmentBandage());
 
             if (!keepDryActive && !bandageLogic)
             {
@@ -815,15 +798,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private void ApplyWetBandageComplication(int secondsUnderRain)
         {
-            int today = Helpers.GameUtils.Today();
-            _buffManager.AddBuff(InjuryBuffs.WetBandage, -2);
-            _stateManager.State.ActiveComplications[InjuryBuffs.WetBandage] = today;
-            _stateManager.CreateComplicationState(InjuryBuffs.WetBandage, today);
-            _dialogueManager.AddTopic(ConversationTopics.WetBandage, 4);
-            Game1.addHUDMessage(new HUDMessage("Повязка промокла!", HUDMessage.error_type));
-            _complianceManager.AddCompliance(-1, "wet_bandage");
-            _stateManager.State.TimeUnderRainTicks = 0;
-            _monitor.Log($"Повязка промокла после {secondsUnderRain}с под дождём", LogLevel.Info);
+            if (_complicationManager.TryApplyWetBandageFromWater(
+                    HasActiveTreatmentBandage(),
+                    topicDays: 4,
+                    new HUDMessage("Повязка промокла!", HUDMessage.error_type),
+                    $"Повязка промокла после {secondsUnderRain}с под дождём"))
+            {
+                _complianceManager.AddCompliance(-1, "wet_bandage");
+                _stateManager.State.TimeUnderRainTicks = 0;
+            }
         }
         
         private static bool IsColdRiskThreshold(int totalSecondsToday)
@@ -911,7 +894,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (count < 2)
                 return;
 
-            if (!_buffManager.HasAnyBuff(InjurySets.Severe.ToArray()))
+            if (!_injuryManager.IsMainInjurySerious())
                 return;
 
             if (!HasDirtyWoundEligibleInjury())
@@ -998,54 +981,35 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             };
         }
 
-        private bool HasDirtyWoundEligibleInjury()
-        {
-            foreach (string injuryId in InjurySets.DirtyInMines)
-            {
-                if (_buffManager.HasBuff(injuryId))
-                    return true;
-
-                for (int phase = 1; phase <= 3; phase++)
-                {
-                    if (_buffManager.HasBuff(_injuryManager.GetPhaseBuffId(injuryId, phase)))
-                        return true;
-                }
-            }
-
-            return false;
-        }
+        private bool HasDirtyWoundEligibleInjury() => _complicationManager.CanReceiveMineDirtyWound();
 
         private bool HasKeepDryWoundExposure()
         {
             if (HasActiveTreatmentBandage())
                 return true;
 
-            foreach (string injuryId in new[] { "buffDeepCuts", "buffBurnWounds", "buffShrapnelWounds" })
-            {
-                if (_buffManager.HasBuff(injuryId))
-                    return true;
-
-                for (int phase = 1; phase <= 3; phase++)
-                {
-                    if (_buffManager.HasBuff(_injuryManager.GetPhaseBuffId(injuryId, phase)))
-                        return true;
-                }
-            }
-
-            return false;
+            string? mainInjuryId = _complicationManager.GetActiveMainInjuryId();
+            return !string.IsNullOrEmpty(mainInjuryId)
+                && InjurySets.BandageSensitive.Contains(mainInjuryId)
+                && _injuryManager.HasInjuryOrPhase(mainInjuryId);
         }
 
         private bool HasWetStitchesExposure()
         {
-            if (_buffManager.HasBuff("buffSurgicalWound"))
-                return true;
+            string? mainInjuryId = _complicationManager.GetActiveMainInjuryId();
+            if (string.IsNullOrEmpty(mainInjuryId))
+                return false;
 
-            return _buffManager.HasBuff("buffDeepCuts")
-                || _buffManager.HasBuff("buffBurnWounds")
-                || _buffManager.HasBuff(_injuryManager.GetPhaseBuffId("buffDeepCuts", 1))
-                || _buffManager.HasBuff(_injuryManager.GetPhaseBuffId("buffDeepCuts", 2))
-                || _buffManager.HasBuff(_injuryManager.GetPhaseBuffId("buffBurnWounds", 1))
-                || _buffManager.HasBuff(_injuryManager.GetPhaseBuffId("buffBurnWounds", 2));
+            if (string.Equals(mainInjuryId, "buffSurgicalWound", StringComparison.OrdinalIgnoreCase))
+                return _injuryManager.HasInjuryOrPhase(mainInjuryId);
+
+            if (!InjurySets.BandageSensitive.Contains(mainInjuryId))
+                return false;
+
+            return _injuryManager.HasInjuryOrPhase(mainInjuryId)
+                && (mainInjuryId is "buffDeepCuts" or "buffBurnWounds"
+                    || _buffManager.HasBuff(_injuryManager.GetPhaseBuffId(mainInjuryId, 1))
+                    || _buffManager.HasBuff(_injuryManager.GetPhaseBuffId(mainInjuryId, 2)));
         }
 
         private void TryRollPrescriptionWetComplication(double wetBandageBonus, double wetStitchesBonus)
@@ -1053,16 +1017,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             int today = Helpers.GameUtils.Today();
 
             if (HasKeepDryWoundExposure()
-                && !_buffManager.HasBuff(InjuryBuffs.WetBandage)
-                && !_stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.WetBandage)
                 && Helpers.GameUtils.Roll(Math.Clamp(wetBandageBonus, 0.0, 1.0)))
             {
-                _buffManager.AddBuff(InjuryBuffs.WetBandage, -2);
-                _stateManager.State.ActiveComplications[InjuryBuffs.WetBandage] = today;
-                _stateManager.CreateComplicationState(InjuryBuffs.WetBandage, today);
-                _dialogueManager.AddTopic(ConversationTopics.WetBandage, 4);
-                Game1.addHUDMessage(new HUDMessage("Повязка промокла!", HUDMessage.error_type));
-                _monitor.Log("[Prescription] WetBandage после нарушения KeepDry", LogLevel.Warn);
+                _complicationManager.TryApplyWetBandageFromWater(
+                    HasActiveTreatmentBandage(),
+                    topicDays: 4,
+                    new HUDMessage("Повязка промокла!", HUDMessage.error_type),
+                    "[Prescription] WetBandage после нарушения KeepDry");
             }
 
             if (HasWetStitchesExposure()
@@ -1098,15 +1059,16 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 }
             }
 
-            if (HasActiveTreatmentBandage())
+            if (_complicationManager.CanReceiveWetBandageFromWater(HasActiveTreatmentBandage()))
             {
-                _buffManager.AddBuff(InjuryBuffs.WetBandage, -2);
-                _stateManager.State.ActiveComplications[InjuryBuffs.WetBandage] = today;
-                _stateManager.CreateComplicationState(InjuryBuffs.WetBandage, today);
-                _dialogueManager.AddTopic(ConversationTopics.WetBandage, 4);
-                Game1.addHUDMessage(new HUDMessage("Повязка промокла! Нельзя было купаться с повязкой!", HUDMessage.error_type));
-                _complianceManager.AddCompliance(-1, "wet_bandage_spa");
-                _monitor.Log("Повязка промокла при купании", LogLevel.Warn);
+                if (_complicationManager.TryApplyWetBandageFromWater(
+                        HasActiveTreatmentBandage(),
+                        topicDays: 4,
+                        new HUDMessage("Повязка промокла! Нельзя было купаться с повязкой!", HUDMessage.error_type),
+                        "Повязка промокла при купании"))
+                {
+                    _complianceManager.AddCompliance(-1, "wet_bandage_spa");
+                }
             }
 
             if (_buffManager.HasBuff("buffSurgicalWound") && !_stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.WetStitches))
@@ -1131,7 +1093,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             bool canForcedHosp = _config.ForceHospitalization
                 && Helpers.GameUtils.HasConversationTopic(ConversationTopics.MineInjuryRescue)
-                && _injuryManager.HasAnySevereInjuryOrPhase();
+                && _injuryManager.IsMainInjurySerious();
             bool hasAnyInState = _stateManager.State.ActiveDebuffs.Count > 0
                 || _stateManager.State.ActiveComplications.Count > 0;
 
@@ -1561,6 +1523,33 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             float stamina = Game1.player.Stamina;
             float deepCutsStaminaThreshold = AtLeastZero(_config.DeepCutsStaminaThreshold);
             float tornMusclesStaminaThreshold = AtLeastZero(_config.TornMusclesStaminaThreshold);
+            float backStrainStaminaThreshold = AtLeastZero(_config.BackStrainStaminaThreshold);
+
+            if (_complicationManager.IsMainInjuryIn(InjurySets.OverworkSensitive))
+            {
+                int totalUses = GetToolUseCounter("Scythe")
+                    + GetToolUseCounter("Axe")
+                    + GetToolUseCounter("Pickaxe")
+                    + GetToolUseCounter("Hoe")
+                    + GetToolUseCounter("WateringCan");
+                float staminaThreshold = Math.Min(
+                    deepCutsStaminaThreshold,
+                    Math.Min(tornMusclesStaminaThreshold, backStrainStaminaThreshold));
+                int usesThreshold = Math.Min(
+                    _config.DeepCutsToolUsesThreshold,
+                    Math.Min(_config.TornMusclesToolUsesThreshold, _config.BackStrainToolUsesThreshold));
+
+                if (_complicationManager.TryRollOverworkComplication(
+                        stamina,
+                        totalUses,
+                        staminaThreshold,
+                        usesThreshold))
+                {
+                    _lastFarmingInjuryRollTime = currentMinutes;
+                }
+
+                return;
+            }
 
             if (stamina <= deepCutsStaminaThreshold && TryRollDeepCuts(stamina))
             {
