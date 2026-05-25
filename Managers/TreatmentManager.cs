@@ -18,6 +18,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly InjuryManager _injuryManager;
         private readonly DialogueManager _dialogueManager;
         private readonly StateManager _stateManager;
+        private readonly PrescriptionManager _prescriptionManager;
+        private readonly ComplianceManager _complianceManager;
+        private readonly CheckupManager _checkupManager;
+        private readonly TreatmentPlanManager _treatmentPlanManager;
 
         // Маппинг травм к лечебным баффам (только для простых травм БЕЗ фаз)
         public static readonly Dictionary<string, string> CureByInjury = new()
@@ -55,13 +59,21 @@ namespace HarveyOverhaul.InjuryCare.Managers
             BuffManager buffManager,
             InjuryManager injuryManager,
             DialogueManager dialogueManager,
-            StateManager stateManager)
+            StateManager stateManager,
+            PrescriptionManager prescriptionManager,
+            ComplianceManager complianceManager,
+            CheckupManager checkupManager,
+            TreatmentPlanManager treatmentPlanManager)
         {
             _monitor = monitor;
             _buffManager = buffManager;
             _injuryManager = injuryManager;
             _dialogueManager = dialogueManager;
             _stateManager = stateManager;
+            _prescriptionManager = prescriptionManager;
+            _complianceManager = complianceManager;
+            _checkupManager = checkupManager;
+            _treatmentPlanManager = treatmentPlanManager;
         }
 
         /// <summary>
@@ -153,6 +165,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
             }
 
+            int currentDay = (int)StardewValley.Game1.stats.DaysPlayed;
+            _checkupManager.CompleteCheckup(injuryId, debuffState, currentDay);
+
             int oldPhase = debuffState.CurrentPhase;
 
             _monitor.Log($"🔄 Смена фазы {injuryId}: {oldPhase} → {oldPhase + 1}", LogLevel.Info);
@@ -161,7 +176,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _buffManager.RemoveBuff(oldPhaseBuffId);
             _monitor.Log($"❌ Удалён бафф фазы {oldPhase}: {oldPhaseBuffId}", LogLevel.Debug);
 
-            int currentDay = (int)StardewValley.Game1.stats.DaysPlayed;
             _stateManager.AdvancePhase(injuryId, currentDay);
 
             var updatedState = _stateManager.GetDebuffState(injuryId);
@@ -198,6 +212,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             StardewValley.Game1.addHUDMessage(new StardewValley.HUDMessage(
                 $"Переход к фазе: {phaseName}",
                 StardewValley.HUDMessage.health_type));
+
+            _complianceManager.ApplyTreatmentComplianceTopics();
         }
         
         /// <summary>
@@ -215,6 +231,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _dialogueManager.RemoveTopic(_injuryManager.GetPhaseTopicId(injuryId, phase));
 
             _buffManager.AddBuff(CureBuffs.Care, careDurationMs);
+            _complianceManager.ApplyHighComplianceRecoveryBonuses();
             _monitor.Log($"Механическое выздоровление применено: {injuryId}, Care={careDurationMs}ms", LogLevel.Debug);
         }
 
@@ -259,44 +276,60 @@ namespace HarveyOverhaul.InjuryCare.Managers
             // Удаляем топик «нелеченной» травмы — он для диалогов, больше не нужен
             _dialogueManager.RemoveTopic(TopicIds.GetInjuryTopic(injuryId));
 
+            bool treatmentStarted = false;
+
             if (PhasedInjuries.Contains(injuryId))
             {
-                StartPhasedTreatment(injuryId);
+                treatmentStarted = StartPhasedTreatment(injuryId);
             }
             else if (IsSimpleTreatmentInjury(injuryId))
             {
-                _buffManager.RemoveBuff(injuryId);
-                _buffManager.AddBuff(CureByInjury[injuryId], -2);
-
-                // Записываем в DebuffState: лечение началось, PhaseStartDay = сегодня,
-                // Phase1Duration = срок лечения (для CheckSimpleTreatmentCompletion)
-                int today = (int)StardewValley.Game1.stats.DaysPlayed;
-                int treatmentDays = CalculateTopicDuration(injuryId);
-
-                var ds = _stateManager.GetDebuffState(injuryId);
-                if (ds != null)
-                {
-                    ds.TreatmentStarted = true;
-                    ds.PhaseStartDay    = today;
-                    ds.Phase1Duration   = treatmentDays;
-                    _stateManager.UpdateDebuffState(injuryId, ds);
-                }
-
-                _monitor.Log($"Нефазовое лечение начато: {CureByInjury[injuryId]}, срок={treatmentDays} дней", LogLevel.Info);
-
-                if (string.Equals(injuryId, "buffSurgicalWound", StringComparison.OrdinalIgnoreCase))
-                    _dialogueManager.TryAddDiagnosisCompleteTopic(injuryId);
+                treatmentStarted = StartSimpleTreatment(injuryId);
             }
             else
             {
                 _monitor.Log($"Лечебный бафф для {injuryId} не найден", LogLevel.Warn);
             }
+
+            if (treatmentStarted)
+            {
+                _prescriptionManager.AssignPrescriptionsForInjury(injuryId);
+                _complianceManager.ApplyTreatmentComplianceTopics();
+                _treatmentPlanManager.SendTreatmentPlanForInjury(injuryId);
+            }
+        }
+
+        private bool StartSimpleTreatment(string injuryId)
+        {
+            _buffManager.RemoveBuff(injuryId);
+            _buffManager.AddBuff(CureByInjury[injuryId], -2);
+
+            // Записываем в DebuffState: лечение началось, PhaseStartDay = сегодня,
+            // Phase1Duration = срок лечения (для CheckSimpleTreatmentCompletion)
+            int today = (int)StardewValley.Game1.stats.DaysPlayed;
+            int treatmentDays = CalculateTopicDuration(injuryId);
+
+            var ds = _stateManager.GetDebuffState(injuryId);
+            if (ds != null)
+            {
+                ds.TreatmentStarted = true;
+                ds.PhaseStartDay    = today;
+                ds.Phase1Duration   = treatmentDays;
+                _stateManager.UpdateDebuffState(injuryId, ds);
+            }
+
+            _monitor.Log($"Нефазовое лечение начато: {CureByInjury[injuryId]}, срок={treatmentDays} дней", LogLevel.Info);
+
+            if (string.Equals(injuryId, "buffSurgicalWound", StringComparison.OrdinalIgnoreCase))
+                _dialogueManager.TryAddDiagnosisCompleteTopic(injuryId);
+
+            return true;
         }
         
         /// <summary>
         /// Начать фазовое лечение (для травм с фазовыми баффами)
         /// </summary>
-        private void StartPhasedTreatment(string injuryId)
+        private bool StartPhasedTreatment(string injuryId)
         {
             _monitor.Log($"🏥 Начинаем фазовое лечение для {injuryId}", LogLevel.Info);
             
@@ -305,7 +338,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (debuffState == null)
             {
                 _monitor.Log($"⚠️ Состояние дебаффа для {injuryId} не найдено!", LogLevel.Warn);
-                return;
+                return false;
             }
             
             // ВАЖНО: Заменяем базовый бафф травмы на Фазу 1
@@ -333,6 +366,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _monitor.Log($"🏥 Создан топик фазового лечения: {treatmentTopicId} на {totalDuration} дней", LogLevel.Debug);
 
             _dialogueManager.TryAddDiagnosisCompleteTopic(injuryId);
+            return true;
         }
 
         /// <summary>
@@ -552,6 +586,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             // Для нефазовых — проверяем наличие лечебного баффа
             if (!CureByInjury.TryGetValue(injuryId, out var cure)) return false;
+
+            if (string.Equals(injuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
+            {
+                return _buffManager.HasBuff(cure)
+                    || _buffManager.HasBuff(CureBuffs.BadlyHurtOutpatientCare);
+            }
+
             return _buffManager.HasBuff(cure);
         }
 

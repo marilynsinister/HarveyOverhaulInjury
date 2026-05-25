@@ -53,6 +53,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void UpdateHospitalActivities(HospitalizationManager hospitalization)
         {
             if (!hospitalization.IsHospitalized) return;
+            if (hospitalization.HasPendingReturnToHospital) return;
+            if (Game1.eventUp || Game1.CurrentEvent != null || Game1.activeClickableMenu != null) return;
             if (!Context.IsPlayerFree) return;
             if (_activityCounter >= _config.MaxHospitalActivitiesPerStay) return;
 

@@ -19,6 +19,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly BuffManager _buffManager;
         private readonly DialogueManager _dialogueManager;
         private readonly InjuryManager _injuryManager;
+        private readonly ComplianceManager _complianceManager;
+        private readonly SelfCareManager _selfCareManager;
 
         public ComplicationManager(
             IMonitor monitor,
@@ -26,7 +28,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             StateManager stateManager,
             BuffManager buffManager,
             DialogueManager dialogueManager,
-            InjuryManager injuryManager)
+            InjuryManager injuryManager,
+            ComplianceManager complianceManager,
+            SelfCareManager selfCareManager)
         {
             _monitor = monitor;
             _config = config;
@@ -34,6 +38,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _buffManager = buffManager;
             _dialogueManager = dialogueManager;
             _injuryManager = injuryManager;
+            _complianceManager = complianceManager;
+            _selfCareManager = selfCareManager;
         }
 
         /// <summary>
@@ -88,6 +94,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 Game1.addMailForTomorrow(MailIds.DirtyWoundInfection);
 
             Game1.addHUDMessage(new HUDMessage("Грязная рана инфицирована! Срочно к врачу!", HUDMessage.error_type));
+            _complianceManager.AddCompliance(-2, "infection_dirty_wound");
         }
 
         /// <summary>
@@ -100,6 +107,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             int days = today - startDay;
             double infectionChance = CalculateWetBandageInfectionChance(days);
+            infectionChance *= _selfCareManager.GetWetBandageInfectionChanceMultiplier();
 
             if (infectionChance <= 0)
             {
@@ -110,6 +118,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _monitor.Log(
                 $"[WetBandage] Проверка инфекции: startDay={startDay}, today={today}, days={days}, chance={infectionChance:P0}",
                 LogLevel.Debug);
+
+            if (_selfCareManager.HasSelfCareProtection(SelfCareProtectionTypes.CleanBandage))
+                _selfCareManager.ConsumeSelfCareProtection(SelfCareProtectionTypes.CleanBandage);
 
             if (!GameUtils.Roll(infectionChance)) return;
 
@@ -126,6 +137,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 Game1.addMailForTomorrow(MailIds.WetBandageInfection);
 
             Game1.addHUDMessage(new HUDMessage("Мокрая повязка привела к инфекции!", HUDMessage.error_type));
+            _complianceManager.AddCompliance(-2, "infection_wet_bandage");
         }
 
         // Баланс мокрой повязки: days = today - startDay
@@ -317,7 +329,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 if (currentPhaseDuration <= 0)
                     continue;
 
-                int gracePeriod = GetNeglectGraceDays(injuryId);
+                int coldBonus = _selfCareManager.GetColdNeglectGraceBonus(injuryId);
+                int gracePeriod = GetNeglectGraceDays(injuryId) + coldBonus;
+                if (coldBonus > 0)
+                    _selfCareManager.ConsumeSelfCareProtection(SelfCareProtectionTypes.WarmTea);
+
                 int neglectDay = currentPhaseDuration + gracePeriod;
 
                 // Первое предупреждение: фаза завершена, нужен осмотр для перехода

@@ -5,6 +5,16 @@ using StardewValley;
 
 namespace HarveyOverhaul.InjuryCare.Helpers
 {
+    /// <summary>Уровень отношений с Харви для tiered-писем и тона (не TreatmentComplianceScore).</summary>
+    public enum HarveyRelationshipTier
+    {
+        LowHearts,
+        MidHearts,
+        HighHearts,
+        Dating,
+        Married,
+    }
+
     /// <summary>
     /// Вспомогательные методы для работы с NPC Харви
     /// </summary>
@@ -33,6 +43,32 @@ namespace HarveyOverhaul.InjuryCare.Helpers
 
             return false;
         }
+
+        /// <summary>
+        /// Уровень отношений для писем: LowHearts (0–3), MidHearts (4–7), HighHearts (8+), Dating, Married.
+        /// </summary>
+        public static HarveyRelationshipTier GetHarveyRelationshipTier()
+        {
+            var friendship = Game1.player?.friendshipData;
+            if (friendship == null || !friendship.TryGetValue("Harvey", out var data))
+                return HarveyRelationshipTier.LowHearts;
+
+            if (data.IsMarried())
+                return HarveyRelationshipTier.Married;
+            if (data.IsDating())
+                return HarveyRelationshipTier.Dating;
+
+            int hearts = data.Points / 250;
+            if (hearts >= 8)
+                return HarveyRelationshipTier.HighHearts;
+            if (hearts >= 4)
+                return HarveyRelationshipTier.MidHearts;
+            return HarveyRelationshipTier.LowHearts;
+        }
+
+        /// <summary>Суффикс tier для mailId: LowHearts, MidHearts, Dating, Married.</summary>
+        public static string GetHarveyRelationshipTierSuffix() =>
+            GetHarveyRelationshipTier().ToString();
 
         /// <summary>
         /// Тон proximity-реплик по отношениям с Харви: Low / Mid / High / Romantic.

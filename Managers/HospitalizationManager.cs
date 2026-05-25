@@ -16,18 +16,29 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly ModConfig _config;
         private readonly DialogueManager _dialogueManager;
         private readonly StateManager _stateManager;
+        private readonly BuffManager _buffManager;
         private HospitalActivityManager? _activityManager;
+        private TreatmentManager? _treatmentManager;
+        private bool _pendingReturnToHospital;
+        private bool _pendingBlockedExitReaction;
+
+        /// <summary>
+        /// Ожидается отложенный возврат в палату после заблокированного выхода.
+        /// </summary>
+        public bool HasPendingReturnToHospital => _pendingReturnToHospital;
 
         public HospitalizationManager(
             IMonitor monitor,
             ModConfig config,
             DialogueManager dialogueManager,
-            StateManager stateManager)
+            StateManager stateManager,
+            BuffManager buffManager)
         {
             _monitor = monitor;
             _config = config;
             _dialogueManager = dialogueManager;
             _stateManager = stateManager;
+            _buffManager = buffManager;
         }
 
         /// <summary>
@@ -36,6 +47,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void SetActivityManager(HospitalActivityManager activityManager)
         {
             _activityManager = activityManager;
+        }
+
+        /// <summary>
+        /// Связать TreatmentManager (вызывается после инициализации).
+        /// </summary>
+        public void SetTreatmentManager(TreatmentManager treatmentManager)
+        {
+            _treatmentManager = treatmentManager;
         }
 
         /// <summary>
@@ -59,10 +78,67 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// Перед госпитализацией: начать лечение, если первичный осмотр ещё не проведён.
+        /// </summary>
+        public void EnsureTreatmentBeforeForcedHospitalization(string injuryId)
+        {
+            var debuffState = _stateManager.GetDebuffState(injuryId);
+            if (debuffState == null)
+            {
+                _monitor.Log(
+                    $"[Hospital] pre-hospital treatment skipped: no DebuffState for {injuryId}",
+                    LogLevel.Debug);
+                return;
+            }
+
+            if (debuffState.TreatmentStarted)
+            {
+                _monitor.Log(
+                    $"[Hospital] treatment already started, skip pre-hospital treatment: {injuryId}",
+                    LogLevel.Info);
+                return;
+            }
+
+            if (_treatmentManager == null)
+            {
+                _monitor.Log(
+                    $"[Hospital] pre-hospital treatment skipped: TreatmentManager not wired for {injuryId}",
+                    LogLevel.Error);
+                return;
+            }
+
+            _monitor.Log(
+                $"[Hospital] starting treatment before forced hospitalization: {injuryId}",
+                LogLevel.Info);
+
+            string topicId = TopicIds.GetInjuryTopic(injuryId);
+            bool hadUntreatedTopic = _dialogueManager.HasTopic(topicId);
+
+            _treatmentManager.ApplyTreatmentForInjury(injuryId);
+
+            if (hadUntreatedTopic)
+            {
+                _monitor.Log($"[Hospital] removed untreated topic: {topicId}", LogLevel.Info);
+            }
+
+            _stateManager.MarkHarveyConversation(injuryId, true);
+            _dialogueManager.ClearHarveyNeedsFirstTreatmentTopic(
+                "лечение начато перед принудительной госпитализацией");
+            _stateManager.Save();
+
+            _dialogueManager.AddTopic(ConversationTopics.ForcedHosp, 2);
+        }
+
+        /// <summary>
         /// Начать принудительную госпитализацию с объяснением причины
         /// </summary>
         public void StartForcedHospitalizationWithExplanation(string injuryId, NPC? harvey, string reason)
         {
+            EnsureTreatmentBeforeForcedHospitalization(injuryId);
+
+            if (!_dialogueManager.HasTopic(ConversationTopics.ForcedHosp))
+                _dialogueManager.AddTopic(ConversationTopics.ForcedHosp, 2);
+
             _monitor.Log($"🏥 Начинаем принудительную госпитализацию: {injuryId}, причина: {reason}", LogLevel.Info);
 
             var state = _stateManager.State;
@@ -211,11 +287,24 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             _monitor.Log("🏥 Выписка пациента", LogLevel.Info);
 
+            string? injuryId = CurrentInjury;
             ClearHospitalizationState();
             _stateManager.Save();
-            
+
+            if (string.Equals(injuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
+                ReplaceIntensiveCareWithOutpatientRecovery();
+
             // Сбрасываем активности госпитализации
             _activityManager?.Reset();
+        }
+
+        private void ReplaceIntensiveCareWithOutpatientRecovery()
+        {
+            _buffManager.RemoveBuff(CureBuffs.IntensiveCare);
+            _buffManager.AddBuff(CureBuffs.BadlyHurtOutpatientCare, -2);
+            _monitor.Log(
+                "[Hospital] buffBadlyHurt: intensive care replaced with outpatient recovery after discharge",
+                LogLevel.Info);
         }
 
         /// <summary>
@@ -245,6 +334,75 @@ namespace HarveyOverhaul.InjuryCare.Managers
             location ??= Game1.currentLocation;
             return string.Equals(location?.Name, _config.HospitalLocationName, 
                 StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Проверить, занята ли игра событием, диалогом или меню.
+        /// </summary>
+        private bool IsGameBusy()
+        {
+            return Game1.eventUp
+                || Game1.CurrentEvent != null
+                || Game1.activeClickableMenu != null
+                || !Context.IsPlayerFree;
+        }
+
+        /// <summary>
+        /// Отложенный возврат в палату, когда игрок свободен от событий и диалогов.
+        /// </summary>
+        public void UpdateHospitalizationLock()
+        {
+            if (!IsHospitalized)
+            {
+                _pendingReturnToHospital = false;
+                _pendingBlockedExitReaction = false;
+                return;
+            }
+
+            if (CanDischarge())
+                return;
+
+            bool outsideHospital = !IsInClinic(Game1.currentLocation);
+            if (outsideHospital)
+            {
+                _pendingReturnToHospital = true;
+                _pendingBlockedExitReaction = true;
+            }
+
+            if (!_pendingReturnToHospital)
+                return;
+
+            if (!Context.IsWorldReady)
+                return;
+
+            if (IsGameBusy())
+                return;
+
+            WarpToHospitalBed();
+
+            if (!IsInClinic(Game1.currentLocation))
+                return;
+
+            _pendingReturnToHospital = false;
+
+            if (!_pendingBlockedExitReaction)
+                return;
+
+            _pendingBlockedExitReaction = false;
+
+            NPC? harvey = Game1.getCharacterFromName("Harvey");
+            if (harvey != null && Game1.currentLocation.characters.Contains(harvey))
+            {
+                _dialogueManager.ShowFullReaction(
+                    harvey,
+                    HarveyEmotes.StayInBed,
+                    HarveyTextMessages.DontMove,
+                    "Назад в палату. Я не обсуждаю это.$a");
+            }
+            else
+            {
+                Game1.addHUDMessage(new HUDMessage("Харви не разрешает тебе покидать палату.", HUDMessage.error_type));
+            }
         }
 
         /// <summary>
@@ -281,23 +439,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return false; // Разрешаем варп
             }
 
-            _monitor.Log("🏥 Попытка покинуть больницу заблокирована", LogLevel.Debug);
+            _monitor.Log("🏥 Попытка покинуть больницу заблокирована — отложенный возврат", LogLevel.Debug);
 
-            NPC? harveyBlock = Game1.getCharacterFromName("Harvey");
-            if (harveyBlock != null)
-            {
-                _dialogueManager.ShowFullReaction(harveyBlock,
-                    HarveyEmotes.StayInBed,
-                    HarveyTextMessages.DontMove,
-                    "Назад в палату. Я не обсуждаю это.$a");
-            }
-            else
-            {
-                Game1.addHUDMessage(new HUDMessage("Ты слишком тяжело ранена.", HUDMessage.error_type));
-            }
-
-            WarpToHospitalBed();
-            return true; // Варп заблокирован
+            _pendingReturnToHospital = true;
+            _pendingBlockedExitReaction = true;
+            Game1.addHUDMessage(new HUDMessage("Тебе пока нельзя покидать больницу.", HUDMessage.error_type));
+            return true;
         }
 
         /// <summary>
@@ -348,6 +495,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private void ClearHospitalizationState()
         {
+            _pendingReturnToHospital = false;
+            _pendingBlockedExitReaction = false;
+
             var state = _stateManager.State;
             state.IsHospitalized = false;
             state.HospitalizedInjuryId = "";

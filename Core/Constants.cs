@@ -24,6 +24,7 @@ namespace HarveyOverhaul.InjuryCare.Core
         // Для простых травм
         public const string Treatment = "buffHarveyTreatment";
         public const string IntensiveCare = "buffHarveyIntensiveCare";
+        public const string BadlyHurtOutpatientCare = "HarveyMod_BadlyHurt_OutpatientCare";
         public const string Protection = "buffHarveyProtection";
         public const string Recovery = "buffHarveyRecovery";
 
@@ -35,6 +36,68 @@ namespace HarveyOverhaul.InjuryCare.Core
         
         // Бафф заботы после завершения лечения
         public const string Care = "buffHarveyCare";
+
+        /// <summary>Восстановительный режим после тяжёлой травмы.</summary>
+        public const string Rehab = "buffHarveyRehab";
+    }
+
+    /// <summary>ID предписаний Харви (временные правила лечения).</summary>
+    public static class PrescriptionIds
+    {
+        public const string Rest = "HarveyMod_Prescription_Rest";
+        public const string NoMine = "HarveyMod_Prescription_NoMine";
+        public const string KeepDry = "HarveyMod_Prescription_KeepDry";
+        public const string LightWork = "HarveyMod_Prescription_LightWork";
+        public const string Checkup = "HarveyMod_Prescription_Checkup";
+    }
+
+    /// <summary>Conversation topics для предписаний Харви.</summary>
+    public static class PrescriptionTopics
+    {
+        public const string Rest = "topicHarvey_Prescription_Rest";
+        public const string NoMine = "topicHarvey_Prescription_NoMine";
+        public const string KeepDry = "topicHarvey_Prescription_KeepDry";
+        public const string LightWork = "topicHarvey_Prescription_LightWork";
+        public const string Checkup = "topicHarvey_Prescription_Checkup";
+        public const string Violation = "topicHarvey_PrescriptionViolation";
+        public const string Followed = "topicHarvey_PrescriptionFollowed";
+    }
+
+    /// <summary>Conversation topics для контрольных осмотров между фазами.</summary>
+    public static class CheckupTopics
+    {
+        public const string CheckupDue = "topicHarvey_CheckupDue";
+        public const string RecoveryCheckupDue = "topicHarvey_RecoveryCheckupDue";
+
+        public static string GetCheckupDueInjury(string buffId) =>
+            $"topicHarvey_CheckupDue_{buffId.Replace("buff", "", StringComparison.OrdinalIgnoreCase)}";
+
+        public static string GetCheckupPhase(int nextPhase) =>
+            $"topicHarvey_CheckupPhase{nextPhase}";
+
+        public static string GetRecoveryCheckupDueInjury(string buffId) =>
+            $"topicHarvey_RecoveryCheckupDue_{buffId.Replace("buff", "", StringComparison.OrdinalIgnoreCase)}";
+    }
+
+    /// <summary>Conversation topics для плана лечения от Харви.</summary>
+    public static class TreatmentPlanTopics
+    {
+        public const string Given = "topicHarvey_TreatmentPlanGiven";
+
+        public static string GetInjuryTopic(string buffId) =>
+            $"topicHarvey_TreatmentPlan_{buffId.Replace("buff", "", StringComparison.OrdinalIgnoreCase)}";
+    }
+
+    /// <summary>Conversation topics по уровню соблюдения лечения (не Friendship).</summary>
+    public static class ComplianceTopics
+    {
+        public const string High = "topicHarvey_ComplianceHigh";
+        public const string Neutral = "topicHarvey_ComplianceNeutral";
+        public const string Low = "topicHarvey_ComplianceLow";
+        /// <summary>Усиленный медицинский контроль после повторных нарушений (не наказание за отношения).</summary>
+        public const string StrictMedicalMode = "topicHarvey_StrictMedicalMode";
+        /// <summary>Стабильное соблюдение лечения при выздоровлении (ID исторический; не романтическое доверие).</summary>
+        public const string TrustedPatient = "topicHarvey_TrustedPatient";
     }
 
     /// <summary>
@@ -51,6 +114,24 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string Cold = "buffCold"; // Простуда (2 фазы: острая + восстановление)
         /// <summary>Дебафф «Харви запретил вход в шахту» — навешивается при входе в шахту/вулкан с серьёзной травмой.</summary>
         public const string MineForbidden = "HarveyMod_MineForbidden";
+
+        /// <summary>Острая фаза простуды (фазовый бафф).</summary>
+        public const string ColdAcute = "HarveyMod_Cold_Acute";
+    }
+
+    /// <summary>Баффы самопомощи (слабее лечения у Харви).</summary>
+    public static class SelfCareBuffs
+    {
+        public const string SelfCare = "HarveyMod_SelfCare";
+        public const string CleanBandage = "HarveyMod_CleanBandage";
+        public const string WarmTea = "HarveyMod_WarmTea";
+    }
+
+    /// <summary>Типы временной защиты от осложнений после самопомощи.</summary>
+    public static class SelfCareProtectionTypes
+    {
+        public const string CleanBandage = "CleanBandage";
+        public const string WarmTea = "WarmTea";
     }
 
     /// <summary>
@@ -97,6 +178,22 @@ namespace HarveyOverhaul.InjuryCare.Core
 
         // --- Лечение / события ---
         public const string TreatmentCompleted = "topicTreatmentCompleted";
+
+        // --- Реабилитация после тяжёлой травмы ---
+        public const string Rehab = "topicHarvey_Rehab";
+        public const string RehabStrict = "topicHarvey_RehabStrict";
+        public const string RehabCompleted = "topicHarvey_RehabCompleted";
+
+        // --- Самопомощь (домашний уход) ---
+        public const string SelfCare = "topicHarvey_SelfCare";
+        public const string CleanBandage = "topicHarvey_CleanBandage";
+        public const string WarmTea = "topicHarvey_WarmTea";
+        public const string SelfCarePraise = "topicHarvey_SelfCarePraise";
+
+        // --- Proximity-реакции Харви ---
+        public const string ProximityReaction = "topicHarvey_ProximityReaction";
+        public const string ProximityStrict = "topicHarvey_ProximityStrict";
+        public const string ProximityPraise = "topicHarvey_ProximityPraise";
         public const string MineInjuryRescue = "topicMineInjuryRescue";
         /// <summary>После eventHarveyMinorMineRescue — опасное состояние в шахте без Severe.</summary>
         public const string MinorMineRescue = "topicHarveyMinorMineRescue";
@@ -187,6 +284,27 @@ namespace HarveyOverhaul.InjuryCare.Core
             ids.Add(StormComfortIds.LegacyStressTopic);
             ids.Add(StormComfortIds.CooldownTopic);
 
+            foreach (var field in typeof(PrescriptionTopics).GetFields(
+                         System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+            {
+                if (field.FieldType == typeof(string) && field.GetValue(null) is string topicId)
+                    ids.Add(topicId);
+            }
+
+            foreach (var field in typeof(ComplianceTopics).GetFields(
+                         System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+            {
+                if (field.FieldType == typeof(string) && field.GetValue(null) is string topicId)
+                    ids.Add(topicId);
+            }
+
+            ids.Add(CheckupTopics.CheckupDue);
+            ids.Add(CheckupTopics.RecoveryCheckupDue);
+
+            ids.Add(TreatmentPlanTopics.Given);
+            foreach (string buffId in InjurySets.HarveyTreatable)
+                ids.Add(TreatmentPlanTopics.GetInjuryTopic(buffId));
+
             return ids;
         }
     }
@@ -237,6 +355,26 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string WetBandageInfection = "HarveyMod_WetBandageInfection";
         public const string TreatmentUrgentReminder = "HarveyMod_TreatmentUrgentReminder";
         public const string TreatmentFinalWarning = "HarveyMod_TreatmentFinalWarning";
+        /// <summary>Письмо при просрочке контрольного осмотра (4+ дня).</summary>
+        public const string CheckupOverdue = "HarveyMod_CheckupOverdue";
+
+        // --- План лечения (после начала лечения) ---
+        public const string TreatmentPlanMinor = "mailHarveyTreatmentPlan_Minor";
+        public const string TreatmentPlanSevere = "mailHarveyTreatmentPlan_Severe";
+        public const string TreatmentPlanInfection = "mailHarveyTreatmentPlan_Infection";
+        public const string TreatmentPlanConcussion = "mailHarveyTreatmentPlan_Concussion";
+        public const string TreatmentPlanFracture = "mailHarveyTreatmentPlan_Fracture";
+        public const string TreatmentPlanBurn = "mailHarveyTreatmentPlan_Burn";
+        public const string TreatmentPlanCold = "mailHarveyTreatmentPlan_Cold";
+
+        // --- Письма по тону отношений (суффикс _LowHearts | _MidHearts | _Dating | _Married) ---
+        public const string PrescriptionViolation = "mailHarveyPrescriptionViolation";
+        public const string CheckupReminder = "mailHarveyCheckupReminder";
+        public const string RehabReminder = "mailHarveyRehabReminder";
+        public const string RehabCompleted = "mailHarveyRehabCompleted";
+        public const string NoMineViolation = "mailHarveyNoMineViolation";
+        public const string KeepDryViolation = "mailHarveyKeepDryViolation";
+        public const string RestViolation = "mailHarveyRestViolation";
     }
 
     /// <summary>

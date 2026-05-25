@@ -7,6 +7,7 @@ using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Managers;
 using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.EventHandlers;
+using HarveyOverhaul.InjuryCare.Testing;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
@@ -27,10 +28,16 @@ namespace HarveyOverhaul.InjuryCare
         private DialogueManager _dialogueManager = null!;
         private InjuryManager _injuryManager = null!;
         private TreatmentManager _treatmentManager = null!;
-        private ProximityReactionManager _proximityReactionManager = null!;
+        private HarveyReactionManager _harveyReactionManager = null!;
         private HospitalizationManager _hospitalizationManager = null!;
         private HospitalActivityManager _hospitalActivityManager = null!;
         private ComplicationManager _complicationManager = null!;
+        private PrescriptionManager _prescriptionManager = null!;
+        private ComplianceManager _complianceManager = null!;
+        private CheckupManager _checkupManager = null!;
+        private RehabManager _rehabManager = null!;
+        private TreatmentPlanManager _treatmentPlanManager = null!;
+        private SelfCareManager _selfCareManager = null!;
 
         // Обработчики событий
         private GameEventHandler _gameEventHandler = null!;
@@ -111,6 +118,11 @@ namespace HarveyOverhaul.InjuryCare
                 (_, _) => CmdMineDirtyDebug());
 
             helper.ConsoleCommands.Add(
+                "injury_mine_forbidden_clear",
+                "Снять дебафф и состояние запрета Харви на шахты.",
+                (_, _) => CmdMineForbiddenClear());
+
+            helper.ConsoleCommands.Add(
                 "injury_debug_mine_rescue",
                 "Выставить флаги шахтного rescue для теста (сработает на следующий DayStarted).",
                 (_, _) => CmdDebugMineRescue());
@@ -154,6 +166,66 @@ namespace HarveyOverhaul.InjuryCare
                 "injury_proximity_test",
                 "Отладка proximity-реплик из CP без изменения state. injury_proximity_test <situation> [tone]",
                 (_, args) => CmdProximityTest(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_prescription_list",
+                "Список активных предписаний и TreatmentComplianceScore (соблюдение лечения, не Friendship).",
+                (_, _) => CmdPrescriptionList());
+
+            helper.ConsoleCommands.Add(
+                "injury_prescription_add",
+                "Добавить предписание: injury_prescription_add <id> <injuryId> [days]",
+                (_, args) => CmdPrescriptionAdd(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_prescription_clear",
+                "Снять все активные предписания и сбросить TreatmentComplianceScore.",
+                (_, _) => CmdPrescriptionClear());
+
+            helper.ConsoleCommands.Add(
+                "injury_compliance_set",
+                "TreatmentComplianceScore (−10…10): насколько стабильно соблюдается лечение. Не влияет на Friendship.",
+                (_, args) => CmdComplianceSet(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_test_prescription_violation",
+                "Тест нарушения предписания: Friendship не падает, topic violation + compliance −1. [NoMine|KeepDry]",
+                (_, args) => CmdTestPrescriptionViolation(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_checkup_due",
+                "Тест контрольного осмотра: injury_checkup_due <buffId> — ReadyForNextPhase/Recovery + topics.",
+                (_, args) => CmdCheckupDue(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_rehab_start",
+                "Старт реабилитации: injury_rehab_start <buffId> [days]",
+                (_, args) => CmdRehabStart(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_rehab_status",
+                "Статус активной реабилитации.",
+                (_, _) => CmdRehabStatus());
+
+            helper.ConsoleCommands.Add(
+                "injury_rehab_clear",
+                "Снять реабилитацию и связанные topics/buff.",
+                (_, _) => CmdRehabClear());
+
+            helper.ConsoleCommands.Add(
+                "injury_selfcare_bandage",
+                "Самопомощь: сменить повязку дома (force без проверки локации).",
+                (_, _) => CmdSelfCareBandage());
+
+            helper.ConsoleCommands.Add(
+                "injury_selfcare_tea",
+                "Самопомощь: тёплый чай при простуде.",
+                (_, _) => CmdSelfCareTea());
+
+            helper.ConsoleCommands.Add(
+                "injury_selfcare_rest",
+                "Самопомощь: ранний отдых (force).",
+                (_, _) => CmdSelfCareRest());
 
             Monitor.Log("Harvey Overhaul: Injury & Care загружен", LogLevel.Info);
         }
@@ -471,6 +543,26 @@ namespace HarveyOverhaul.InjuryCare
                 LogLevel.Info);
         }
 
+        private void CmdMineForbiddenClear()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            _buffManager.RemoveBuff(InjuryBuffs.MineForbidden);
+            _stateManager.State.MineWarningDay = -1;
+            _stateManager.State.MineForbiddenAppliedDay = -1;
+            _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
+                string.Equals(id, InjuryBuffs.MineForbidden, StringComparison.OrdinalIgnoreCase));
+
+            _stateManager.Save();
+
+            Monitor.Log("[Шахта] Запрет Харви на шахты снят вручную.", LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage("[ДЕБАГ] Запрет Харви на шахты снят", HUDMessage.achievement_type));
+        }
+
         private void CmdDebugMineRescue()
         {
             if (!Context.IsWorldReady)
@@ -684,7 +776,7 @@ namespace HarveyOverhaul.InjuryCare
             }
 
             string primaryPrefix = $"{primaryPrefixBase}_{tone}";
-            var prefixes = ProximityReactionManager.BuildPrefixCandidates(primaryPrefix);
+            var prefixes = HarveyReactionManager.BuildPrefixCandidates(primaryPrefix);
             string text = _dialogueManager.PickRandomProximityLineByPrefixes(prefixes);
 
             bool usedFallback = string.Equals(text, DialogueManager.ProximityDialogueFallback, StringComparison.Ordinal);
@@ -712,6 +804,238 @@ namespace HarveyOverhaul.InjuryCare
             {
                 Monitor.Log("Харви не в текущей локации — только log + HUD.", LogLevel.Info);
             }
+        }
+
+        private void CmdPrescriptionList()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            var state = _stateManager.State;
+            Monitor.Log("=== Активные предписания Харви ===", LogLevel.Info);
+            Monitor.Log($"TreatmentComplianceScore: {state.TreatmentComplianceScore} ({ComplianceManager.GetLevelDisplayName(_complianceManager.GetComplianceLevel())})", LogLevel.Info);
+
+            var lines = _prescriptionManager.GetActivePrescriptionSummary().ToList();
+            if (lines.Count == 0 || (lines.Count == 1 && lines[0] == "(none)"))
+                Monitor.Log("  (нет активных предписаний)", LogLevel.Info);
+            else
+                foreach (string line in lines)
+                    Monitor.Log($"  {line}", LogLevel.Info);
+        }
+
+        private void CmdPrescriptionAdd(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length < 2)
+            {
+                Monitor.Log(
+                    "Использование: injury_prescription_add <id> <injuryId> [days]. " +
+                    "id: HarveyMod_Prescription_Rest | NoMine | KeepDry | LightWork | Checkup",
+                    LogLevel.Info);
+                return;
+            }
+
+            string id = args[0].Trim();
+            string injuryId = args[1].Trim();
+            int days = 3;
+            if (args.Length >= 3 && !int.TryParse(args[2], out days))
+            {
+                Monitor.Log("days должно быть целым числом.", LogLevel.Warn);
+                return;
+            }
+
+            _prescriptionManager.AddPrescription(id, injuryId, days);
+            Monitor.Log($"Предписание {id} добавлено для {injuryId} на {days} дн.", LogLevel.Info);
+        }
+
+        private void CmdPrescriptionClear()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            _prescriptionManager.ClearAllPrescriptions();
+            Monitor.Log("Все предписания сняты, TreatmentComplianceScore сброшен (0).", LogLevel.Info);
+        }
+
+        private void CmdComplianceSet(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0 || !int.TryParse(args[0], out int score))
+            {
+                Monitor.Log("Использование: injury_compliance_set <number>", LogLevel.Info);
+                return;
+            }
+
+            _complianceManager.SetScore(score);
+            _complianceManager.ApplyTreatmentComplianceTopics();
+            Monitor.Log(
+                $"TreatmentComplianceScore = {score} ({ComplianceManager.GetLevelDisplayName(_complianceManager.GetComplianceLevel())})",
+                LogLevel.Info);
+        }
+
+        private void CmdTestPrescriptionViolation(string[] args)
+        {
+            string kind = args.Length > 0 ? args[0] : "NoMine";
+            PrescriptionViolationTest.Run(
+                Monitor,
+                _prescriptionManager,
+                _complianceManager,
+                _dialogueManager,
+                _stateManager,
+                kind);
+        }
+
+        private void CmdCheckupDue(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log(
+                    "Использование: injury_checkup_due <buffId>. Пример: injury_checkup_due buffDeepCuts",
+                    LogLevel.Info);
+                return;
+            }
+
+            string buffId = args[0].Trim();
+            if (!_checkupManager.DebugForceCheckupDue(buffId))
+            {
+                Monitor.Log(
+                    $"Не удалось выставить осмотр для «{buffId}». Нужна фазовая травма с начатым лечением.",
+                    LogLevel.Warn);
+                return;
+            }
+            var ds = _stateManager.GetDebuffState(buffId)!;
+            Monitor.Log(
+                $"[Checkup] debug: {buffId} ReadySinceDay={ds.ReadySinceDay}, " +
+                $"Next={ds.ReadyForNextPhase}, Recovery={ds.ReadyForRecovery}",
+                LogLevel.Info);
+        }
+
+        private void CmdRehabStart(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log(
+                    "Использование: injury_rehab_start <buffId> [days]. Пример: injury_rehab_start buffConcussion 3",
+                    LogLevel.Info);
+                return;
+            }
+
+            string buffId = args[0].Trim();
+            int? days = null;
+            if (args.Length >= 2)
+            {
+                if (!int.TryParse(args[1], out int parsed) || parsed <= 0)
+                {
+                    Monitor.Log("days должно быть положительным целым числом.", LogLevel.Warn);
+                    return;
+                }
+
+                days = parsed;
+            }
+
+            if (_rehabManager.IsRehabActive())
+                _rehabManager.ClearRehab();
+
+            _rehabManager.StartRehab(buffId, days);
+            Monitor.Log($"Реабилитация запущена для {buffId}.", LogLevel.Info);
+        }
+
+        private void CmdRehabStatus()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("=== REHAB ===", LogLevel.Info);
+            foreach (string line in _rehabManager.GetStatusLines())
+                Monitor.Log($"  {line}", LogLevel.Info);
+        }
+
+        private void CmdRehabClear()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            _rehabManager.ClearRehab();
+            Monitor.Log("Реабилитация снята.", LogLevel.Info);
+        }
+
+        private void CmdSelfCareBandage()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log(
+                _selfCareManager.ApplyCleanBandage(force: true)
+                    ? "[SelfCare] CleanBandage применён."
+                    : "[SelfCare] CleanBandage не применён (нет условий).",
+                LogLevel.Info);
+        }
+
+        private void CmdSelfCareTea()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log(
+                _selfCareManager.ApplyWarmTea(force: true)
+                    ? "[SelfCare] WarmTea применён."
+                    : "[SelfCare] WarmTea не применён (нет простуды).",
+                LogLevel.Info);
+        }
+
+        private void CmdSelfCareRest()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log(
+                _selfCareManager.ApplyRestCare(force: true)
+                    ? "[SelfCare] RestCare применён."
+                    : "[SelfCare] RestCare не применён.",
+                LogLevel.Info);
         }
 
         private static bool TryMapProximityTestSituation(string situation, out string prefixBase)
@@ -799,12 +1123,31 @@ namespace HarveyOverhaul.InjuryCare
             // Удалить все лечебные баффы
             foreach (var cureBuff in new[]
             {
-                Core.CureBuffs.Treatment, Core.CureBuffs.IntensiveCare, Core.CureBuffs.Protection,
-                Core.CureBuffs.Recovery,  Core.CureBuffs.Teracitin,    Core.CureBuffs.Antibiotics,
-                Core.CureBuffs.ForcedSedation, Core.CureBuffs.PostSurgical, Core.CureBuffs.Care,
+                Core.CureBuffs.Treatment, Core.CureBuffs.IntensiveCare, Core.CureBuffs.BadlyHurtOutpatientCare,
+                Core.CureBuffs.Protection, Core.CureBuffs.Recovery, Core.CureBuffs.Teracitin,
+                Core.CureBuffs.Antibiotics, Core.CureBuffs.ForcedSedation,                 Core.CureBuffs.PostSurgical,
+                Core.CureBuffs.Care,
+                Core.CureBuffs.Rehab,
+                SelfCareBuffs.SelfCare,
+                SelfCareBuffs.CleanBandage,
+                SelfCareBuffs.WarmTea,
             })
             {
                 _buffManager.RemoveBuff(cureBuff);
+            }
+
+            _prescriptionManager.ClearAllPrescriptions();
+            _rehabManager.ClearRehab();
+            foreach (var prescriptionId in new[]
+            {
+                PrescriptionIds.Rest,
+                PrescriptionIds.NoMine,
+                PrescriptionIds.KeepDry,
+                PrescriptionIds.LightWork,
+                PrescriptionIds.Checkup,
+            })
+            {
+                _buffManager.RemoveBuff(prescriptionId);
             }
 
             // Удалить только топики InjuryCare (не чужие topic* / situation* из других модов)
@@ -840,7 +1183,7 @@ namespace HarveyOverhaul.InjuryCare
             _buffManager.LoadBuffData();
             
             // HospitalizationManager (будет обновлён позже с TreatmentManager)
-            _hospitalizationManager = new HospitalizationManager(Monitor, _config, _dialogueManager, _stateManager);
+            _hospitalizationManager = new HospitalizationManager(Monitor, _config, _dialogueManager, _stateManager, _buffManager);
             
             // HospitalActivityManager - интерактивная госпитализация
             _hospitalActivityManager = new HospitalActivityManager(Monitor, _config, _dialogueManager);
@@ -859,9 +1202,60 @@ namespace HarveyOverhaul.InjuryCare
             );
             
             // TreatmentManager
-            _treatmentManager = new TreatmentManager(Monitor, _buffManager, _injuryManager, _dialogueManager, _stateManager);
+            _complianceManager = new ComplianceManager(Monitor, _stateManager, _dialogueManager, _buffManager);
+            _checkupManager = new CheckupManager(
+                Monitor,
+                _config,
+                _stateManager,
+                _dialogueManager,
+                _complianceManager);
+            _prescriptionManager = new PrescriptionManager(
+                Monitor,
+                _config,
+                _stateManager,
+                _dialogueManager,
+                _buffManager,
+                _complianceManager);
+            _rehabManager = new RehabManager(
+                Monitor,
+                _config,
+                _stateManager,
+                _dialogueManager,
+                _buffManager,
+                _complianceManager);
+            _treatmentPlanManager = new TreatmentPlanManager(
+                Monitor,
+                _config,
+                _stateManager,
+                _dialogueManager);
+            _selfCareManager = new SelfCareManager(
+                Monitor,
+                _stateManager,
+                _buffManager,
+                _dialogueManager,
+                _complianceManager,
+                _prescriptionManager);
+            _treatmentManager = new TreatmentManager(
+                Monitor,
+                _buffManager,
+                _injuryManager,
+                _dialogueManager,
+                _stateManager,
+                _prescriptionManager,
+                _complianceManager,
+                _checkupManager,
+                _treatmentPlanManager);
+            _hospitalizationManager.SetTreatmentManager(_treatmentManager);
 
-            _proximityReactionManager = new ProximityReactionManager(_buffManager, _stateManager, _injuryManager);
+            _harveyReactionManager = new HarveyReactionManager(
+                Monitor,
+                _stateManager,
+                _buffManager,
+                _injuryManager,
+                _complianceManager,
+                _prescriptionManager,
+                _dialogueManager,
+                _rehabManager);
 
             // ComplicationManager - управление осложнениями
             _complicationManager = new ComplicationManager(
@@ -870,7 +1264,9 @@ namespace HarveyOverhaul.InjuryCare
                 _stateManager,
                 _buffManager,
                 _dialogueManager,
-                _injuryManager
+                _injuryManager,
+                _complianceManager,
+                _selfCareManager
             );
 
             Monitor.Log("Все менеджеры инициализированы", LogLevel.Debug);
@@ -891,7 +1287,12 @@ namespace HarveyOverhaul.InjuryCare
                 _treatmentManager,
                 _hospitalizationManager,
                 _dialogueManager,
-                _complicationManager
+                _complicationManager,
+                _prescriptionManager,
+                _complianceManager,
+                _checkupManager,
+                _rehabManager,
+                _selfCareManager
             );
 
             _playerEventHandler = new PlayerEventHandler(
@@ -903,7 +1304,10 @@ namespace HarveyOverhaul.InjuryCare
                 _treatmentManager,
                 _hospitalizationManager,
                 _dialogueManager,
-                _proximityReactionManager
+                _harveyReactionManager,
+                _prescriptionManager,
+                _complianceManager,
+                _rehabManager
             );
 
             _interactionHandler = new InteractionHandler(
@@ -915,7 +1319,12 @@ namespace HarveyOverhaul.InjuryCare
                 _injuryManager,
                 _dialogueManager,
                 _treatmentManager,
-                _hospitalizationManager
+                _hospitalizationManager,
+                _complianceManager,
+                _prescriptionManager,
+                _checkupManager,
+                _rehabManager,
+                _selfCareManager
             );
 
             _timeEventHandler = new TimeEventHandler(
@@ -1232,6 +1641,8 @@ namespace HarveyOverhaul.InjuryCare
                 }
 
                 sb.AppendLine($"  flags: Next {YesNo(d.ReadyForNextPhase)}, Recovery {YesNo(d.ReadyForRecovery)}, HarveyTalk {YesNo(d.HarveyConversationHappened)}");
+                sb.AppendLine(
+                    $"  checkup: since={d.ReadySinceDay} missed={d.MissedCheckupDays} reminder={YesNo(d.CheckupReminderSent)}");
                 sb.AppendLine($"  click: {GetClickExpectationForDebuff(d)}");
                 sb.AppendLine(issues.Count == 0
                     ? "  issues: none"
@@ -1429,6 +1840,16 @@ namespace HarveyOverhaul.InjuryCare
                 sb.AppendLine($"  {line}");
         }
 
+        private void AppendProximityReactionDebugLines(StringBuilder sb, InjuryState state)
+        {
+            sb.AppendLine("=== PROXIMITY ===");
+            sb.AppendLine($"LastReactionReason: {(string.IsNullOrEmpty(state.LastProximityReactionReason) ? "-" : state.LastProximityReactionReason)}");
+            sb.AppendLine($"LastProximityReactionMinute: {state.LastProximityReactionMinute}");
+            sb.AppendLine($"LastStrictReactionDay: {state.LastStrictReactionDay}");
+            sb.AppendLine($"Cooldown elapsed: {_harveyReactionManager.GetProximityCooldownElapsedMinutes()} min");
+            sb.AppendLine($"Relationship tone: {_harveyReactionManager.GetRelationshipTone()}");
+        }
+
         private void AppendHarveyClickLines(StringBuilder sb)
         {
             sb.AppendLine($"Pending: {_interactionHandler.GetPendingMedicalActionSummary() ?? "none"}");
@@ -1448,6 +1869,47 @@ namespace HarveyOverhaul.InjuryCare
 
             foreach (var (compId, startDay) in state.ActiveComplications)
                 sb.AppendLine($"  {compId}  day {startDay} (+{today - startDay}d)");
+        }
+
+        private void AppendRehabBlock(StringBuilder sb, InjuryState state, int today)
+        {
+            sb.AppendLine("=== REHAB ===");
+            if (string.IsNullOrEmpty(state.ActiveRehabInjuryId))
+            {
+                sb.AppendLine("  (none)");
+                return;
+            }
+
+            int left = _rehabManager.GetRehabDaysLeft();
+            sb.AppendLine(
+                $"  injury={state.ActiveRehabInjuryId}  start={state.RehabStartDay}  duration={state.RehabDurationDays}d  left={left}d");
+            sb.AppendLine(
+                $"  violated={YesNo(state.RehabViolated)}  violCount={state.RehabViolationCount}  lastViolDay={state.LastRehabViolationDay}");
+            sb.AppendLine(
+                $"  buff={YesNo(_buffManager.HasBuff(CureBuffs.Rehab))}  topicRehab={YesNo(_dialogueManager.HasTopic(ConversationTopics.Rehab))}");
+        }
+
+        private void AppendPrescriptionsBlock(StringBuilder sb, InjuryState state, int today)
+        {
+            sb.AppendLine("=== PRESCRIPTIONS ===");
+            sb.AppendLine(
+                $"TreatmentComplianceScore: {state.TreatmentComplianceScore} ({ComplianceManager.GetLevelDisplayName(_complianceManager.GetComplianceLevel())})");
+
+            var prescriptions = state.ActivePrescriptions ?? new Dictionary<string, PrescriptionState>();
+            if (prescriptions.Count == 0)
+            {
+                sb.AppendLine("  (none)");
+                return;
+            }
+
+            foreach (var (id, prescription) in prescriptions.OrderBy(kvp => kvp.Key))
+            {
+                if (prescription.IsExpired(today))
+                    continue;
+
+                sb.AppendLine(
+                    $"  {id}  src={prescription.SourceInjuryId}  left={prescription.GetDaysRemaining(today)}d  viol={prescription.ViolationCount}");
+            }
         }
 
         private void AppendSystemFlagsBlock(StringBuilder sb, InjuryState state)
@@ -1482,6 +1944,7 @@ namespace HarveyOverhaul.InjuryCare
             AppendCompactInjuriesSummary(sb, state);
             AppendCompactIssuesSummary(sb, state);
             AppendHarveyClickLines(sb);
+            AppendProximityReactionDebugLines(sb, state);
 
             int activeTopics = CountActiveWatchedTopics(state);
             sb.AppendLine($"Active mod topics: {activeTopics}");
@@ -1490,12 +1953,28 @@ namespace HarveyOverhaul.InjuryCare
             sb.AppendLine(modBuffs.Count == 0
                 ? "Active mod buffs: (none)"
                 : $"Active mod buffs: {string.Join(", ", modBuffs)}");
+
+            int prescriptionCount = (state.ActivePrescriptions ?? new Dictionary<string, PrescriptionState>())
+                .Count(kvp => !kvp.Value.IsExpired((int)Game1.stats.DaysPlayed));
+            sb.AppendLine($"Prescriptions: {prescriptionCount}  соблюдение: {state.TreatmentComplianceScore} ({ComplianceManager.GetLevelDisplayName(_complianceManager.GetComplianceLevel())})");
+
+            if (!string.IsNullOrEmpty(state.ActiveRehabInjuryId))
+            {
+                sb.AppendLine(
+                    $"Rehab: {state.ActiveRehabInjuryId}  left={_rehabManager.GetRehabDaysLeft()}d  viol={state.RehabViolationCount}");
+            }
+            else
+            {
+                sb.AppendLine("Rehab: (none)");
+            }
         }
 
         private void BuildFullDebugHud(StringBuilder sb, InjuryState state, int today)
         {
             AppendInjuriesDiagnosticBlock(sb, state, today);
             AppendComplicationsBlock(sb, state, today);
+            AppendPrescriptionsBlock(sb, state, today);
+            AppendRehabBlock(sb, state, today);
             AppendTopicsWatchedBlock(sb, state);
             AppendBuffsWatchedBlock(sb, state);
             AppendAppliedTriggersBlock(sb, state);

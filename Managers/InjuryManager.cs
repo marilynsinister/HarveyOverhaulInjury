@@ -57,7 +57,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
-        /// Получить активную травму по приоритету
+        /// Получить активную травму по приоритету (только базовый buff* на игроке).
         /// </summary>
         public string? GetActiveInjury()
         {
@@ -67,6 +67,32 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     return injury;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Получить активную травму или её фазу по приоритету (для госпитализации и мед. пайплайна).
+        /// </summary>
+        public string? GetActiveInjuryOrPhaseByPriority()
+        {
+            foreach (var injuryId in InjuryPriority)
+            {
+                if (HasInjuryOrPhase(injuryId))
+                    return injuryId;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Есть ли хотя бы одна Severe-травма (базовый buff или фазовый бафф лечения).
+        /// </summary>
+        public bool HasAnySevereInjuryOrPhase()
+        {
+            foreach (var injuryId in InjurySets.Severe)
+            {
+                if (HasInjuryOrPhase(injuryId))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -191,7 +217,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             var result = new InjuryCollection
             {
-                MainInjury = GetActiveInjury()
+                MainInjury = GetActiveInjuryOrPhaseByPriority()
             };
 
             //_monitor.Log($"📊 Основная травма = {result.MainInjury ?? "нет"}", LogLevel.Debug);
@@ -486,11 +512,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
             int currentDay = (int)Game1.stats.DaysPlayed;
             _stateManager.CreateDebuffState("buffBurnWounds", currentDay, 3, 5, 0);
 
-            if (_config.ForceHospitalization && _dialogueManager.IsDatingOrMarriedToHarvey())
-            {
-                var harvey = HarveyHelper.FindHarvey(Game1.currentLocation);
-                _hospitalizationManager.StartForcedHospitalization("buffBurnWounds", harvey);
-            }
         }
 
         public void ApplyBurnWoundsSafe()
@@ -508,11 +529,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
             int currentDay = (int)Game1.stats.DaysPlayed;
             _stateManager.CreateDebuffState("buffInfectedWound", currentDay, 2, 4, 0);
 
-            if (_config.ForceHospitalization && _dialogueManager.IsDatingOrMarriedToHarvey())
-            {
-                var harvey = HarveyHelper.FindHarvey(Game1.currentLocation);
-                _hospitalizationManager.StartForcedHospitalization("buffInfectedWound", harvey);
-            }
         }
 
         public void ApplyInfectedWoundSafe()
@@ -573,11 +589,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
             int currentDay = (int)Game1.stats.DaysPlayed;
             _stateManager.CreateDebuffState("buffFracturedBone", currentDay, 4, 10, 4);
 
-            if (_config.ForceHospitalization)
-            {
-                var harvey = HarveyHelper.FindHarvey(Game1.currentLocation);
-                _hospitalizationManager.StartForcedHospitalization("buffFracturedBone", harvey);
-            }
         }
 
         public void ApplyFracturedBoneSafe()
@@ -597,11 +608,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
             int currentDay = (int)Game1.stats.DaysPlayed;
             _stateManager.CreateDebuffState("buffShrapnelWounds", currentDay, 3, 5, 3);
 
-            if (_config.ForceHospitalization)
-            {
-                var harvey = HarveyHelper.FindHarvey(Game1.currentLocation);
-                _hospitalizationManager.StartForcedHospitalization("buffShrapnelWounds", harvey);
-            }
         }
 
         public void ApplyShrapnelWoundsSafe()

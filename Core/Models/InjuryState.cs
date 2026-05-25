@@ -60,6 +60,71 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         public Dictionary<string, DebuffState> ActiveDebuffs { get; set; } = new();
 
         /// <summary>
+        /// Активные медицинские предписания Харви (ключ — PrescriptionIds.*).
+        /// </summary>
+        public Dictionary<string, PrescriptionState> ActivePrescriptions { get; set; } = new();
+
+        /// <summary>
+        /// Медицинский показатель соблюдения лечения (−10…10).
+        /// Не Friendship: только тон Харви, topics, предписания, риски и мягкие бонусы.
+        /// </summary>
+        public int TreatmentComplianceScore { get; set; } = 0;
+
+        /// <summary>День последнего напоминания о предписании. -1 = ещё не напоминали.</summary>
+        public int LastPrescriptionReminderDay { get; set; } = -1;
+
+        /// <summary>День последнего +1 к TreatmentComplianceScore за визит Checkup.</summary>
+        public int LastCheckupComplianceDay { get; set; } = -1;
+
+        /// <summary>День последнего HUD-предупреждения при нарушении режима лечения.</summary>
+        public int LastLowComplianceHudDay { get; set; } = -1;
+
+        /// <summary>Защита самопомощи: тип → день, когда она активна (SelfCareProtectionTypes.*).</summary>
+        public Dictionary<string, int> SelfCareProtections { get; set; } = new();
+
+        /// <summary>+1 к TreatmentComplianceScore за смену повязки — начислить при следующем визите к Харви.</summary>
+        public bool PendingSelfCareBandageCompliance { get; set; } = false;
+
+        /// <summary>День последней самопомощи: смена повязки.</summary>
+        public int LastSelfCareBandageDay { get; set; } = -1;
+
+        /// <summary>День последней самопомощи: тёплый чай.</summary>
+        public int LastSelfCareTeaDay { get; set; } = -1;
+
+        /// <summary>День последней самопомощи: ранний отдых.</summary>
+        public int LastRestSelfCareDay { get; set; } = -1;
+
+        /// <summary>День отправки медицинского письма: dedupeKey → DaysPlayed (не чаще 1×/день на повод).</summary>
+        public Dictionary<string, int> SentMedicalMailDays { get; set; } = new();
+
+        /// <summary>Последняя proximity-реакция Харви (игровые минуты с полуночи).</summary>
+        public int LastProximityReactionMinute { get; set; } = -1;
+
+        /// <summary>День последней строгой proximity-реакции.</summary>
+        public int LastStrictReactionDay { get; set; } = -1;
+
+        /// <summary>Причина последней proximity-реакции (debug).</summary>
+        public string LastProximityReactionReason { get; set; } = "";
+
+        /// <summary>BuffId травмы, после которой назначена реабилитация; null — реабилитации нет.</summary>
+        public string? ActiveRehabInjuryId { get; set; }
+
+        /// <summary>День начала реабилитации.</summary>
+        public int RehabStartDay { get; set; } = -1;
+
+        /// <summary>Длительность реабилитации в игровых днях.</summary>
+        public int RehabDurationDays { get; set; } = 0;
+
+        /// <summary>Было ли хотя бы одно нарушение режима реабилитации.</summary>
+        public bool RehabViolated { get; set; } = false;
+
+        /// <summary>Число зафиксированных нарушений реабилитации.</summary>
+        public int RehabViolationCount { get; set; } = 0;
+
+        /// <summary>День последнего нарушения реабилитации (не чаще 1×/день).</summary>
+        public int LastRehabViolationDay { get; set; } = -1;
+
+        /// <summary>
         /// Активные осложнения (WetBandage, DirtyWound, WetStitches и т.д.)
         /// Ключ — ID баффа осложнения. Значение — день появления (для таймера заражения).
         /// </summary>

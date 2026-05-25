@@ -73,6 +73,21 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// Флаг готовности к полному выздоровлению
         /// </summary>
         public bool ReadyForRecovery { get; set; } = false;
+
+        /// <summary>День, когда выставлен ReadyForNextPhase или ReadyForRecovery.</summary>
+        public int ReadySinceDay { get; set; } = -1;
+
+        /// <summary>Дней просрочки контрольного осмотра (today - ReadySinceDay).</summary>
+        public int MissedCheckupDays { get; set; } = 0;
+
+        /// <summary>Мягкое HUD-напоминание на 2-й день просрочки уже показано.</summary>
+        public bool CheckupReminderSent { get; set; } = false;
+
+        /// <summary>Письмо о просрочке (4-й день) уже запланировано.</summary>
+        public bool CheckupLateLetterSent { get; set; } = false;
+
+        /// <summary>Штраф TreatmentComplianceScore / Neglect за 5+ дней просрочки уже применён.</summary>
+        public bool CheckupOverduePenaltyApplied { get; set; } = false;
         
         // ============================================================================
         // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
@@ -170,7 +185,12 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
                 Phase2Duration = Phase2Duration,
                 Phase3Duration = Phase3Duration,
                 ReadyForNextPhase = ReadyForNextPhase,
-                ReadyForRecovery = ReadyForRecovery
+                ReadyForRecovery = ReadyForRecovery,
+                ReadySinceDay = ReadySinceDay,
+                MissedCheckupDays = MissedCheckupDays,
+                CheckupReminderSent = CheckupReminderSent,
+                CheckupLateLetterSent = CheckupLateLetterSent,
+                CheckupOverduePenaltyApplied = CheckupOverduePenaltyApplied
             };
         }
     }

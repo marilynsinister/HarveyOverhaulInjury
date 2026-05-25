@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using HarveyOverhaul.InjuryCare.Core;
+using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.Managers;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
@@ -22,6 +23,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly HospitalizationManager _hospitalizationManager;
         private readonly DialogueManager _dialogueManager;
         private readonly ComplicationManager _complicationManager;
+        private readonly PrescriptionManager _prescriptionManager;
+        private readonly ComplianceManager _complianceManager;
+        private readonly CheckupManager _checkupManager;
+        private readonly RehabManager _rehabManager;
+        private readonly SelfCareManager _selfCareManager;
         private InteractionHandler? _interactionHandler;
         private PassOutHandler? _passOutHandler;
 
@@ -34,7 +40,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             TreatmentManager treatmentManager,
             HospitalizationManager hospitalizationManager,
             DialogueManager dialogueManager,
-            ComplicationManager complicationManager)
+            ComplicationManager complicationManager,
+            PrescriptionManager prescriptionManager,
+            ComplianceManager complianceManager,
+            CheckupManager checkupManager,
+            RehabManager rehabManager,
+            SelfCareManager selfCareManager)
         {
             _monitor = monitor;
             _config = config;
@@ -45,6 +56,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _hospitalizationManager = hospitalizationManager;
             _dialogueManager = dialogueManager;
             _complicationManager = complicationManager;
+            _prescriptionManager = prescriptionManager;
+            _complianceManager = complianceManager;
+            _checkupManager = checkupManager;
+            _rehabManager = rehabManager;
+            _selfCareManager = selfCareManager;
         }
 
         /// <summary>
@@ -102,6 +118,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         // 7. Проверяем прогресс фаз и устанавливаем флаги готовности
                         CheckInjuryPhases();
 
+                        _checkupManager.ProcessMissedCheckupsDaily(GetToday());
+                        _complianceManager.TryShowLowComplianceReminder();
+
+                        _rehabManager.CompleteRehabIfDue(GetToday());
+
+                        // 8. Предписания: снять истёкшие, начислить TreatmentComplianceScore за вчера
+                        _prescriptionManager.RemoveExpiredPrescriptions();
+                        _prescriptionManager.RewardComplianceDaily();
+
                         _monitor.Log("Инициализация дня завершена", LogLevel.Debug);
                     }
                     catch (Exception ex)
@@ -128,11 +153,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 // Проверка заброшенности лечения
                 CheckNeglect();
 
+                _selfCareManager.TryApplyRestCareOnDayEnding();
+                CheckRestPrescriptionViolation();
+                _rehabManager.CheckRehabViolationLateSleep();
+
                 // Письмо о запрете шахты — на следующий день после предупреждения в шахте
                 int todayEnd = GetToday();
                 if (_stateManager.State.MineWarningDay == todayEnd && _config.SendLetters)
                 {
-                    Game1.addMailForTomorrow(MailIds.MineForbidden);
+                    HarveyMailHelper.TryScheduleTieredMail(_config, _stateManager, _monitor, MailIds.MineForbidden);
                     _monitor.Log($"[Шахта] Письмо о запрете шахты запланировано на завтра (день предупреждения: {todayEnd})", LogLevel.Debug);
                 }
 
@@ -177,11 +206,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         // Устанавливаем флаг готовности к смене фазы (если ещё не установлен)
                         if (!debuffState.ReadyForNextPhase)
                         {
+                            int nextPhase = debuffState.CurrentPhase + 1;
+                            _checkupManager.OnPhaseCheckupDue(injuryId, debuffState, nextPhase, today);
                             _stateManager.SetReadyForNextPhase(injuryId, true);
-                            _monitor.Log($"📍 Установлен флаг готовности к смене фазы: {injuryId} (фаза {debuffState.CurrentPhase} → {debuffState.CurrentPhase + 1})", LogLevel.Info);
+                            _monitor.Log($"📍 Установлен флаг готовности к смене фазы: {injuryId} (фаза {debuffState.CurrentPhase} → {nextPhase})", LogLevel.Info);
                             
-                            // Показываем напоминание один раз
-                            ShowPhaseTransitionReminder(injuryId, debuffState.CurrentPhase + 1);
+                            ShowPhaseTransitionReminder(injuryId, nextPhase);
                         }
                     }
                     // Если последняя фаза завершена - готовность к выздоровлению
@@ -190,10 +220,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         // Устанавливаем флаг готовности к выздоровлению (если ещё не установлен)
                         if (!debuffState.ReadyForRecovery)
                         {
+                            _checkupManager.OnRecoveryCheckupDue(injuryId, debuffState, today);
                             _stateManager.SetReadyForRecovery(injuryId, true);
                             _monitor.Log($"🎉 Установлен флаг готовности к выздоровлению: {injuryId}", LogLevel.Info);
                             
-                            // Показываем напоминание
                             ShowRecoveryReminder(injuryId);
                         }
                     }
@@ -256,6 +286,26 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// <summary>
         /// Проверить заброшенность лечения
         /// </summary>
+        private void CheckRestPrescriptionViolation()
+        {
+            if (Game1.timeOfDay < 2400)
+                return;
+
+            if (!_prescriptionManager.HasActivePrescription(PrescriptionIds.Rest))
+                return;
+
+            if (!_prescriptionManager.TryMarkViolation(PrescriptionIds.Rest, "late_sleep", out int count))
+                return;
+
+            string hud = count switch
+            {
+                1 => "Харви просил отдыхать и ложиться раньше...",
+                _ => "Ты снова легла спать слишком поздно. Харви это заметит."
+            };
+            Game1.addHUDMessage(new HUDMessage(hud, count >= 2 ? HUDMessage.error_type : HUDMessage.health_type));
+            _monitor.Log($"[Prescription] Rest late_sleep violation #{count} at {Game1.timeOfDay}", LogLevel.Info);
+        }
+
         private void CheckNeglect()
         {
             // Проверяем нелеченные нефазовые травмы по баффам
@@ -293,7 +343,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _buffManager.AddBuff(InjuryBuffs.Neglect, -2);
             _dialogueManager.AddTopic(ConversationTopics.Neglect, 7);
 
-            // Если Харви рядом - показываем разочарование
+            // Если Харви рядом — короткая реплика о пропуске лечения (без снижения Friendship)
             var harvey = Game1.getCharacterFromName("Harvey");
             if (harvey != null && Game1.currentLocation?.characters.Contains(harvey) == true)
             {
@@ -382,6 +432,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 // Убираем лечебный бафф
                 if (SimpleInjuryCures.Map.TryGetValue(buffId, out var cureBuff))
                     _buffManager.RemoveBuff(cureBuff);
+
+                if (string.Equals(buffId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
+                    _buffManager.RemoveBuff(CureBuffs.BadlyHurtOutpatientCare);
 
                 // Удаляем состояние травмы
                 _stateManager.RemoveDebuffState(buffId);

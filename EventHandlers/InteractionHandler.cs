@@ -49,6 +49,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly DialogueManager _dialogueManager;
         private readonly TreatmentManager _treatmentManager;
         private readonly HospitalizationManager _hospitalizationManager;
+        private readonly ComplianceManager _complianceManager;
+        private readonly PrescriptionManager _prescriptionManager;
+        private readonly CheckupManager _checkupManager;
+        private readonly RehabManager _rehabManager;
+        private readonly SelfCareManager _selfCareManager;
 
         private PendingMedicalAction? _pendingMedicalAction;
         private bool _pendingSawDialogueBox;
@@ -92,7 +97,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             InjuryManager injuryManager,
             DialogueManager dialogueManager,
             TreatmentManager treatmentManager,
-            HospitalizationManager hospitalizationManager)
+            HospitalizationManager hospitalizationManager,
+            ComplianceManager complianceManager,
+            PrescriptionManager prescriptionManager,
+            CheckupManager checkupManager,
+            RehabManager rehabManager,
+            SelfCareManager selfCareManager)
         {
             _monitor = monitor;
             _helper = helper;
@@ -103,6 +113,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _dialogueManager = dialogueManager;
             _treatmentManager = treatmentManager;
             _hospitalizationManager = hospitalizationManager;
+            _complianceManager = complianceManager;
+            _prescriptionManager = prescriptionManager;
+            _checkupManager = checkupManager;
+            _rehabManager = rehabManager;
+            _selfCareManager = selfCareManager;
         }
 
         /// <summary>
@@ -223,17 +238,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             LogResolvedMedicalAction(resolved);
             SuppressHarveyClickButtons(e);
-
-            if (resolved.Type == MedicalActionType.StartTreatment
-                && resolved.InjuryId != null
-                && TryBeginTreatmentWithHospitalization(harvey, resolved))
-            {
-                LastClickDebug = BuildClickDebugSnapshot(
-                    null,
-                    resolved,
-                    "BLOCKED: StartTreatment with forced hospitalization");
-                return;
-            }
 
             try
             {
@@ -616,6 +620,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _pendingMedicalAction = pending;
             LogMedicalQueued(pending);
 
+            if (type is MedicalActionType.StartTreatment
+                or MedicalActionType.AdvancePhase
+                or MedicalActionType.CompleteRecovery)
+            {
+                _complianceManager.ApplyTreatmentComplianceTopics();
+            }
+
             string dialogueKey;
             string dialogueText = type switch
             {
@@ -817,6 +828,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return false;
             }
 
+            bool needsHospitalization = ShouldRequireHospitalization(action.InjuryId, debuffState);
+
             _treatmentManager.ApplyTreatmentForInjury(action.InjuryId);
             _dialogueManager.ClearHarveyNeedsFirstTreatmentTopic("лечение начато после медицинского диалога");
             _stateManager.MarkHarveyConversation(action.InjuryId, true);
@@ -827,7 +840,25 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             GrantMedicalFriendship(10);
             ShowHarveyEmote(HarveyHelper.GetCaringEmote());
+            ProcessMedicalInteractionCompliance();
             _stateManager.Save();
+
+            if (needsHospitalization)
+            {
+                string reason = GetTreatmentHospitalizationReason(action.InjuryId, debuffState);
+                _monitor.Log(
+                    $"[MedicalAction] StartTreatment → forced hospitalization {action.InjuryId} reason={reason}",
+                    LogLevel.Info);
+
+                if (reason == "mine_rescue")
+                    _dialogueManager.RemoveTopic(ConversationTopics.MineInjuryRescue);
+
+                NPC? harvey = HarveyHelper.FindHarvey(Game1.currentLocation);
+                _hospitalizationManager.StartForcedHospitalizationWithExplanation(
+                    action.InjuryId,
+                    harvey,
+                    reason);
+            }
 
             _monitor.Log(
                 $"[MedicalAction] applied type=StartTreatment injury={action.InjuryId} complications={stillActiveComplications.Count}",
@@ -844,8 +875,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return false;
             }
 
+            int today = (int)Game1.stats.DaysPlayed;
+            var complicationStartDays = stillActive
+                .Where(compId => _stateManager.State.ActiveComplications.ContainsKey(compId))
+                .ToDictionary(compId => compId, compId => _stateManager.State.ActiveComplications[compId]);
+
             _treatmentManager.TreatAllComplications(stillActive);
             GrantMedicalFriendship(10);
+            ProcessMedicalInteractionCompliance(complicationStartDays, today);
             _stateManager.Save();
 
             _monitor.Log(
@@ -880,6 +917,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _treatmentManager.AdvanceInjuryToNextPhase(injuryId);
             GrantMedicalFriendship(10);
             ShowHarveyEmote(HarveyHelper.GetRecoveryEmote());
+            ProcessMedicalInteractionCompliance();
             _stateManager.Save();
 
             _monitor.Log($"[MedicalAction] applied type=AdvancePhase injury={injuryId}", LogLevel.Info);
@@ -902,11 +940,16 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return false;
             }
 
+            int today = (int)Game1.stats.DaysPlayed;
+            _checkupManager.CompleteCheckup(injuryId, debuffState, today);
+
             _treatmentManager.ApplyMechanicalPhasedRecovery(injuryId);
+            _rehabManager.TryStartRehabAfterRecovery(injuryId);
             Game1.addHUDMessage(new HUDMessage(
                 "Выздоровление завершено! Харви гордится тобой!",
                 HUDMessage.achievement_type));
             GrantMedicalFriendship(15);
+            ProcessMedicalInteractionCompliance();
             _stateManager.Save();
 
             _monitor.Log($"[MedicalAction] applied type=CompleteRecovery injury={injuryId}", LogLevel.Info);
@@ -933,6 +976,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             _dialogueManager.RemoveTopic(topicId);
             _buffManager.AddBuff(CureBuffs.Care, 480);
+            _rehabManager.TryStartRehabAfterRecovery(buffId);
             GrantMedicalFriendship(10);
             _stateManager.Save();
 
@@ -954,11 +998,30 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _dialogueManager.ShowEmote(harvey, emoteId);
         }
 
+        /// <summary>Бонус Friendship за завершение медицинского действия (только положительный; нарушения режима не штрафуют Friendship).</summary>
         private void GrantMedicalFriendship(int points)
         {
             var harvey = Game1.getCharacterFromName("Harvey");
             if (harvey != null)
                 Game1.player.changeFriendship(points, harvey);
+        }
+
+        private void ProcessMedicalInteractionCompliance(
+            Dictionary<string, int>? complicationStartDays = null,
+            int? today = null)
+        {
+            int currentDay = today ?? (int)Game1.stats.DaysPlayed;
+
+            if (_prescriptionManager.HasActivePrescription(PrescriptionIds.Checkup))
+                _complianceManager.OnCheckupVisit(currentDay);
+
+            _selfCareManager.OnHarveyMedicalVisit();
+
+            if (complicationStartDays == null)
+                return;
+
+            foreach (var (compId, startDay) in complicationStartDays)
+                _complianceManager.OnComplicationTreatedSameDay(startDay, currentDay);
         }
 
         private string? FindActiveCompletionTopic()
@@ -1009,44 +1072,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _pendingSawDialogueBox = false;
         }
 
-        private bool TryBeginTreatmentWithHospitalization(NPC harvey, PendingMedicalAction resolved)
-        {
-            string injuryId = resolved.InjuryId!;
-            var debuffState = _stateManager.GetDebuffState(injuryId);
-            if (debuffState == null || !ShouldHospitalizeOnTreatment(injuryId, debuffState))
-                return false;
-
-            string reason = GetTreatmentHospitalizationReason(injuryId, debuffState);
-            _monitor.Log(
-                $"[MedicalAction] клик → StartTreatment+Hospitalization {injuryId} reason={reason}",
-                LogLevel.Info);
-
-            _treatmentManager.ApplyTreatmentForInjury(injuryId);
-            _dialogueManager.ClearHarveyNeedsFirstTreatmentTopic(
-                "лечение начато перед госпитализацией по клику у Харви");
-            _stateManager.MarkHarveyConversation(injuryId, true);
-
-            var stillActiveComplications = GetActiveComplicationIds();
-            if (stillActiveComplications.Count > 0)
-                _treatmentManager.TreatAllComplications(stillActiveComplications);
-
-            GrantMedicalFriendship(10);
-            _stateManager.Save();
-
-            if (reason == "mine_rescue")
-                _dialogueManager.RemoveTopic(ConversationTopics.MineInjuryRescue);
-
-            _hospitalizationManager.StartForcedHospitalizationWithExplanation(injuryId, harvey, reason);
-            return true;
-        }
-
-        private bool ShouldHospitalizeOnTreatment(string injuryId, DebuffState state)
+        private bool ShouldRequireHospitalization(string injuryId, DebuffState state)
         {
             if (!_config.ForceHospitalization)
                 return false;
             if (_hospitalizationManager.IsHospitalized)
-                return false;
-            if (state.TreatmentStarted)
                 return false;
 
             int today = GameUtils.Today();

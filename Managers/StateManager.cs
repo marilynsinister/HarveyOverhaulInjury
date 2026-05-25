@@ -1,6 +1,7 @@
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using StardewModdingAPI;
+using StardewValley;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -37,6 +38,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _state = _dataHelper.ReadSaveData<InjuryState>(SaveKey) ?? new InjuryState();
 
             EnsureInjuryCooldownState();
+            EnsurePrescriptionState();
+            EnsureComplianceState();
+            EnsureRehabState();
+            EnsureSelfCareState();
+            EnsureMedicalMailState();
 
             // Миграция старых данных ActivePhases в новую систему ActiveDebuffs
             MigrateOldPhaseData();
@@ -189,6 +195,47 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _state.LastInjuryAppliedDayByTrigger = new Dictionary<string, int>();
 
             MigrateLegacyInjuryCooldowns();
+        }
+
+        private void EnsurePrescriptionState()
+        {
+            if (_state.ActivePrescriptions == null)
+            {
+                _state.ActivePrescriptions = new Dictionary<string, PrescriptionState>();
+                _monitor.Log("ActivePrescriptions инициализирован (старый сейв без предписаний)", LogLevel.Debug);
+            }
+        }
+
+        private void EnsureComplianceState()
+        {
+            int clamped = Math.Clamp(_state.TreatmentComplianceScore, ComplianceManager.MinScore, ComplianceManager.MaxScore);
+            if (clamped != _state.TreatmentComplianceScore)
+            {
+                _state.TreatmentComplianceScore = clamped;
+                _monitor.Log($"TreatmentComplianceScore clamped to {clamped}", LogLevel.Debug);
+            }
+        }
+
+        private void EnsureRehabState()
+        {
+            if (_state.ActiveRehabInjuryId == null && _state.RehabStartDay < 0)
+                return;
+
+            if (_state.RehabStartDay < 0)
+                _state.RehabStartDay = (int)Game1.stats.DaysPlayed;
+
+            if (_state.RehabDurationDays <= 0)
+                _state.RehabDurationDays = 3;
+        }
+
+        private void EnsureSelfCareState()
+        {
+            _state.SelfCareProtections ??= new Dictionary<string, int>();
+        }
+
+        private void EnsureMedicalMailState()
+        {
+            _state.SentMedicalMailDays ??= new Dictionary<string, int>();
         }
 
         private void MigrateLegacyInjuryCooldowns()
@@ -405,6 +452,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             {
                 int oldPhase = debuffState.CurrentPhase;
                 debuffState.AdvancePhase(currentDay);
+                ClearPhaseReadyTracking(debuffState);
                 Save();
                 
                 _monitor.Log($"Смена фазы {buffId}: {oldPhase} → {debuffState.CurrentPhase}", LogLevel.Info);
@@ -460,6 +508,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (_state.ActiveDebuffs.TryGetValue(buffId, out var debuffState))
             {
                 debuffState.ReadyForNextPhase = ready;
+                UpdatePhaseReadyTracking(debuffState, ready);
                 Save();
             }
         }
@@ -472,8 +521,20 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (_state.ActiveDebuffs.TryGetValue(buffId, out var debuffState))
             {
                 debuffState.ReadyForRecovery = ready;
+                UpdatePhaseReadyTracking(debuffState, ready);
                 Save();
             }
+        }
+
+        private static void UpdatePhaseReadyTracking(DebuffState debuffState, bool ready)
+        {
+            if (!ready)
+                CheckupManager.ClearCheckupTracking(debuffState);
+        }
+
+        private static void ClearPhaseReadyTracking(DebuffState debuffState)
+        {
+            CheckupManager.ClearCheckupTracking(debuffState);
         }
 
         /// <summary>
