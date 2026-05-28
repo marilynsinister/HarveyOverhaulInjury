@@ -1,0 +1,2272 @@
+{
+  "suiteId": "02-phased-injuries",
+  "suiteName": "Фазовые травмы — полный цикл лечения",
+  "description": "StartTreatment → phase transitions → recovery → buffHarveyCare для всех 11 фазовых main-травм. Источник: docs/testing/08-injury-treatment-tests.md.",
+  "requires": {
+    "stardewMcp": true,
+    "smapiConsole": true,
+    "manualClick": true,
+    "debugCommands": [
+      "injury_reset",
+      "injury_debuff_add",
+      "injury_phase_list",
+      "injury_phase_ready",
+      "injury_phase_recovery",
+      "injury_harvey_click"
+    ]
+  },
+  "tests": [
+    {
+      "id": "HOI-PHASE-001",
+      "title": "buffSprainedAnkle — полный цикл фазового лечения",
+      "priority": "P1",
+      "mechanics": [
+        "phased_injury",
+        "buffSprainedAnkle"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey 3+ сердечка, Hospital 10am (StardewMCP)",
+        "Injury MCP / SMAPI доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить фазовую main-травму buffSprainedAnkle",
+          "args": {
+            "buff_id": "buffSprainedAnkle"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey для StartTreatment (phase 1)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 1→2",
+          "args": {
+            "buff_id": "buffSprainedAnkle",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 1→2"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "description": "ReadyForRecovery=true на последней фазе",
+          "args": {
+            "buff_id": "buffSprainedAnkle",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для CompleteRecovery"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffSprainedAnkle",
+          "TotalPhases": 2,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffSprainedAnkle"
+        ],
+        "topicsPresent": [
+          "topicSprainedAnkle"
+        ],
+        "notes": [
+          "После StartTreatment: buffsAbsent=[buffSprainedAnkle], phase buff=HarveyMod_SprainedAnkle_Acute",
+          "После recovery: buffsPresent=[buffHarveyCare], buffsAbsent=['HarveyMod_SprainedAnkle_Acute', 'HarveyMod_SprainedAnkle_Recovery', 'buffSprainedAnkle']",
+          "MainInjuryId=null после CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "Baseline: CurrentPhase=0, TreatmentStarted=false, TotalPhases=2",
+        "После первого клика: phase1=HarveyMod_SprainedAnkle_Acute, base buffSprainedAnkle снят",
+        "После recovery: buffHarveyCare, MainInjuryId пуст, все phase buffs сняты"
+      ],
+      "failureHints": [
+        "TreatmentManager — StartPhasedTreatment / AdvanceInjuryToNextPhase / CompleteInjuryRecovery",
+        "docs/testing/08-injury-treatment-tests.md HOI-PHASE-TEMPLATE",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PHASE-002",
+      "title": "buffBruisedRibs — полный цикл фазового лечения",
+      "priority": "P1",
+      "mechanics": [
+        "phased_injury",
+        "buffBruisedRibs"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey 3+ сердечка, Hospital 10am (StardewMCP)",
+        "Injury MCP / SMAPI доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить фазовую main-травму buffBruisedRibs",
+          "args": {
+            "buff_id": "buffBruisedRibs"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey для StartTreatment (phase 1)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 1→2",
+          "args": {
+            "buff_id": "buffBruisedRibs",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 1→2"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "description": "ReadyForRecovery=true на последней фазе",
+          "args": {
+            "buff_id": "buffBruisedRibs",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для CompleteRecovery"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffBruisedRibs",
+          "TotalPhases": 2,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffBruisedRibs"
+        ],
+        "topicsPresent": [
+          "topicBruisedRibs"
+        ],
+        "notes": [
+          "После StartTreatment: buffsAbsent=[buffBruisedRibs], phase buff=HarveyMod_BruisedRibs_Acute",
+          "После recovery: buffsPresent=[buffHarveyCare], buffsAbsent=['HarveyMod_BruisedRibs_Acute', 'HarveyMod_BruisedRibs_Healing', 'buffBruisedRibs']",
+          "MainInjuryId=null после CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "Baseline: CurrentPhase=0, TreatmentStarted=false, TotalPhases=2",
+        "После первого клика: phase1=HarveyMod_BruisedRibs_Acute, base buffBruisedRibs снят",
+        "После recovery: buffHarveyCare, MainInjuryId пуст, все phase buffs сняты"
+      ],
+      "failureHints": [
+        "TreatmentManager — StartPhasedTreatment / AdvanceInjuryToNextPhase / CompleteInjuryRecovery",
+        "docs/testing/08-injury-treatment-tests.md HOI-PHASE-TEMPLATE",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PHASE-003",
+      "title": "buffBackStrain — полный цикл фазового лечения",
+      "priority": "P1",
+      "mechanics": [
+        "phased_injury",
+        "buffBackStrain"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey 3+ сердечка, Hospital 10am (StardewMCP)",
+        "Injury MCP / SMAPI доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить фазовую main-травму buffBackStrain",
+          "args": {
+            "buff_id": "buffBackStrain"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey для StartTreatment (phase 1)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 1→2",
+          "args": {
+            "buff_id": "buffBackStrain",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 1→2"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "description": "ReadyForRecovery=true на последней фазе",
+          "args": {
+            "buff_id": "buffBackStrain",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для CompleteRecovery"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffBackStrain",
+          "TotalPhases": 2,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffBackStrain"
+        ],
+        "topicsPresent": [
+          "topicBackStrain"
+        ],
+        "notes": [
+          "После StartTreatment: buffsAbsent=[buffBackStrain], phase buff=HarveyMod_BackStrain_Acute",
+          "После recovery: buffsPresent=[buffHarveyCare], buffsAbsent=['HarveyMod_BackStrain_Acute', 'HarveyMod_BackStrain_Recovery', 'buffBackStrain']",
+          "MainInjuryId=null после CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "Baseline: CurrentPhase=0, TreatmentStarted=false, TotalPhases=2",
+        "После первого клика: phase1=HarveyMod_BackStrain_Acute, base buffBackStrain снят",
+        "После recovery: buffHarveyCare, MainInjuryId пуст, все phase buffs сняты"
+      ],
+      "failureHints": [
+        "TreatmentManager — StartPhasedTreatment / AdvanceInjuryToNextPhase / CompleteInjuryRecovery",
+        "docs/testing/08-injury-treatment-tests.md HOI-PHASE-TEMPLATE",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PHASE-004",
+      "title": "buffDeepCuts — полный цикл фазового лечения",
+      "priority": "P1",
+      "mechanics": [
+        "phased_injury",
+        "buffDeepCuts"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey 3+ сердечка, Hospital 10am (StardewMCP)",
+        "Injury MCP / SMAPI доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить фазовую main-травму buffDeepCuts",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey для StartTreatment (phase 1)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 1→2",
+          "args": {
+            "buff_id": "buffDeepCuts",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 1→2"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 2→3",
+          "args": {
+            "buff_id": "buffDeepCuts",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 2→3"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "description": "ReadyForRecovery=true на последней фазе",
+          "args": {
+            "buff_id": "buffDeepCuts",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для CompleteRecovery"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffDeepCuts",
+          "TotalPhases": 3,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffDeepCuts"
+        ],
+        "topicsPresent": [
+          "topicDeepCuts"
+        ],
+        "notes": [
+          "После StartTreatment: buffsAbsent=[buffDeepCuts], phase buff=HarveyMod_DeepCuts_Acute",
+          "После recovery: buffsPresent=[buffHarveyCare], buffsAbsent=['HarveyMod_DeepCuts_Acute', 'HarveyMod_DeepCuts_Healing', 'HarveyMod_DeepCuts_Recovery', 'buffDeepCuts']",
+          "MainInjuryId=null после CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "Baseline: CurrentPhase=0, TreatmentStarted=false, TotalPhases=3",
+        "После первого клика: phase1=HarveyMod_DeepCuts_Acute, base buffDeepCuts снят",
+        "После recovery: buffHarveyCare, MainInjuryId пуст, все phase buffs сняты"
+      ],
+      "failureHints": [
+        "TreatmentManager — StartPhasedTreatment / AdvanceInjuryToNextPhase / CompleteInjuryRecovery",
+        "docs/testing/08-injury-treatment-tests.md HOI-PHASE-TEMPLATE",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PHASE-005",
+      "title": "buffBurnWounds — полный цикл фазового лечения",
+      "priority": "P1",
+      "mechanics": [
+        "phased_injury",
+        "buffBurnWounds"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey 3+ сердечка, Hospital 10am (StardewMCP)",
+        "Injury MCP / SMAPI доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить фазовую main-травму buffBurnWounds",
+          "args": {
+            "buff_id": "buffBurnWounds"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey для StartTreatment (phase 1)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 1→2",
+          "args": {
+            "buff_id": "buffBurnWounds",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 1→2"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "description": "ReadyForRecovery=true на последней фазе",
+          "args": {
+            "buff_id": "buffBurnWounds",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для CompleteRecovery"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffBurnWounds",
+          "TotalPhases": 2,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffBurnWounds"
+        ],
+        "topicsPresent": [
+          "topicBurnWounds"
+        ],
+        "notes": [
+          "После StartTreatment: buffsAbsent=[buffBurnWounds], phase buff=HarveyMod_BurnWounds_Acute",
+          "После recovery: buffsPresent=[buffHarveyCare], buffsAbsent=['HarveyMod_BurnWounds_Acute', 'HarveyMod_BurnWounds_Healing', 'buffBurnWounds']",
+          "MainInjuryId=null после CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "Baseline: CurrentPhase=0, TreatmentStarted=false, TotalPhases=2",
+        "После первого клика: phase1=HarveyMod_BurnWounds_Acute, base buffBurnWounds снят",
+        "После recovery: buffHarveyCare, MainInjuryId пуст, все phase buffs сняты"
+      ],
+      "failureHints": [
+        "TreatmentManager — StartPhasedTreatment / AdvanceInjuryToNextPhase / CompleteInjuryRecovery",
+        "docs/testing/08-injury-treatment-tests.md HOI-PHASE-TEMPLATE",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PHASE-006",
+      "title": "buffInfectedWound — полный цикл фазового лечения",
+      "priority": "P1",
+      "mechanics": [
+        "phased_injury",
+        "buffInfectedWound"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey 3+ сердечка, Hospital 10am (StardewMCP)",
+        "Injury MCP / SMAPI доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить фазовую main-травму buffInfectedWound",
+          "args": {
+            "buff_id": "buffInfectedWound"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey для StartTreatment (phase 1)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 1→2",
+          "args": {
+            "buff_id": "buffInfectedWound",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 1→2"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "description": "ReadyForRecovery=true на последней фазе",
+          "args": {
+            "buff_id": "buffInfectedWound",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для CompleteRecovery"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffInfectedWound",
+          "TotalPhases": 2,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffInfectedWound"
+        ],
+        "topicsPresent": [
+          "topicInfectedWound"
+        ],
+        "notes": [
+          "После StartTreatment: buffsAbsent=[buffInfectedWound], phase buff=HarveyMod_InfectedWound_Acute",
+          "После recovery: buffsPresent=[buffHarveyCare], buffsAbsent=['HarveyMod_InfectedWound_Acute', 'HarveyMod_InfectedWound_Treatment', 'buffInfectedWound']",
+          "MainInjuryId=null после CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "Baseline: CurrentPhase=0, TreatmentStarted=false, TotalPhases=2",
+        "После первого клика: phase1=HarveyMod_InfectedWound_Acute, base buffInfectedWound снят",
+        "После recovery: buffHarveyCare, MainInjuryId пуст, все phase buffs сняты"
+      ],
+      "failureHints": [
+        "TreatmentManager — StartPhasedTreatment / AdvanceInjuryToNextPhase / CompleteInjuryRecovery",
+        "docs/testing/08-injury-treatment-tests.md HOI-PHASE-TEMPLATE",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PHASE-007",
+      "title": "buffTornMuscles — полный цикл фазового лечения",
+      "priority": "P1",
+      "mechanics": [
+        "phased_injury",
+        "buffTornMuscles"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey 3+ сердечка, Hospital 10am (StardewMCP)",
+        "Injury MCP / SMAPI доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить фазовую main-травму buffTornMuscles",
+          "args": {
+            "buff_id": "buffTornMuscles"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey для StartTreatment (phase 1)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 1→2",
+          "args": {
+            "buff_id": "buffTornMuscles",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 1→2"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 2→3",
+          "args": {
+            "buff_id": "buffTornMuscles",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 2→3"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "description": "ReadyForRecovery=true на последней фазе",
+          "args": {
+            "buff_id": "buffTornMuscles",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для CompleteRecovery"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffTornMuscles",
+          "TotalPhases": 3,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffTornMuscles"
+        ],
+        "topicsPresent": [
+          "topicTornMuscles"
+        ],
+        "notes": [
+          "После StartTreatment: buffsAbsent=[buffTornMuscles], phase buff=HarveyMod_TornMuscles_Acute",
+          "После recovery: buffsPresent=[buffHarveyCare], buffsAbsent=['HarveyMod_TornMuscles_Acute', 'HarveyMod_TornMuscles_Healing', 'HarveyMod_TornMuscles_Rehab', 'buffTornMuscles']",
+          "MainInjuryId=null после CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "Baseline: CurrentPhase=0, TreatmentStarted=false, TotalPhases=3",
+        "После первого клика: phase1=HarveyMod_TornMuscles_Acute, base buffTornMuscles снят",
+        "После recovery: buffHarveyCare, MainInjuryId пуст, все phase buffs сняты"
+      ],
+      "failureHints": [
+        "TreatmentManager — StartPhasedTreatment / AdvanceInjuryToNextPhase / CompleteInjuryRecovery",
+        "docs/testing/08-injury-treatment-tests.md HOI-PHASE-TEMPLATE",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PHASE-008",
+      "title": "buffConcussion — полный цикл фазового лечения",
+      "priority": "P1",
+      "mechanics": [
+        "phased_injury",
+        "buffConcussion"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey 3+ сердечка, Hospital 10am (StardewMCP)",
+        "Injury MCP / SMAPI доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить фазовую main-травму buffConcussion",
+          "args": {
+            "buff_id": "buffConcussion"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey для StartTreatment (phase 1)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 1→2",
+          "args": {
+            "buff_id": "buffConcussion",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 1→2"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 2→3",
+          "args": {
+            "buff_id": "buffConcussion",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 2→3"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "description": "ReadyForRecovery=true на последней фазе",
+          "args": {
+            "buff_id": "buffConcussion",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для CompleteRecovery"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffConcussion",
+          "TotalPhases": 3,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffConcussion"
+        ],
+        "topicsPresent": [
+          "topicConcussion"
+        ],
+        "notes": [
+          "После StartTreatment: buffsAbsent=[buffConcussion], phase buff=HarveyMod_Concussion_Acute",
+          "После recovery: buffsPresent=[buffHarveyCare], buffsAbsent=['HarveyMod_Concussion_Acute', 'HarveyMod_Concussion_Rest', 'HarveyMod_Concussion_Limited', 'buffConcussion']",
+          "MainInjuryId=null после CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "Baseline: CurrentPhase=0, TreatmentStarted=false, TotalPhases=3",
+        "После первого клика: phase1=HarveyMod_Concussion_Acute, base buffConcussion снят",
+        "После recovery: buffHarveyCare, MainInjuryId пуст, все phase buffs сняты"
+      ],
+      "failureHints": [
+        "TreatmentManager — StartPhasedTreatment / AdvanceInjuryToNextPhase / CompleteInjuryRecovery",
+        "docs/testing/08-injury-treatment-tests.md HOI-PHASE-TEMPLATE",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PHASE-009",
+      "title": "buffFracturedBone — полный цикл фазового лечения",
+      "priority": "P1",
+      "mechanics": [
+        "phased_injury",
+        "buffFracturedBone"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey 3+ сердечка, Hospital 10am (StardewMCP)",
+        "Injury MCP / SMAPI доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить фазовую main-травму buffFracturedBone",
+          "args": {
+            "buff_id": "buffFracturedBone"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey для StartTreatment (phase 1)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 1→2",
+          "args": {
+            "buff_id": "buffFracturedBone",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 1→2"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 2→3",
+          "args": {
+            "buff_id": "buffFracturedBone",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 2→3"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "description": "ReadyForRecovery=true на последней фазе",
+          "args": {
+            "buff_id": "buffFracturedBone",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для CompleteRecovery"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffFracturedBone",
+          "TotalPhases": 3,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffFracturedBone"
+        ],
+        "topicsPresent": [
+          "topicFracturedBone"
+        ],
+        "notes": [
+          "После StartTreatment: buffsAbsent=[buffFracturedBone], phase buff=HarveyMod_FracturedBone_Acute",
+          "После recovery: buffsPresent=[buffHarveyCare], buffsAbsent=['HarveyMod_FracturedBone_Acute', 'HarveyMod_FracturedBone_Cast', 'HarveyMod_FracturedBone_Recovery', 'buffFracturedBone']",
+          "MainInjuryId=null после CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "Baseline: CurrentPhase=0, TreatmentStarted=false, TotalPhases=3",
+        "После первого клика: phase1=HarveyMod_FracturedBone_Acute, base buffFracturedBone снят",
+        "После recovery: buffHarveyCare, MainInjuryId пуст, все phase buffs сняты"
+      ],
+      "failureHints": [
+        "TreatmentManager — StartPhasedTreatment / AdvanceInjuryToNextPhase / CompleteInjuryRecovery",
+        "docs/testing/08-injury-treatment-tests.md HOI-PHASE-TEMPLATE",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PHASE-010",
+      "title": "buffShrapnelWounds — полный цикл фазового лечения",
+      "priority": "P1",
+      "mechanics": [
+        "phased_injury",
+        "buffShrapnelWounds"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey 3+ сердечка, Hospital 10am (StardewMCP)",
+        "Injury MCP / SMAPI доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить фазовую main-травму buffShrapnelWounds",
+          "args": {
+            "buff_id": "buffShrapnelWounds"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey для StartTreatment (phase 1)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 1→2",
+          "args": {
+            "buff_id": "buffShrapnelWounds",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 1→2"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 2→3",
+          "args": {
+            "buff_id": "buffShrapnelWounds",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 2→3"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 3: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "description": "ReadyForRecovery=true на последней фазе",
+          "args": {
+            "buff_id": "buffShrapnelWounds",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для CompleteRecovery"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffShrapnelWounds",
+          "TotalPhases": 3,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffShrapnelWounds"
+        ],
+        "topicsPresent": [
+          "topicShrapnelWounds"
+        ],
+        "notes": [
+          "После StartTreatment: buffsAbsent=[buffShrapnelWounds], phase buff=HarveyMod_Shrapnel_Surgery",
+          "После recovery: buffsPresent=[buffHarveyCare], buffsAbsent=['HarveyMod_Shrapnel_Surgery', 'HarveyMod_Shrapnel_Healing', 'HarveyMod_Shrapnel_Recovery', 'buffShrapnelWounds']",
+          "MainInjuryId=null после CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "Baseline: CurrentPhase=0, TreatmentStarted=false, TotalPhases=3",
+        "После первого клика: phase1=HarveyMod_Shrapnel_Surgery, base buffShrapnelWounds снят",
+        "После recovery: buffHarveyCare, MainInjuryId пуст, все phase buffs сняты"
+      ],
+      "failureHints": [
+        "TreatmentManager — StartPhasedTreatment / AdvanceInjuryToNextPhase / CompleteInjuryRecovery",
+        "docs/testing/08-injury-treatment-tests.md HOI-PHASE-TEMPLATE",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PHASE-011",
+      "title": "buffCold — полный цикл фазового лечения",
+      "priority": "P1",
+      "mechanics": [
+        "phased_injury",
+        "buffCold"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey 3+ сердечка, Hospital 10am (StardewMCP)",
+        "Injury MCP / SMAPI доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить фазовую main-травму buffCold",
+          "args": {
+            "buff_id": "buffCold"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Baseline phase 0: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey для StartTreatment (phase 1)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment phase 1: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "description": "ReadyForNextPhase=true перед переходом 1→2",
+          "args": {
+            "buff_id": "buffCold",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для AdvancePhase 1→2"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После phase 2: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "description": "ReadyForRecovery=true на последней фазе",
+          "args": {
+            "buff_id": "buffCold",
+            "ready": true
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для CompleteRecovery"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После recovery: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffCold",
+          "TotalPhases": 2,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffCold"
+        ],
+        "topicsPresent": [
+          "topicCold"
+        ],
+        "notes": [
+          "После StartTreatment: buffsAbsent=[buffCold], phase buff=HarveyMod_Cold_Acute",
+          "После recovery: buffsPresent=[buffHarveyCare], buffsAbsent=['HarveyMod_Cold_Acute', 'HarveyMod_Cold_Recovery', 'buffCold']",
+          "MainInjuryId=null после CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "Baseline: CurrentPhase=0, TreatmentStarted=false, TotalPhases=2",
+        "После первого клика: phase1=HarveyMod_Cold_Acute, base buffCold снят",
+        "После recovery: buffHarveyCare, MainInjuryId пуст, все phase buffs сняты"
+      ],
+      "failureHints": [
+        "TreatmentManager — StartPhasedTreatment / AdvanceInjuryToNextPhase / CompleteInjuryRecovery",
+        "docs/testing/08-injury-treatment-tests.md HOI-PHASE-TEMPLATE",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    }
+  ]
+}

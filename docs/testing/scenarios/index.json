@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "project": "HarveyOverhaulInjuryC#",
+  "suites": [
+    {
+      "suiteId": "00-smoke-and-debug",
+      "file": "00-smoke-and-debug.json",
+      "title": "Smoke и debug-команды ModEntry",
+      "testCount": 8
+    },
+    {
+      "suiteId": "01-simple-injuries",
+      "file": "01-simple-injuries.json",
+      "title": "Простые травмы — лечение у Харви",
+      "testCount": 3
+    },
+    {
+      "suiteId": "02-phased-injuries",
+      "file": "02-phased-injuries.json",
+      "title": "Фазовые травмы — полный цикл лечения",
+      "testCount": 11
+    },
+    {
+      "suiteId": "03-complications",
+      "file": "03-complications.json",
+      "title": "Осложнения InjuryCare",
+      "testCount": 11
+    },
+    {
+      "suiteId": "04-mine-forbidden",
+      "file": "04-mine-forbidden.json",
+      "title": "Шахта — Severe warning и MineForbidden",
+      "testCount": 6
+    },
+    {
+      "suiteId": "05-passout",
+      "file": "05-passout.json",
+      "title": "Обмороки и mine rescue",
+      "testCount": 5
+    },
+    {
+      "suiteId": "06-hospitalization",
+      "file": "06-hospitalization.json",
+      "title": "Принудительная госпитализация",
+      "testCount": 7
+    },
+    {
+      "suiteId": "07-proximity",
+      "file": "07-proximity.json",
+      "title": "Proximity-реакции Харви",
+      "testCount": 4
+    },
+    {
+      "suiteId": "08-cp-events",
+      "file": "08-cp-events.json",
+      "title": "CP cutscenes — debug ebi smoke",
+      "testCount": 11
+    },
+    {
+      "suiteId": "09-save-load",
+      "file": "09-save-load.json",
+      "title": "Save/load и персистентность",
+      "testCount": 5
+    }
+  ]
+}

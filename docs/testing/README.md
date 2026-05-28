@@ -7,6 +7,8 @@
 | Документ | Назначение |
 |----------|------------|
 | [`FOR_TEST.md`](FOR_TEST.md) | Справочник: SMAPI-команды, травмы, pass-out, mail, debug-HUD (F10) |
+| [`stardew-mcp.md`](stardew-mcp.md) | StardewMCP: телепорт, время, NPC (порт 24842) |
+| [`injury-mcp.md`](injury-mcp.md) | Injury MCP: `injury_*` из C# мода для MainInjury-тестов (порт 24843) |
 | [`EVENTS_TEST_CHECKLIST.md`](EVENTS_TEST_CHECKLIST.md) | Чеклист всех CP-событий + сценарии S01–S18 с галочками |
 | [`manual-test-scenarios-topics-mail.md`](manual-test-scenarios-topics-mail.md) | Детальные сценарии topics/mail/тон Харви (1–14) |
 | [`main-injury-testcases.md`](main-injury-testcases.md) | MainInjury + Complications: сценарии 1–10, реестр событий |

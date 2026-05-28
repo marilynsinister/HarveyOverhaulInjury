@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using HarveyOverhaul.InjuryCare.Core;
+using HarveyOverhaul.InjuryCare.Helpers;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -75,7 +76,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             if (_availableActivities.Count == 0) return;
 
-            NPC? harvey = Game1.getCharacterFromName("Harvey");
+            NPC? harvey = HarveyHelper.GetHarvey();
             if (harvey == null) return;
 
             // Выбираем случайную активность
@@ -87,23 +88,23 @@ namespace HarveyOverhaul.InjuryCare.Managers
             switch (activity)
             {
                 case "checkVitals":
-                    ShowActivity(harvey, "Харви проверяет твой пульс...",
+                    ShowActivity(harvey,
                         "*прикладывает стетоскоп* Сердцебиение нормализовалось. Хороший знак.$h");
                     break;
 
                 case "bringWater":
-                    ShowActivity(harvey, "Харви приносит стакан воды...",
+                    ShowActivity(harvey,
                         "*протягивает воду* Пей медленно. Тебе нужно восстановить водный баланс.$l");
                     Game1.player.Stamina = Math.Min(Game1.player.MaxStamina, Game1.player.Stamina + 15f);
                     break;
 
                 case "adjustPillow":
-                    ShowActivity(harvey, "Харви поправляет подушку...",
+                    ShowActivity(harvey,
                         "*заботливо* Так удобнее? Тебе нужно лежать спокойно.$l");
                     break;
 
                 case "readChart":
-                    ShowActivity(harvey, "Харви изучает медицинскую карту...",
+                    ShowActivity(harvey,
                         "*задумчиво* Показатели улучшаются... Ты молодец.$h");
                     break;
 
@@ -114,35 +115,35 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 case "holdHand":
                     if (_dialogueManager.IsDatingOrMarriedToHarvey())
                     {
-                        ShowActivity(harvey, "Харви берёт твою руку в свои...",
+                        ShowActivity(harvey,
                             "*тихо* Я здесь. Ты не одна.$l#$b#Я не отойду, пока ты не поправишься.$l");
                         Game1.player.health = Math.Min(Game1.player.maxHealth, Game1.player.health + 5);
                     }
                     else
                     {
-                        ShowActivity(harvey, "Харви проверяет твоё самочувствие...",
+                        ShowActivity(harvey,
                             "Как ты себя чувствуешь? Боль стихла?$s");
                     }
                     break;
 
                 case "checkBandage":
-                    ShowActivity(harvey, "Харви осматривает повязку...",
+                    ShowActivity(harvey,
                         "*осторожно* Заживает хорошо. Без признаков инфекции.$h");
                     break;
 
                 case "bringMedicine":
-                    ShowActivity(harvey, "Харви даёт обезболивающее...",
+                    ShowActivity(harvey,
                         "Это поможет снять боль. *протягивает таблетку*$u");
                     Game1.player.health = Math.Min(Game1.player.maxHealth, Game1.player.health + 10);
                     break;
 
                 case "comfort":
-                    ShowActivity(harvey, "Харви сидит рядом с кроватью...",
+                    ShowActivity(harvey,
                         "*мягко* Не волнуйся. Худшее позади.$l#$b#Ты в надёжных руках.$h");
                     break;
 
                 case "checkTemperature":
-                    ShowActivity(harvey, "Харви измеряет температуру...",
+                    ShowActivity(harvey,
                         "*проверяет термометр* 36.8. Отлично, никакой лихорадки.$h");
                     break;
             }
@@ -151,21 +152,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>
         /// Показать активность с диалогом
         /// </summary>
-        private void ShowActivity(NPC harvey, string message, string dialogue)
+        private void ShowActivity(NPC harvey, string dialogue)
         {
-            // Показываем диалог Харви с сообщением
-            if (harvey != null)
-            {
-                harvey.CurrentDialogue.Clear();
-                harvey.CurrentDialogue.Push(new Dialogue(harvey, null, dialogue));
-                Game1.drawDialogue(harvey);
-            }
-            else
-            {
-                // Если Харви нет, показываем просто сообщение
-                Game1.drawObjectDialogue(message);
-            }
-
+            _dialogueManager.Speak(harvey, dialogue);
             Game1.playSound("healSound");
         }
 
@@ -184,7 +173,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             };
 
             string dialogue = conversations[Game1.random.Next(conversations.Length)];
-            ShowActivity(harvey, "Харви садится рядом...", dialogue);
+            ShowActivity(harvey, dialogue);
         }
 
         /// <summary>

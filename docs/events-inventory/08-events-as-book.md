@@ -990,7 +990,7 @@
   - !PLAYER_NPC_RELATIONSHIP Current Harvey Dating Married
   - *Сырой ключ:* `eventHarveyMedicalCheck/Friendship Harvey 1500/Time 1400 1800/Weather sunny/GameStateQuery PLAYER_HAS_MAIL Current mailHarveyMedicalCheckReminder Received/GameStateQuery !PLAYER_NPC_RELATIONSHIP Current Harvey Dating Married`
 
-**Харви:** Привет. Рад, что ты ${пришёл^пришла}$.*(с улыбкой)*
+**Харви:** Привет. Рад, что ты пришла.*(с улыбкой)*
 
 **Харви:** Ты дрожишь. Давай сядем.
 
@@ -1912,7 +1912,7 @@
 
 ...
 
-**Харви:** Не отвечай сейчас, если не ${готов^готова}$. Я просто хотел, чтобы ты ${знал^знала}$: я выбираю тебя. Но решение — только твоё.*(нежно)*
+**Харви:** Не отвечай сейчас, если не готова. Я просто хотел, чтобы ты знала: я выбираю тебя. Но решение — только твоё.*(нежно)*
 
 ---
 

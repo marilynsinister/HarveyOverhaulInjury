@@ -50,6 +50,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private bool _eventWasActive;
         private bool _stormComfortEventRunning;
         private bool _firstTreatmentEventRunning;
+        private bool _firstTreatmentTopicClearedForRun;
         private bool _e5StormBesideEventRunning;
         private bool _rescueOperationEventRunning;
 
@@ -116,9 +117,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 }
 
                 // Проверка госпитализации
-                if (_hospitalizationManager.HandleWarpAttempt(e.NewLocation, e.OldLocation))
+                bool hospitalExitBlocked = _hospitalizationManager.HandleWarpAttempt(e.NewLocation, e.OldLocation);
+                _hospitalizationManager.NotifyPlayerWarped(e.NewLocation);
+
+                if (hospitalExitBlocked)
                 {
-                    return; // Варп заблокирован
+                    return; // Варп заблокирован — возврат в палату отложен или уже запущен
                 }
 
                 // Логика локаций
@@ -157,6 +161,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         eventId,
                         EventIds.FirstTreatment,
                         StringComparison.OrdinalIgnoreCase);
+                    if (_firstTreatmentEventRunning && !_firstTreatmentTopicClearedForRun)
+                    {
+                        _dialogueManager.ClearHarveyNeedsFirstTreatmentTopic(
+                            "HarveyMod_FirstTreatment запущено — снят триггер повторного входа");
+                        _firstTreatmentTopicClearedForRun = true;
+                    }
                     _e5StormBesideEventRunning = string.Equals(
                         eventId,
                         RescueOperationIds.E5StormBesideEvent,
@@ -165,6 +175,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 }
                 else if (_eventWasActive)
                 {
+                    _firstTreatmentTopicClearedForRun = false;
                     if (_stormComfortEventRunning)
                     {
                         StormComfortLauncher.MarkStormComfortEventPlayed(_stateManager, _monitor);
@@ -207,10 +218,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 if (Game1.CurrentEvent != null || Game1.eventUp)
                     return;
 
-                if (e.IsMultipleOf(15))
-                {
+                if (_hospitalizationManager.IsHospitalized)
                     _hospitalizationManager.UpdateHospitalizationLock();
-                }
 
                 // Каждые 6 тиков (~100 мс) — накопление использований инструмента
                 if (e.IsMultipleOf(6))
@@ -687,6 +696,156 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             return Math.Clamp(chance, 0.0, 0.95);
         }
 
+        /// <summary>
+        /// QA/MCP: simulate mine exposure minutes and roll dirty wound (ignores location if ignoreLocation=true).
+        /// </summary>
+        public string SimulateMineDirtyExposureForQa(int minutes, bool forceRoll = false, bool ignoreLocation = true)
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (!ignoreLocation && !IsMineOrVolcano(Game1.currentLocation))
+                return "SKIP: not in Mine/Volcano";
+
+            if (!HasDirtyMineInjury())
+                return "SKIP: hasDirtyInjury=false";
+
+            if (_stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.DirtyWound))
+                return "SKIP: DirtyWound already active";
+
+            int today = Helpers.GameUtils.Today();
+            if (_stateManager.State.LastMineDirtyExposureDay != today)
+            {
+                _stateManager.State.LastMineDirtyExposureDay = today;
+                _stateManager.State.MineDirtyExposureMinutesToday = 0;
+                _stateManager.State.LastMineDirtyWoundRollMinute = -1;
+                _stateManager.State.MineDirtyRiskBoostUntilMinute = -1;
+            }
+
+            int delta = Math.Max(1, minutes);
+            _stateManager.State.MineDirtyExposureMinutesToday += delta;
+
+            int currentMinute = ToGameMinutes(Game1.timeOfDay);
+            double chance = forceRoll
+                ? 1.0
+                : CalculateDirtyWoundChance(
+                    _stateManager.State.MineDirtyExposureMinutesToday,
+                    currentMinute);
+
+            if (chance <= 0)
+            {
+                return
+                    $"exposure={_stateManager.State.MineDirtyExposureMinutesToday}m chance=0% applied=no (below safe threshold)";
+            }
+
+            _stateManager.State.LastMineDirtyWoundRollMinute = currentMinute;
+            bool applied = _complicationManager.TryApplyDirtyWoundFromMine(
+                chance,
+                $"qa simulate exposure={_stateManager.State.MineDirtyExposureMinutesToday}m");
+
+            _stateManager.Save();
+
+            return
+                $"exposure={_stateManager.State.MineDirtyExposureMinutesToday}m chance={chance:P0} applied={applied}";
+        }
+
+        /// <summary>
+        /// QA/MCP: simulate severe mine entry warning (sets MineWarningDay without SMAPI warp).
+        /// </summary>
+        public string SimulateMineSevereWarningForQa(bool warningWasYesterday = false)
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (!_injuryManager.IsMainInjurySerious())
+                return "SKIP: main injury not severe";
+
+            int today = Helpers.GameUtils.Today();
+            var state = _stateManager.State;
+
+            if (state.LastMineSevereWarningDay == today && !warningWasYesterday)
+            {
+                return
+                    $"SKIP: warning already set today " +
+                    $"MineWarningDay={state.MineWarningDay} " +
+                    $"LastMineSevereWarningDay={state.LastMineSevereWarningDay}";
+            }
+
+            state.LastMineSevereWarningDay = today;
+            state.MineWarningDay = warningWasYesterday ? today - 1 : today;
+            _stateManager.Save();
+
+            return
+                $"MineWarningDay={state.MineWarningDay} " +
+                $"LastMineSevereWarningDay={state.LastMineSevereWarningDay} " +
+                $"warningWasYesterday={warningWasYesterday}";
+        }
+
+        /// <summary>
+        /// QA/MCP: run HandleLocationLogic for current location (hospital admission, mine warning, spa).
+        /// </summary>
+        public string RunLocationLogicForQa()
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (Game1.CurrentEvent != null || Game1.eventUp)
+                return "SKIP: event active";
+
+            HandleLocationLogic(Game1.currentLocation);
+            var state = _stateManager.State;
+            return
+                $"location={Game1.currentLocation?.Name ?? "(none)"} " +
+                $"IsHospitalized={state.IsHospitalized} " +
+                $"HospitalizedInjuryId={state.HospitalizedInjuryId ?? "(none)"} " +
+                $"MineWarningDay={state.MineWarningDay} " +
+                $"MineForbidden={_buffManager.HasBuff(InjuryBuffs.MineForbidden)}";
+        }
+
+        /// <summary>
+        /// QA/MCP: apply WetBandage from rain exposure counters without waiting for UpdateTick.
+        /// </summary>
+        public string SimulateRainWetBandageForQa(bool force = true)
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (!_complicationManager.CanReceiveWetBandageFromWater())
+                return "SKIP: CanReceiveWetBandageFromWater=false";
+
+            if (_stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.WetBandage))
+                return "SKIP: WetBandage already active";
+
+            int today = Helpers.GameUtils.Today();
+            _stateManager.State.LastRainDay = today;
+            if (_stateManager.State.TimeUnderRainTicks <= 0)
+                _stateManager.State.TimeUnderRainTicks = 60;
+
+            if (!force)
+            {
+                double wetChance = CalculateWetChance(_stateManager.State.TimeUnderRainTicks);
+                if (!Helpers.GameUtils.Roll(wetChance))
+                {
+                    return
+                        $"ticks={_stateManager.State.TimeUnderRainTicks}s chance={wetChance:P0} applied=no";
+                }
+            }
+
+            bool applied = _complicationManager.TryApplyWetBandageFromWater(
+                topicDays: 4,
+                new HUDMessage("Повязка промокла!", HUDMessage.error_type),
+                $"qa rain wet simulate ticks={_stateManager.State.TimeUnderRainTicks}s force={force}");
+
+            if (applied)
+            {
+                _complianceManager.AddCompliance(-1, "wet_bandage");
+                _stateManager.State.TimeUnderRainTicks = 0;
+            }
+
+            _stateManager.Save();
+            return $"ticks={_stateManager.State.TimeUnderRainTicks}s force={force} applied={applied}";
+        }
+
         private void TryApplyDirtyWoundFromMine(double chance, string reason)
         {
             if (!_complicationManager.TryApplyDirtyWoundFromMine(chance, reason))
@@ -1009,9 +1168,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private void TryRollPrescriptionWetComplication(double wetBandageBonus, double wetStitchesBonus)
         {
-            int today = Helpers.GameUtils.Today();
+            if (HasWetStitchesExposure()
+                && Helpers.GameUtils.Roll(Math.Clamp(wetStitchesBonus, 0.0, 1.0)))
+            {
+                TryApplyWetStitchesComplication("[Prescription] WetStitches после нарушения KeepDry");
+                return;
+            }
 
             if (HasKeepDryWoundExposure()
+                && !HasWetStitchesExposure()
                 && Helpers.GameUtils.Roll(Math.Clamp(wetBandageBonus, 0.0, 1.0)))
             {
                 _complicationManager.TryApplyWetBandageFromWater(
@@ -1019,25 +1184,25 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     new HUDMessage("Повязка промокла!", HUDMessage.error_type),
                     "[Prescription] WetBandage после нарушения KeepDry");
             }
+        }
 
-            if (HasWetStitchesExposure()
-                && !_buffManager.HasBuff(InjuryBuffs.WetStitches)
-                && !_stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.WetStitches)
-                && Helpers.GameUtils.Roll(Math.Clamp(wetStitchesBonus, 0.0, 1.0)))
-            {
-                _buffManager.AddBuff(InjuryBuffs.WetStitches, -2);
-                _stateManager.State.ActiveComplications[InjuryBuffs.WetStitches] = today;
-                _stateManager.CreateComplicationState(InjuryBuffs.WetStitches, today);
-                _dialogueManager.AddTopic(ConversationTopics.WetStitches, 4);
-                Game1.addHUDMessage(new HUDMessage("Швы намокли!", HUDMessage.error_type));
-                _monitor.Log("[Prescription] WetStitches после нарушения KeepDry", LogLevel.Warn);
-            }
+        private bool TryApplyWetStitchesComplication(string logContext)
+        {
+            if (_stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.WetStitches))
+                return false;
+
+            int today = Helpers.GameUtils.Today();
+            _buffManager.AddBuff(InjuryBuffs.WetStitches, -2);
+            _stateManager.State.ActiveComplications[InjuryBuffs.WetStitches] = today;
+            _stateManager.CreateComplicationState(InjuryBuffs.WetStitches, today);
+            _dialogueManager.AddTopic(ConversationTopics.WetStitches, 4);
+            Game1.addHUDMessage(new HUDMessage("Швы намокли! Нельзя было купаться со швами!", HUDMessage.error_type));
+            _monitor.Log(logContext, LogLevel.Warn);
+            return true;
         }
 
         private void HandleSpaLogic()
         {
-            int today = Helpers.GameUtils.Today();
-
             if (_prescriptionManager.HasActivePrescription(PrescriptionIds.KeepDry))
             {
                 if (_prescriptionManager.TryMarkViolation(PrescriptionIds.KeepDry, "pool", out int keepDryCount))
@@ -1053,7 +1218,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 }
             }
 
-            if (CanGetWetBandage())
+            if (HasWetStitchesExposure())
+            {
+                if (TryApplyWetStitchesComplication("Швы намокли при купании"))
+                    _complianceManager.AddCompliance(-1, "wet_stitches_spa");
+            }
+            else if (CanGetWetBandage())
             {
                 if (_complicationManager.TryApplyWetBandageFromWater(
                         topicDays: 4,
@@ -1062,16 +1232,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 {
                     _complianceManager.AddCompliance(-1, "wet_bandage_spa");
                 }
-            }
-
-            if (_buffManager.HasBuff("buffSurgicalWound") && !_stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.WetStitches))
-            {
-                _buffManager.AddBuff(InjuryBuffs.WetStitches, -2);
-                _stateManager.State.ActiveComplications[InjuryBuffs.WetStitches] = today;
-                _stateManager.CreateComplicationState(InjuryBuffs.WetStitches, today);
-                _dialogueManager.AddTopic(ConversationTopics.WetStitches, 4);
-                Game1.addHUDMessage(new HUDMessage("Швы намокли! Нельзя было купаться со швами!", HUDMessage.error_type));
-                _monitor.Log("Швы намокли при купании", LogLevel.Warn);
             }
         }
 

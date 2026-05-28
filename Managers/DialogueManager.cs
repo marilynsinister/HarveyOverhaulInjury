@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using HarveyOverhaul.InjuryCare.Core;
+using HarveyOverhaul.InjuryCare.Helpers;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -48,8 +49,30 @@ namespace HarveyOverhaul.InjuryCare.Managers
             catch (Exception ex)
             {
                 _monitor.Log($"Ошибка при показе диалога: {ex}", LogLevel.Error);
-                Game1.drawObjectDialogue(text);
             }
+        }
+
+        /// <summary>
+        /// Реплика Харви с портретом и разбором $h/$a/#$b#/@. NPC не обязан быть на текущей карте.
+        /// </summary>
+        public void SpeakHarvey(string text, NPC? preferred = null)
+        {
+            NPC? harvey = preferred ?? HarveyHelper.GetHarvey();
+            if (harvey == null)
+            {
+                _monitor.Log($"Harvey dialogue skipped (NPC missing): {text}", LogLevel.Warn);
+                return;
+            }
+
+            Speak(harvey, text);
+        }
+
+        /// <summary>
+        /// Отложенная реплика Харви (после warp/меню).
+        /// </summary>
+        public void SpeakHarveyDelayed(string text, int delayMs = 500, NPC? preferred = null)
+        {
+            Game1.delayedActions.Add(new DelayedAction(delayMs, () => SpeakHarvey(text, preferred)));
         }
 
         /// <summary>

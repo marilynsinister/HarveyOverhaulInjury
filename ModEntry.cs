@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Managers;
@@ -48,6 +51,10 @@ namespace HarveyOverhaul.InjuryCare
 
         // Конфигурация
         private ModConfig _config = null!;
+
+        private InjuryMcpServer? _injuryMcpServer;
+
+        private readonly ConcurrentQueue<(string Tool, JsonElement? Args, TaskCompletionSource<string> Completion)> _mcpCommandQueue = new();
 
         /// <summary>Режим дебаг-HUD (F10): 0 скрыт, 1 compact, 2 full.</summary>
         private int _debugHudMode = 1;
@@ -163,6 +170,66 @@ namespace HarveyOverhaul.InjuryCare
                 (_, _) => CmdDebugDump());
 
             helper.ConsoleCommands.Add(
+                "injury_state_dump",
+                "[QA] Машиночитаемый снимок InjuryState (read-only).",
+                (_, _) => CmdStateDump());
+
+            helper.ConsoleCommands.Add(
+                "injury_buff_dump",
+                "[QA] Все баффы игрока с тегами mod/trauma/phase/cure/complication/orphan (read-only).",
+                (_, _) => CmdBuffDump());
+
+            helper.ConsoleCommands.Add(
+                "injury_topic_dump",
+                "[QA] Все conversation topics игрока с днями до истечения (read-only).",
+                (_, _) => CmdTopicDump());
+
+            helper.ConsoleCommands.Add(
+                "injury_validate_buffs",
+                "[QA] Сверка C# buff ID с Data/Buffs; вывод missing ids (read-only).",
+                (_, _) => CmdValidateBuffs());
+
+            helper.ConsoleCommands.Add(
+                "injury_topic_add",
+                "[QA] Добавить owned conversation topic: injury_topic_add <topicId> [days]",
+                (_, args) => CmdTopicAdd(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_topic_remove",
+                "[QA] Снять conversation topic: injury_topic_remove <topicId>",
+                (_, args) => CmdTopicRemove(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_complication_add",
+                "[QA] Добавить осложнение через ComplicationManager: injury_complication_add <id> [ageDays]",
+                (_, args) => CmdComplicationAdd(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_complication_remove",
+                "[QA] Снять осложнение: injury_complication_remove <complicationBuffId>",
+                (_, args) => CmdComplicationRemove(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_test_age_injury",
+                "[QA] Сдвинуть InjuryStartDay/PhaseStartDay: injury_test_age_injury <buffId> <daysBack>",
+                (_, args) => CmdTestAgeInjury(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_test_age_complication",
+                "[QA] Сдвинуть ActiveComplications start day: injury_test_age_complication <compId> <daysBack>",
+                (_, args) => CmdTestAgeComplication(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_hospital_status",
+                "[QA] Read-only снимок госпитализации.",
+                (_, _) => CmdHospitalStatus());
+
+            helper.ConsoleCommands.Add(
+                "injury_hospital_discharge",
+                "[QA] Принудительная выписка (HospitalizationManager.Discharge).",
+                (_, _) => CmdHospitalDischarge());
+
+            helper.ConsoleCommands.Add(
                 "injury_cleanup_invalid_complications",
                 "Удалить невалидные/stale осложнения из текущего сейва (WetBandage без лечения, orphan DebuffState/SavedActiveBuffs).",
                 (_, _) => CmdCleanupInvalidComplications());
@@ -171,6 +238,71 @@ namespace HarveyOverhaul.InjuryCare
                 "injury_medical_snapshot",
                 "Снимок medical pipeline: decision/gate/pending, DebuffState, фазовые баффы (до/после клика по Харви).",
                 (_, _) => CmdMedicalSnapshot());
+
+            helper.ConsoleCommands.Add(
+                "injury_harvey_click",
+                "DEBUG: мед. действие как после клика по Харви (без диалога). injury_harvey_click [dry] [ignore_hospital] [discharge]",
+                (_, args) => CmdHarveyClick(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_run_daily_checks",
+                "[QA] Утренние проверки мода (infection roll, buff restore) без ожидания DayStarted.",
+                (_, _) => CmdRunDailyChecks());
+
+            helper.ConsoleCommands.Add(
+                "injury_mine_dirty_simulate",
+                "[QA] Симуляция exposure в шахте: injury_mine_dirty_simulate <minutes> [force]",
+                (_, args) => CmdMineDirtySimulate(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_mine_warning_simulate",
+                "[QA] Severe mine warning: injury_mine_warning_simulate [yesterday]",
+                (_, args) => CmdMineWarningSimulate(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_location_logic",
+                "[QA] HandleLocationLogic для текущей локации (госпиталь, шахта, spa).",
+                (_, _) => CmdLocationLogic());
+
+            helper.ConsoleCommands.Add(
+                "injury_rain_wet_simulate",
+                "[QA] WetBandage от дождя без UpdateTick: injury_rain_wet_simulate [force]",
+                (_, args) => CmdRainWetSimulate(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_hospital_lock_enforce",
+                "[QA] Вернуть игрока в палату при госпитализации (обход StardewMCP warp).",
+                (_, _) => CmdHospitalLockEnforce());
+
+            helper.ConsoleCommands.Add(
+                "injury_main_migrate",
+                "[QA] Запустить MigrateMainInjuryId после injury_main_clear.",
+                (_, _) => CmdMainMigrate());
+
+            helper.ConsoleCommands.Add(
+                "injury_neglect_set",
+                "[QA] NeglectStrikesByInjury: injury_neglect_set <buffId> <strikes>",
+                (_, args) => CmdNeglectSet(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_game_ui_status",
+                "[QA] Статус event/dialogue/menu.",
+                (_, _) => Monitor.Log(QaGameUiCommands.BuildUiStatusReport(), LogLevel.Info));
+
+            helper.ConsoleCommands.Add(
+                "injury_game_ui_advance",
+                "[QA] Шаг UI: injury_game_ui_advance [steps]",
+                (_, args) => CmdGameUiAdvance(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_game_ui_end_event",
+                "[QA] Принудительно завершить активный cutscene event.",
+                (_, _) => Monitor.Log(QaGameUiCommands.EndActiveEvent(), LogLevel.Info));
+
+            helper.ConsoleCommands.Add(
+                "injury_game_ui_close_menu",
+                "[QA] Закрыть dialogue box или верхнее меню.",
+                (_, _) => Monitor.Log(QaGameUiCommands.CloseActiveMenu(), LogLevel.Info));
 
             helper.ConsoleCommands.Add(
                 "injury_foreign_topic_add",
@@ -242,6 +374,13 @@ namespace HarveyOverhaul.InjuryCare
                 "Самопомощь: ранний отдых (force).",
                 (_, _) => CmdSelfCareRest());
 
+            if (_config.EnableInjuryMcp)
+            {
+                helper.Events.GameLoop.UpdateTicked += OnProcessMcpCommandQueue;
+                _injuryMcpServer = new InjuryMcpServer(Monitor, ExecuteMcpTool);
+                _injuryMcpServer.Start(_config.InjuryMcpPort);
+            }
+
             Monitor.Log("Harvey Overhaul: Injury & Care загружен", LogLevel.Info);
         }
 
@@ -277,13 +416,22 @@ namespace HarveyOverhaul.InjuryCare
 
         private void CmdDebuffList()
         {
-            Monitor.Log("=== Дебаффы мода (травмы) ===", LogLevel.Info);
+            string report = BuildDebuffListReport();
+            foreach (string line in report.Split('\n'))
+                Monitor.Log(line, LogLevel.Info);
+        }
+
+        private string BuildDebuffListReport()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("=== Дебаффы мода (травмы) ===");
             foreach (var t in KnownTraumas)
-                Monitor.Log($"  {t.BuffId}  (топик: {t.TopicId}, фазы: {t.P1}/{t.P2}/{t.P3} д)", LogLevel.Info);
-            Monitor.Log("=== Осложнения ===", LogLevel.Info);
+                sb.AppendLine($"  {t.BuffId}  (топик: {t.TopicId}, фазы: {t.P1}/{t.P2}/{t.P3} д)");
+            sb.AppendLine("=== Осложнения ===");
             foreach (var c in KnownComplications)
-                Monitor.Log($"  {c.BuffId}  (топик: {c.TopicId})", LogLevel.Info);
-            Monitor.Log("Любой ID из Data/Buffs тоже можно применить через injury_debuff_add <id> [минуты].", LogLevel.Info);
+                sb.AppendLine($"  {c.BuffId}  (топик: {c.TopicId})");
+            sb.AppendLine("Любой ID из Data/Buffs тоже можно применить через injury_debuff_add <id> [минуты].");
+            return sb.ToString().TrimEnd();
         }
 
         private void CmdDebuffAdd(string[] args)
@@ -345,7 +493,7 @@ namespace HarveyOverhaul.InjuryCare
             int minutes,
             bool forceReplace)
         {
-            string? currentMain = _stateManager.GetMainInjuryId();
+            string? currentMain = _injuryManager.GetCurrentMainInjuryId();
 
             if (!string.IsNullOrEmpty(currentMain)
                 && string.Equals(currentMain, trauma.BuffId, StringComparison.OrdinalIgnoreCase))
@@ -392,6 +540,14 @@ namespace HarveyOverhaul.InjuryCare
             if (string.Equals(trauma.BuffId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
                 _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 4);
             _dialogueManager.TryAddHarveyNeedsFirstTreatmentTopic(trauma.BuffId);
+
+            if (string.Equals(trauma.BuffId, "buffConcussion", StringComparison.OrdinalIgnoreCase)
+                && _config.ForceHospitalization)
+            {
+                _hospitalizationManager.StartForcedHospitalization(
+                    "buffConcussion",
+                    HarveyHelper.GetHarvey());
+            }
         }
 
         private void CmdMainClear()
@@ -445,19 +601,8 @@ namespace HarveyOverhaul.InjuryCare
             }
         }
 
-        private bool IsMainInjuryStateValid(string? mainInjuryId)
-        {
-            if (string.IsNullOrEmpty(mainInjuryId))
-                return false;
-
-            if (InjurySets.KnownComplicationBuffIds.Contains(mainInjuryId))
-                return false;
-
-            if (_stateManager.GetDebuffState(mainInjuryId) == null)
-                return false;
-
-            return _injuryManager.HasInjuryOrPhase(mainInjuryId);
-        }
+        private bool IsMainInjuryStateValid(string? mainInjuryId) =>
+            _injuryManager.ValidateMainInjury(mainInjuryId).Valid;
 
         private static string FormatComplicationsList(InjuryState state)
         {
@@ -469,10 +614,12 @@ namespace HarveyOverhaul.InjuryCare
 
         private void AppendMainInjuryDebugBlock(StringBuilder sb, InjuryState state)
         {
-            string? mainId = _stateManager.GetMainInjuryId() ?? _injuryManager.GetActiveInjury();
-            bool valid = IsMainInjuryStateValid(mainId);
+            MainInjuryValidation mainInfo = _injuryManager.GetMainInjuryDebugInfo();
+            string? mainId = mainInfo.MainInjuryId ?? _injuryManager.GetActiveInjury();
 
-            sb.AppendLine($"Main injury: {(string.IsNullOrEmpty(mainId) ? "(none)" : mainId)}  valid: {YesNo(valid)}");
+            sb.AppendLine($"Main injury: {(string.IsNullOrEmpty(mainId) ? "(none)" : mainId)}  valid: {YesNo(mainInfo.Valid)}");
+            if (!mainInfo.Valid && !string.IsNullOrEmpty(mainInfo.Reason))
+                sb.AppendLine($"Main injury invalid reason: {mainInfo.Reason}");
 
             var mainState = string.IsNullOrEmpty(mainId) ? null : _stateManager.GetDebuffState(mainId);
             if (mainState == null)
@@ -495,25 +642,53 @@ namespace HarveyOverhaul.InjuryCare
 
         private void CmdPhaseList()
         {
+            string report = BuildPhaseListReport();
+            foreach (string line in report.Split('\n'))
+                Monitor.Log(line, LogLevel.Info);
+        }
+
+        private string BuildPhaseListReport()
+        {
             if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            var sb = new StringBuilder();
+            var state = _stateManager.State;
+            string? storedMainId = _stateManager.GetMainInjuryId();
+            MainInjuryValidation mainInfo = _injuryManager.GetMainInjuryDebugInfo();
+            string? resolvedMainId = mainInfo.MainInjuryId;
+
+            sb.AppendLine($"MainInjuryId (stored): {(string.IsNullOrEmpty(storedMainId) ? "(none)" : storedMainId)}");
+            sb.AppendLine($"MainInjuryId (resolved): {(string.IsNullOrEmpty(resolvedMainId) ? "(none)" : resolvedMainId)}");
+            if (_stateManager.QaSuppressMainInjuryAutoSync)
+                sb.AppendLine("MainInjury auto-sync: suppressed (QA)");
+
+            string? mainId = resolvedMainId;
+            sb.AppendLine($"Active main injury valid: {YesNo(mainInfo.Valid)}");
+            if (!mainInfo.Valid && !string.IsNullOrEmpty(mainInfo.Reason))
+                sb.AppendLine($"Active main injury invalid reason: {mainInfo.Reason}");
+
+            if (!string.IsNullOrEmpty(mainId))
             {
-                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
-                return;
+                sb.AppendLine($"BaseBuff active: {YesNo(mainInfo.BaseBuffActive)}");
+                sb.AppendLine(
+                    $"CureBuff: {(string.IsNullOrEmpty(mainInfo.CureBuffId) ? "(n/a)" : mainInfo.CureBuffId)} active={YesNo(mainInfo.CureBuffActive)}");
+                sb.AppendLine(
+                    $"PhaseBuff: {(string.IsNullOrEmpty(mainInfo.PhaseBuffId) ? "(n/a)" : mainInfo.PhaseBuffId)} active={YesNo(mainInfo.PhaseBuffActive)}");
+                sb.AppendLine($"TreatmentStarted: {YesNo(mainInfo.TreatmentStarted)}");
+                sb.AppendLine($"Main injury serious: {YesNo(InjuryManager.IsSeriousMainInjuryId(mainId))}");
             }
 
-            var state = _stateManager.State;
-            string? mainId = _stateManager.GetMainInjuryId();
-            Monitor.Log($"MainInjuryId: {(string.IsNullOrEmpty(mainId) ? "(none)" : mainId)}", LogLevel.Info);
-            Monitor.Log($"Active main injury valid: {YesNo(IsMainInjuryStateValid(mainId))}", LogLevel.Info);
-            Monitor.Log($"Complications: {FormatComplicationsList(state)}", LogLevel.Info);
+            sb.AppendLine($"Complications: {FormatComplicationsList(state)}");
 
             var all = _stateManager.GetAllActiveDebuffStates();
             if (all.Count == 0)
             {
-                Monitor.Log("Нет активных дебаффов в состоянии мода. injury_debuff_add <id> — применить травму.", LogLevel.Info);
-                return;
+                sb.AppendLine("Нет активных дебаффов в состоянии мода.");
+                return sb.ToString().TrimEnd();
             }
-            Monitor.Log("=== Активные травмы (фаза, готовность) ===", LogLevel.Info);
+
+            sb.AppendLine("=== Активные травмы (фаза, готовность) ===");
             foreach (var ds in all)
             {
                 string phaseInfo = ds.TotalPhases == 0
@@ -523,9 +698,10 @@ namespace HarveyOverhaul.InjuryCare
                 if (ds.ReadyForNextPhase) flags += " [→след.фаза]";
                 if (ds.ReadyForRecovery) flags += " [→выздоровление]";
                 if (ds.TreatmentStarted) flags += " в лечении";
-                Monitor.Log($"  {ds.BuffId}: {phaseInfo}{flags}", LogLevel.Info);
+                sb.AppendLine($"  {ds.BuffId}: {phaseInfo}{flags}");
             }
-            Monitor.Log("Команды: injury_phase_ready/advance — только фазовые; injury_phase_recovery/injury_phase_cure — buffHurt, buffBadlyHurt, buffSurgicalWound и финал фазовых.", LogLevel.Info);
+
+            return sb.ToString().TrimEnd();
         }
 
         private static bool ParseBoolArg(string[] args, int index, bool defaultVal)
@@ -690,25 +866,150 @@ namespace HarveyOverhaul.InjuryCare
 
         private void CmdMineDirtyDebug()
         {
+            string report = BuildMineDirtyDebugReport();
+            Monitor.Log(report, LogLevel.Info);
+        }
+
+        private void CmdMineDirtySimulate(string[] args)
+        {
             if (!Context.IsWorldReady)
             {
                 Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
                 return;
             }
 
+            if (args.Length == 0 || !int.TryParse(args[0], out int minutes))
+            {
+                Monitor.Log("Использование: injury_mine_dirty_simulate <minutes> [force]", LogLevel.Info);
+                return;
+            }
+
+            bool force = args.Any(a => string.Equals(a, "force", StringComparison.OrdinalIgnoreCase));
+            string result = _playerEventHandler.SimulateMineDirtyExposureForQa(minutes, force);
+            Monitor.Log($"[QA] {result}", LogLevel.Info);
+        }
+
+        private void CmdRunDailyChecks()
+        {
+            string result = _gameEventHandler.RunQaDailyChecks();
+            Monitor.Log(result, LogLevel.Info);
+        }
+
+        private void CmdMainMigrate()
+        {
+            string main = _stateManager.DebugMigrateMainInjuryId();
+            Monitor.Log($"[QA] injury_main_migrate → MainInjuryId={main}", LogLevel.Info);
+        }
+
+        private void CmdNeglectSet(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length < 2 || !int.TryParse(args[1], out int strikes))
+            {
+                Monitor.Log("Использование: injury_neglect_set <buffId> <strikes>", LogLevel.Info);
+                return;
+            }
+
+            string result = RunNeglectSet(args[0].Trim(), strikes);
+            Monitor.Log($"[QA] {result}", LogLevel.Info);
+        }
+
+        private string RunNeglectSet(string buffId, int strikes)
+        {
+            _stateManager.SetNeglectStrikesForQa(buffId, strikes);
+
+            if (strikes >= _config.NeglectDaysThreshold)
+                _gameEventHandler.RunQaCheckNeglect();
+
+            return
+                $"NeglectStrikesByInjury[{buffId}]={strikes} " +
+                $"Neglect={_buffManager.HasBuff(InjuryBuffs.Neglect)} " +
+                $"topic={_dialogueManager.HasTopic(ConversationTopics.Neglect)}";
+        }
+
+        private void CmdMineWarningSimulate(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            bool yesterday = args.Any(a =>
+                string.Equals(a, "yesterday", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(a, "1", StringComparison.Ordinal));
+            string result = _playerEventHandler.SimulateMineSevereWarningForQa(yesterday);
+            Monitor.Log($"[QA] injury_mine_warning_simulate {result}", LogLevel.Info);
+        }
+
+        private void CmdLocationLogic()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            string result = _playerEventHandler.RunLocationLogicForQa();
+            Monitor.Log($"[QA] injury_location_logic {result}", LogLevel.Info);
+        }
+
+        private void CmdRainWetSimulate(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            bool force = args.Length == 0
+                || !args.Any(a => string.Equals(a, "noroll", StringComparison.OrdinalIgnoreCase));
+            string result = _playerEventHandler.SimulateRainWetBandageForQa(force);
+            Monitor.Log($"[QA] injury_rain_wet_simulate {result}", LogLevel.Info);
+        }
+
+        private void CmdHospitalLockEnforce()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            string result = _hospitalizationManager.EnforceLockForQa();
+            Monitor.Log($"[QA] injury_hospital_lock_enforce {result}", LogLevel.Info);
+        }
+
+        private void CmdGameUiAdvance(string[] args)
+        {
+            int steps = 1;
+            if (args.Length > 0 && int.TryParse(args[0], out int parsed))
+                steps = parsed;
+
+            string result = QaGameUiCommands.AdvanceUiMany(steps);
+            Monitor.Log(result, LogLevel.Info);
+        }
+
+        private string BuildMineDirtyDebugReport()
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
             var state = _stateManager.State;
             string loc = Game1.currentLocation?.Name ?? "(null)";
-
             bool hasDirtyInjury = _complicationManager.CanReceiveMineDirtyWound();
-
             bool hasDirtyWound = _buffManager.HasBuff(InjuryBuffs.DirtyWound)
                 || state.ActiveComplications.ContainsKey(InjuryBuffs.DirtyWound);
 
-            Monitor.Log(
+            return
                 $"[MineDirtyDebug] loc={loc}, exposure={state.MineDirtyExposureMinutesToday}m, " +
                 $"lastExposureDay={state.LastMineDirtyExposureDay}, lastRoll={state.LastMineDirtyWoundRollMinute}, " +
-                $"boostUntil={state.MineDirtyRiskBoostUntilMinute}, hasDirtyInjury={hasDirtyInjury}, hasDirtyWound={hasDirtyWound}",
-                LogLevel.Info);
+                $"boostUntil={state.MineDirtyRiskBoostUntilMinute}, hasDirtyInjury={hasDirtyInjury}, hasDirtyWound={hasDirtyWound}";
         }
 
         private void CmdMineForbiddenClear()
@@ -721,7 +1022,10 @@ namespace HarveyOverhaul.InjuryCare
 
             _buffManager.RemoveBuff(InjuryBuffs.MineForbidden);
             _stateManager.State.MineWarningDay = -1;
+            _stateManager.State.LastMineSevereWarningDay = -1;
+            _stateManager.State.LastMineSevereForcedExitDay = -1;
             _stateManager.State.MineForbiddenAppliedDay = -1;
+            _stateManager.State.LastMineForbiddenInterceptionDay = -1;
             _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
                 string.Equals(id, InjuryBuffs.MineForbidden, StringComparison.OrdinalIgnoreCase));
 
@@ -824,6 +1128,331 @@ namespace HarveyOverhaul.InjuryCare
             Monitor.Log(BuildDebugReport(full: true), LogLevel.Info);
         }
 
+        private void CmdStateDump() => LogQaReport("injury_state_dump", BuildStateDumpReport);
+
+        private void CmdBuffDump() => LogQaReport("injury_buff_dump", BuildBuffDumpReport);
+
+        private void CmdTopicDump() => LogQaReport("injury_topic_dump", BuildTopicDumpReport);
+
+        private void CmdValidateBuffs() => LogQaValidateBuffs();
+
+        private string BuildStateDumpReport()
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+            return QaDumpCommands.BuildStateDump(_stateManager.State);
+        }
+
+        private string BuildBuffDumpReport()
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+            return QaDumpCommands.BuildBuffDump(
+                _buffManager,
+                _injuryManager,
+                _stateManager.State,
+                KnownTraumas,
+                KnownComplications);
+        }
+
+        private string BuildTopicDumpReport()
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+            return QaDumpCommands.BuildTopicDump();
+        }
+
+        private string BuildValidateBuffsReport()
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+            return QaDumpCommands.BuildValidateBuffsReport(
+                _buffManager,
+                _injuryManager,
+                KnownTraumas,
+                KnownComplications);
+        }
+
+        private void LogQaReport(string command, Func<string> buildReport)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log($"[QA] {command}: load a save first.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log($"[QA] {command}", LogLevel.Info);
+            foreach (string line in buildReport().Split('\n'))
+            {
+                if (!string.IsNullOrEmpty(line))
+                    Monitor.Log(line, LogLevel.Info);
+            }
+        }
+
+        private void LogQaValidateBuffs()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("[QA] injury_validate_buffs: load a save first.", LogLevel.Warn);
+                return;
+            }
+
+            string body = BuildValidateBuffsReport();
+            if (body.StartsWith("result=OK", StringComparison.Ordinal))
+                Monitor.Log("[QA] injury_validate_buffs: OK", LogLevel.Info);
+            else
+            {
+                string missingPart = body.Contains("ids=")
+                    ? body[(body.IndexOf("ids=", StringComparison.Ordinal) + 4)..]
+                    : body;
+                int missingCount = 0;
+                var countMatch = System.Text.RegularExpressions.Regex.Match(body, @"missing_count=(\d+)");
+                if (countMatch.Success)
+                    int.TryParse(countMatch.Groups[1].Value, out missingCount);
+                Monitor.Log(
+                    $"[QA] injury_validate_buffs: MISSING {missingCount}: {missingPart}",
+                    LogLevel.Warn);
+            }
+
+            foreach (string line in body.Split('\n'))
+            {
+                if (!string.IsNullOrEmpty(line))
+                    Monitor.Log(line, LogLevel.Info);
+            }
+        }
+
+        private string RunTopicAdd(string[] args)
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (args.Length == 0)
+                return "Usage: injury_topic_add <topicId> [days]";
+
+            string topicId = args[0].Trim();
+            if (!QaSetupCommands.IsOwnedTopic(topicId))
+                return $"SKIP: {topicId} is not an owned topic (use injury_foreign_topic_add for foreign)";
+
+            int days = QaSetupCommands.ResolveOwnedTopicDefaultDays(topicId, KnownTraumas, KnownComplications);
+            if (args.Length >= 2)
+            {
+                if (!int.TryParse(args[1], out int parsedDays))
+                    return "Usage: injury_topic_add <topicId> [days]";
+                days = Math.Max(1, parsedDays);
+            }
+
+            QaSetupCommands.TryAddOwnedTopic(_dialogueManager, topicId, days);
+            return $"topicId={topicId} days={days}";
+        }
+
+        private void CmdTopicAdd(string[] args)
+        {
+            string result = RunTopicAdd(args);
+            if (result.StartsWith("Usage:", StringComparison.Ordinal) || result.StartsWith("Error:", StringComparison.Ordinal))
+            {
+                Monitor.Log($"[QA] injury_topic_add: {result}", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("[QA] injury_topic_add", LogLevel.Info);
+            Monitor.Log(result.StartsWith("SKIP:") ? $"[QA] injury_topic_add {result}" : $"[QA] injury_topic_add {result}", LogLevel.Info);
+        }
+
+        private string RunTopicRemove(string[] args)
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (args.Length == 0)
+                return "Usage: injury_topic_remove <topicId>";
+
+            string topicId = args[0].Trim();
+            bool removed = QaSetupCommands.TryRemoveTopic(_dialogueManager, topicId);
+            return $"topicId={topicId} removed={(removed ? "yes" : "no")}";
+        }
+
+        private void CmdTopicRemove(string[] args)
+        {
+            string result = RunTopicRemove(args);
+            if (result.StartsWith("Usage:", StringComparison.Ordinal) || result.StartsWith("Error:", StringComparison.Ordinal))
+            {
+                Monitor.Log($"[QA] injury_topic_remove: {result}", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("[QA] injury_topic_remove", LogLevel.Info);
+            Monitor.Log($"[QA] injury_topic_remove {result}", LogLevel.Info);
+        }
+
+        private string RunComplicationAdd(string[] args)
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (args.Length == 0)
+                return "Usage: injury_complication_add <complicationBuffId> [ageDays]";
+
+            string compId = args[0].Trim();
+            if (!QaSetupCommands.IsKnownComplication(compId, KnownComplications))
+                return $"SKIP: unknown complication id {compId}";
+
+            int? ageDays = null;
+            if (args.Length >= 2)
+            {
+                if (!int.TryParse(args[1], out int parsedAge))
+                    return "Usage: injury_complication_add <complicationBuffId> [ageDays]";
+                ageDays = Math.Max(0, parsedAge);
+            }
+
+            if (!_complicationManager.TryApplyComplicationForQa(compId, ageDays, out string skipReason))
+                return $"SKIP: {skipReason}";
+
+            string agePart = ageDays.HasValue ? $" ageDays={ageDays.Value}" : string.Empty;
+            return $"complication={compId} ok=yes{agePart}";
+        }
+
+        private void CmdComplicationAdd(string[] args)
+        {
+            string result = RunComplicationAdd(args);
+            if (result.StartsWith("Usage:", StringComparison.Ordinal) || result.StartsWith("Error:", StringComparison.Ordinal))
+            {
+                Monitor.Log($"[QA] injury_complication_add: {result}", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("[QA] injury_complication_add", LogLevel.Info);
+            Monitor.Log(
+                result.StartsWith("SKIP:", StringComparison.Ordinal)
+                    ? $"[QA] injury_complication_add {result}"
+                    : $"[QA] injury_complication_add {result}",
+                result.StartsWith("SKIP:", StringComparison.Ordinal) ? LogLevel.Warn : LogLevel.Info);
+        }
+
+        private string RunComplicationRemove(string[] args)
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (args.Length == 0)
+                return "Usage: injury_complication_remove <complicationBuffId>";
+
+            string compId = args[0].Trim();
+            bool ok = _complicationManager.RemoveComplicationForQa(compId);
+            return $"complication={compId} ok={(ok ? "yes" : "no")}";
+        }
+
+        private void CmdComplicationRemove(string[] args)
+        {
+            string result = RunComplicationRemove(args);
+            if (result.StartsWith("Usage:", StringComparison.Ordinal) || result.StartsWith("Error:", StringComparison.Ordinal))
+            {
+                Monitor.Log($"[QA] injury_complication_remove: {result}", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("[QA] injury_complication_remove", LogLevel.Info);
+            Monitor.Log($"[QA] injury_complication_remove {result}", LogLevel.Info);
+        }
+
+        private string RunTestAgeInjury(string[] args)
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (args.Length < 2)
+                return "Usage: injury_test_age_injury <buffId> <daysBack>";
+
+            string buffId = args[0].Trim();
+            if (!int.TryParse(args[1], out int daysBack))
+                return "Usage: injury_test_age_injury <buffId> <daysBack>";
+
+            if (!QaSetupCommands.TryAgeInjury(_stateManager.State, _stateManager, buffId, daysBack, out string detail))
+                return detail;
+
+            return detail;
+        }
+
+        private void CmdTestAgeInjury(string[] args)
+        {
+            string result = RunTestAgeInjury(args);
+            if (result.StartsWith("Usage:", StringComparison.Ordinal) || result.StartsWith("Error:", StringComparison.Ordinal)
+                || result.Contains("not in ActiveDebuffs"))
+            {
+                Monitor.Log($"[QA] injury_test_age_injury: {result}", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("[QA] injury_test_age_injury", LogLevel.Info);
+            Monitor.Log($"[QA] injury_test_age_injury {result}", LogLevel.Info);
+        }
+
+        private string RunTestAgeComplication(string[] args)
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (args.Length < 2)
+                return "Usage: injury_test_age_complication <complicationBuffId> <daysBack>";
+
+            string compId = args[0].Trim();
+            if (!int.TryParse(args[1], out int daysBack))
+                return "Usage: injury_test_age_complication <complicationBuffId> <daysBack>";
+
+            if (!QaSetupCommands.TryAgeComplication(_stateManager.State, _stateManager, compId, daysBack, out string detail))
+                return detail;
+
+            return detail;
+        }
+
+        private void CmdTestAgeComplication(string[] args)
+        {
+            string result = RunTestAgeComplication(args);
+            if (result.StartsWith("Usage:", StringComparison.Ordinal) || result.StartsWith("Error:", StringComparison.Ordinal)
+                || result.Contains("not in ActiveComplications"))
+            {
+                Monitor.Log($"[QA] injury_test_age_complication: {result}", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("[QA] injury_test_age_complication", LogLevel.Info);
+            Monitor.Log($"[QA] injury_test_age_complication {result}", LogLevel.Info);
+        }
+
+        private string BuildHospitalStatusReport()
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+            return QaSetupCommands.BuildHospitalStatusReport(_stateManager.State, _hospitalizationManager);
+        }
+
+        private void CmdHospitalStatus() => LogQaReport("injury_hospital_status", BuildHospitalStatusReport);
+
+        private string RunHospitalDischarge()
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (!_hospitalizationManager.IsHospitalized)
+                return "injury=(none) ok=no reason=not hospitalized";
+
+            string injuryId = _hospitalizationManager.CurrentInjury ?? "(none)";
+            _hospitalizationManager.Discharge();
+            return $"injury={injuryId} ok=yes";
+        }
+
+        private void CmdHospitalDischarge()
+        {
+            string result = RunHospitalDischarge();
+            if (result.StartsWith("Error:", StringComparison.Ordinal))
+            {
+                Monitor.Log($"[QA] injury_hospital_discharge: {result}", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("[QA] injury_hospital_discharge", LogLevel.Info);
+            Monitor.Log($"[QA] injury_hospital_discharge {result}", LogLevel.Info);
+        }
+
         private void CmdMedicalSnapshot()
         {
             if (!Context.IsWorldReady)
@@ -866,6 +1495,30 @@ namespace HarveyOverhaul.InjuryCare
                 Monitor.Log($"  Care buff: ACTIVE ({CureBuffs.Care})", LogLevel.Info);
 
             Monitor.Log("=== END SNAPSHOT ===", LogLevel.Info);
+        }
+
+        private void CmdHarveyClick(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            bool dryRun = args.Any(a => string.Equals(a, "dry", StringComparison.OrdinalIgnoreCase));
+            bool ignoreHospital = args.Any(a =>
+                string.Equals(a, "ignore_hospital", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(a, "--ignore-hospital", StringComparison.OrdinalIgnoreCase));
+            bool dischargeFirst = args.Any(a =>
+                string.Equals(a, "discharge", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(a, "--discharge", StringComparison.OrdinalIgnoreCase));
+
+            if (dischargeFirst && _hospitalizationManager.IsHospitalized)
+                RunHospitalDischarge();
+
+            string result = _interactionHandler.TryDebugApplyHarveyMedicalAction(dryRun, ignoreHospital);
+            Monitor.Log($"[HarveyClick] {result}", LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage($"[Harvey] {result}", HUDMessage.health_type));
         }
 
         private void CmdForeignTopicAdd(string[] args)
@@ -1263,6 +1916,372 @@ namespace HarveyOverhaul.InjuryCare
         /// Полный сброс данных мода для отладки.
         /// Удаляет все баффы мода, осложнения, топики и очищает _state.
         /// </summary>
+        private string ExecuteMcpTool(string toolName, JsonElement? arguments)
+        {
+            var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _mcpCommandQueue.Enqueue((toolName, arguments, completion));
+
+            if (!completion.Task.Wait(TimeSpan.FromSeconds(30)))
+                return "Error: timeout waiting for game thread (30s). Is the game running?";
+
+            return completion.Task.GetAwaiter().GetResult();
+        }
+
+        private void OnProcessMcpCommandQueue(object? sender, UpdateTickedEventArgs e)
+        {
+            while (_mcpCommandQueue.TryDequeue(out var item))
+            {
+                try
+                {
+                    item.Completion.TrySetResult(ExecuteMcpToolOnMainThread(item.Tool, item.Args));
+                }
+                catch (Exception ex)
+                {
+                    item.Completion.TrySetResult($"Error: {ex.Message}");
+                }
+            }
+        }
+
+        private string ExecuteMcpToolOnMainThread(string toolName, JsonElement? arguments)
+        {
+            switch (toolName)
+            {
+                case "injury_reset":
+                    FullReset();
+                    return BuildPhaseListReport();
+
+                case "injury_debuff_list":
+                    return BuildDebuffListReport();
+
+                case "injury_debuff_add":
+                {
+                    if (!McpTryGetString(arguments, "buff_id", out string? buffId) || string.IsNullOrWhiteSpace(buffId))
+                        return "Error: buff_id is required.";
+
+                    var cmdArgs = new List<string>();
+                    if (McpTryGetBool(arguments, "force", out bool force) && force)
+                        cmdArgs.Add("--force");
+                    cmdArgs.Add(buffId.Trim());
+                    if (McpTryGetInt(arguments, "minutes", out int minutes))
+                        cmdArgs.Add(minutes.ToString());
+                    CmdDebuffAdd(cmdArgs.ToArray());
+                    return BuildPhaseListReport();
+                }
+
+                case "injury_phase_list":
+                    return BuildPhaseListReport();
+
+                case "injury_debug_dump":
+                    if (!Context.IsWorldReady)
+                        return "Error: load a save first.";
+                    return BuildDebugReport(full: true);
+
+                case "injury_state_dump":
+                    return BuildStateDumpReport();
+
+                case "injury_buff_dump":
+                    return BuildBuffDumpReport();
+
+                case "injury_topic_dump":
+                    return BuildTopicDumpReport();
+
+                case "injury_validate_buffs":
+                {
+                    string validateReport = BuildValidateBuffsReport();
+                    if (validateReport.StartsWith("Error:", StringComparison.Ordinal))
+                        return validateReport;
+                    string summary = validateReport.StartsWith("result=OK", StringComparison.Ordinal)
+                        ? "[QA] injury_validate_buffs: OK"
+                        : "[QA] injury_validate_buffs: " + validateReport.Replace("result=MISSING ", "MISSING ");
+                    return summary + "\n" + validateReport;
+                }
+
+                case "injury_main_clear":
+                    CmdMainClear();
+                    return BuildPhaseListReport();
+
+                case "injury_main_set":
+                    if (!McpTryGetString(arguments, "buff_id", out string? mainBuffId) || string.IsNullOrWhiteSpace(mainBuffId))
+                        return "Error: buff_id is required.";
+                    CmdMainSet(new[] { mainBuffId.Trim() });
+                    return BuildPhaseListReport();
+
+                case "injury_phase_ready":
+                    if (!McpTryGetString(arguments, "buff_id", out string? readyBuffId) || string.IsNullOrWhiteSpace(readyBuffId))
+                        return "Error: buff_id is required.";
+                    bool readyForNext = !McpTryGetBool(arguments, "ready", out bool r1) || r1;
+                    CmdPhaseReady(new[] { readyBuffId.Trim(), readyForNext ? "1" : "0" });
+                    return BuildPhaseListReport();
+
+                case "injury_phase_recovery":
+                    if (!McpTryGetString(arguments, "buff_id", out string? recoveryBuffId) || string.IsNullOrWhiteSpace(recoveryBuffId))
+                        return "Error: buff_id is required.";
+                    bool readyForRecovery = !McpTryGetBool(arguments, "ready", out bool r2) || r2;
+                    CmdPhaseRecovery(new[] { recoveryBuffId.Trim(), readyForRecovery ? "1" : "0" });
+                    return BuildPhaseListReport();
+
+                case "injury_phase_advance":
+                    if (!McpTryGetString(arguments, "buff_id", out string? advanceBuffId) || string.IsNullOrWhiteSpace(advanceBuffId))
+                        return "Error: buff_id is required.";
+                    CmdPhaseAdvance(new[] { advanceBuffId.Trim() });
+                    return BuildPhaseListReport();
+
+                case "injury_phase_cure":
+                    if (!McpTryGetString(arguments, "buff_id", out string? cureBuffId) || string.IsNullOrWhiteSpace(cureBuffId))
+                        return "Error: buff_id is required.";
+                    CmdPhaseCure(new[] { cureBuffId.Trim() });
+                    return BuildPhaseListReport();
+
+                case "injury_mine_dirty_debug":
+                    return BuildMineDirtyDebugReport();
+
+                case "injury_rain_debug":
+                {
+                    var rainArgs = new List<string>();
+                    if (McpTryGetInt(arguments, "seconds_today", out int secondsToday))
+                        rainArgs.Add(secondsToday.ToString());
+                    if (McpTryGetInt(arguments, "continuous_seconds", out int continuousSeconds))
+                        rainArgs.Add(continuousSeconds.ToString());
+                    CmdRainDebug(rainArgs.ToArray());
+                    if (!Context.IsWorldReady)
+                        return "Error: load a save first.";
+                    var state = _stateManager.State;
+                    return
+                        $"Rain debug: TotalTimeUnderRainToday={state.TotalTimeUnderRainToday}s, " +
+                        $"TimeUnderRainTicks={state.TimeUnderRainTicks}s, LastRainDay={state.LastRainDay}";
+                }
+
+                case "injury_debug_mine_rescue":
+                    CmdDebugMineRescue();
+                    return BuildPhaseListReport();
+
+                case "injury_cleanup_invalid_complications":
+                    CmdCleanupInvalidComplications();
+                    return BuildPhaseListReport();
+
+                case "injury_foreign_topic_add":
+                    if (!McpTryGetString(arguments, "topic_id", out string? topicId) || string.IsNullOrWhiteSpace(topicId))
+                        return "Error: topic_id is required.";
+                    var topicArgs = new List<string> { topicId.Trim() };
+                    if (McpTryGetInt(arguments, "days", out int days))
+                        topicArgs.Add(days.ToString());
+                    CmdForeignTopicAdd(topicArgs.ToArray());
+                    return BuildPhaseListReport();
+
+                case "injury_harvey_click":
+                {
+                    bool dryRun = McpTryGetBool(arguments, "dry_run", out bool dry) && dry;
+                    bool ignoreHospital = McpTryGetBool(arguments, "ignore_hospital", out bool ignoreH) && ignoreH;
+                    if (McpTryGetBool(arguments, "discharge_if_hospitalized", out bool discharge) && discharge
+                        && _hospitalizationManager.IsHospitalized)
+                    {
+                        RunHospitalDischarge();
+                    }
+
+                    string clickResult = _interactionHandler.TryDebugApplyHarveyMedicalAction(dryRun, ignoreHospital);
+                    return clickResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_run_daily_checks":
+                    return _gameEventHandler.RunQaDailyChecks() + "\n\n" + BuildPhaseListReport();
+
+                case "injury_mine_dirty_simulate":
+                {
+                    if (!McpTryGetInt(arguments, "minutes", out int simMinutes))
+                        return "Error: minutes is required.";
+                    bool forceRoll = McpTryGetBool(arguments, "force_roll", out bool fr) && fr;
+                    bool ignoreLoc = !McpTryGetBool(arguments, "require_mine", out bool requireMine) || !requireMine;
+                    string simResult = _playerEventHandler.SimulateMineDirtyExposureForQa(simMinutes, forceRoll, ignoreLoc);
+                    return "[QA] " + simResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_main_migrate":
+                {
+                    string migrated = _stateManager.DebugMigrateMainInjuryId();
+                    return $"[QA] injury_main_migrate MainInjuryId={migrated}\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_neglect_set":
+                {
+                    if (!McpTryGetString(arguments, "buff_id", out string? neglectBuff) || string.IsNullOrWhiteSpace(neglectBuff))
+                        return "Error: buff_id is required.";
+                    if (!McpTryGetInt(arguments, "strikes", out int neglectStrikes))
+                        return "Error: strikes is required.";
+                    string neglectResult = RunNeglectSet(neglectBuff.Trim(), neglectStrikes);
+                    return "[QA] " + neglectResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_mine_warning_simulate":
+                {
+                    bool warningYesterday = McpTryGetBool(arguments, "warning_was_yesterday", out bool wy) && wy;
+                    string warningResult = _playerEventHandler.SimulateMineSevereWarningForQa(warningYesterday);
+                    return "[QA] injury_mine_warning_simulate " + warningResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_mine_forbidden_clear":
+                    CmdMineForbiddenClear();
+                    return BuildPhaseListReport();
+
+                case "injury_location_logic":
+                {
+                    string locationResult = _playerEventHandler.RunLocationLogicForQa();
+                    return "[QA] injury_location_logic " + locationResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_rain_wet_simulate":
+                {
+                    bool wetForce = !McpTryGetBool(arguments, "noroll", out bool noroll) || !noroll;
+                    string wetResult = _playerEventHandler.SimulateRainWetBandageForQa(wetForce);
+                    return "[QA] injury_rain_wet_simulate " + wetResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_hospital_lock_enforce":
+                {
+                    string lockResult = _hospitalizationManager.EnforceLockForQa();
+                    return "[QA] injury_hospital_lock_enforce " + lockResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_game_ui_status":
+                    return QaGameUiCommands.BuildUiStatusReport();
+
+                case "injury_game_ui_advance":
+                {
+                    int uiSteps = 1;
+                    if (McpTryGetInt(arguments, "steps", out int parsedSteps))
+                        uiSteps = parsedSteps;
+                    return QaGameUiCommands.AdvanceUiMany(uiSteps);
+                }
+
+                case "injury_game_ui_end_event":
+                    return QaGameUiCommands.EndActiveEvent();
+
+                case "injury_game_ui_close_menu":
+                    return QaGameUiCommands.CloseActiveMenu();
+
+                case "injury_topic_add":
+                {
+                    var topicAddArgs = new List<string>();
+                    if (McpTryGetString(arguments, "topic_id", out string? topicAddId) && !string.IsNullOrWhiteSpace(topicAddId))
+                        topicAddArgs.Add(topicAddId.Trim());
+                    if (McpTryGetInt(arguments, "days", out int topicDays))
+                        topicAddArgs.Add(topicDays.ToString());
+                    string topicAddResult = RunTopicAdd(topicAddArgs.ToArray());
+                    if (topicAddResult.StartsWith("Usage:", StringComparison.Ordinal)
+                        || topicAddResult.StartsWith("Error:", StringComparison.Ordinal))
+                        return topicAddResult;
+                    return "[QA] injury_topic_add " + topicAddResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_topic_remove":
+                {
+                    if (!McpTryGetString(arguments, "topic_id", out string? topicRemoveId) || string.IsNullOrWhiteSpace(topicRemoveId))
+                        return "Error: topic_id is required.";
+                    string topicRemoveResult = RunTopicRemove(new[] { topicRemoveId.Trim() });
+                    return "[QA] injury_topic_remove " + topicRemoveResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_complication_add":
+                {
+                    var compAddArgs = new List<string>();
+                    if (McpTryGetString(arguments, "complication_id", out string? compAddId) && !string.IsNullOrWhiteSpace(compAddId))
+                        compAddArgs.Add(compAddId.Trim());
+                    if (McpTryGetInt(arguments, "age_days", out int ageDays))
+                        compAddArgs.Add(ageDays.ToString());
+                    string compAddResult = RunComplicationAdd(compAddArgs.ToArray());
+                    if (compAddResult.StartsWith("Usage:", StringComparison.Ordinal)
+                        || compAddResult.StartsWith("Error:", StringComparison.Ordinal))
+                        return compAddResult;
+                    return "[QA] injury_complication_add " + compAddResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_complication_remove":
+                {
+                    if (!McpTryGetString(arguments, "complication_id", out string? compRemoveId) || string.IsNullOrWhiteSpace(compRemoveId))
+                        return "Error: complication_id is required.";
+                    string compRemoveResult = RunComplicationRemove(new[] { compRemoveId.Trim() });
+                    return "[QA] injury_complication_remove " + compRemoveResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_test_age_injury":
+                {
+                    if (!McpTryGetString(arguments, "buff_id", out string? ageBuffId) || string.IsNullOrWhiteSpace(ageBuffId))
+                        return "Error: buff_id is required.";
+                    if (!McpTryGetInt(arguments, "days_back", out int injuryDaysBack))
+                        return "Error: days_back is required.";
+                    string ageInjuryResult = RunTestAgeInjury(new[] { ageBuffId.Trim(), injuryDaysBack.ToString() });
+                    if (ageInjuryResult.StartsWith("Usage:", StringComparison.Ordinal)
+                        || ageInjuryResult.StartsWith("Error:", StringComparison.Ordinal))
+                        return ageInjuryResult;
+                    return "[QA] injury_test_age_injury " + ageInjuryResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_test_age_complication":
+                {
+                    if (!McpTryGetString(arguments, "complication_id", out string? ageCompId) || string.IsNullOrWhiteSpace(ageCompId))
+                        return "Error: complication_id is required.";
+                    if (!McpTryGetInt(arguments, "days_back", out int compDaysBack))
+                        return "Error: days_back is required.";
+                    string ageCompResult = RunTestAgeComplication(new[] { ageCompId.Trim(), compDaysBack.ToString() });
+                    if (ageCompResult.StartsWith("Usage:", StringComparison.Ordinal)
+                        || ageCompResult.StartsWith("Error:", StringComparison.Ordinal))
+                        return ageCompResult;
+                    return "[QA] injury_test_age_complication " + ageCompResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                case "injury_hospital_status":
+                    return "[QA] injury_hospital_status\n" + BuildHospitalStatusReport();
+
+                case "injury_hospital_discharge":
+                {
+                    string dischargeResult = RunHospitalDischarge();
+                    if (dischargeResult.StartsWith("Error:", StringComparison.Ordinal))
+                        return dischargeResult;
+                    return "[QA] injury_hospital_discharge " + dischargeResult + "\n\n" + BuildPhaseListReport();
+                }
+
+                default:
+                    return $"Error: unknown tool '{toolName}'.";
+            }
+        }
+
+        private static bool McpTryGetString(JsonElement? arguments, string name, out string? value)
+        {
+            value = null;
+            if (arguments is not { ValueKind: JsonValueKind.Object } args)
+                return false;
+            if (!args.TryGetProperty(name, out JsonElement el) || el.ValueKind != JsonValueKind.String)
+                return false;
+            value = el.GetString();
+            return true;
+        }
+
+        private static bool McpTryGetBool(JsonElement? arguments, string name, out bool value)
+        {
+            value = false;
+            if (arguments is not { ValueKind: JsonValueKind.Object } args)
+                return false;
+            if (!args.TryGetProperty(name, out JsonElement el))
+                return false;
+            if (el.ValueKind == JsonValueKind.True) { value = true; return true; }
+            if (el.ValueKind == JsonValueKind.False) { value = false; return true; }
+            return false;
+        }
+
+        private static bool McpTryGetInt(JsonElement? arguments, string name, out int value)
+        {
+            value = 0;
+            if (arguments is not { ValueKind: JsonValueKind.Object } args)
+                return false;
+            if (!args.TryGetProperty(name, out JsonElement el))
+                return false;
+            if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out int n))
+            {
+                value = n;
+                return true;
+            }
+            return false;
+        }
+
         private void FullReset()
         {
             if (!Context.IsWorldReady)
@@ -1287,6 +2306,12 @@ namespace HarveyOverhaul.InjuryCare
             // Удалить все осложнения
             foreach (var compId in state.ActiveComplications.Keys.ToList())
                 _buffManager.RemoveBuff(compId);
+
+            foreach (string compId in InjurySets.KnownComplicationBuffIds)
+                _buffManager.RemoveBuff(compId);
+
+            // MineForbidden — не в KnownComplicationBuffIds, но может остаться orphan на игроке
+            _buffManager.RemoveBuff(InjuryBuffs.MineForbidden);
 
             // Удалить все лечебные баффы
             foreach (var cureBuff in new[]

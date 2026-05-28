@@ -1,0 +1,1192 @@
+{
+  "suiteId": "03-complications",
+  "suiteName": "Осложнения InjuryCare",
+  "description": "WetBandage, DirtyWound, WetStitches, Neglect, PainFlare, AllergicRash, infection escalation. Источник: docs/testing/09-complication-tests.md.",
+  "requires": {
+    "stardewMcp": true,
+    "smapiConsole": true,
+    "manualClick": true,
+    "debugCommands": [
+      "injury_reset",
+      "injury_debuff_add",
+      "injury_phase_list",
+      "injury_harvey_click",
+      "injury_rain_debug",
+      "injury_mine_dirty_simulate",
+      "injury_run_daily_checks",
+      "injury_neglect_set"
+    ]
+  },
+  "tests": [
+    {
+      "id": "HOI-COMP-001",
+      "title": "WetBandage — ручное наложение и лечение",
+      "priority": "P1",
+      "mechanics": [
+        "WetBandage",
+        "HarveyMod_WetBandage"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Injury MCP / SMAPI доступны",
+        "StardewMCP user-stardew доступен",
+        "Harvey 3+ сердечка"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Main buffDeepCuts (WetBandageSensitive)",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для StartTreatment (TreatmentStarted=true)"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_complication_add",
+          "description": "Добавить HarveyMod_WetBandage через QA-команду",
+          "args": {
+            "complication_buff_id": "HarveyMod_WetBandage"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "После WetBandage add: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После WetBandage add: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После WetBandage add: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для TreatComplications"
+        },
+        {
+          "type": "observe",
+          "description": "После treat complication: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После treat complication: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После treat complication: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsAbsent": [
+          "HarveyMod_WetBandage"
+        ],
+        "state": {
+          "MainInjuryId": "buffDeepCuts"
+        },
+        "topicsAbsent": [
+          "topicHarvey_WetBandage"
+        ],
+        "notes": [
+          "После add: buffsPresent=[HarveyMod_WetBandage], ActiveComplications содержит WetBandage",
+          "После treat: complication снята, main buffDeepCuts и лечение не прерваны"
+        ]
+      },
+      "passCriteria": [
+        "injury_complication_add HarveyMod_WetBandage ok=yes (не SKIP)",
+        "После treat: нет WetBandage buff/topic/state",
+        "MainInjuryId=buffDeepCuts сохранён"
+      ],
+      "failureHints": [
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump",
+        "ComplicationManager — eligibility и эскалация",
+        "Нужна команда injury_complication_add"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-COMP-002",
+      "title": "WetBandage от дождя (gameplay)",
+      "priority": "P1",
+      "mechanics": [
+        "WetBandage",
+        "rain"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Injury MCP / SMAPI доступны",
+        "StardewMCP user-stardew доступен",
+        "SendLetters=true опционально"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Main buffDeepCuts",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_harvey_click",
+          "description": "StartTreatment без UI cutscene"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_weather",
+          "description": "Дождь для wet bandage exposure",
+          "args": {
+            "weather": "rain"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Outdoor локация под дождём",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_rain_debug",
+          "description": "Ускорить wet exposure (если нужно)",
+          "args": {
+            "seconds_today": 600
+          }
+        },
+        {
+          "type": "wait",
+          "description": "Подождать игровые минуты exposure под дождём (или injury_rain_debug)",
+          "args": {
+            "seconds": 30
+          }
+        },
+        {
+          "type": "observe",
+          "description": "После rain exposure: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После rain exposure: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После rain exposure: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "HarveyMod_WetBandage"
+        ],
+        "topicsPresent": [
+          "topicHarvey_WetBandage"
+        ],
+        "state": {
+          "MainInjuryId": "buffDeepCuts",
+          "TreatmentStarted": true
+        },
+        "logsContain": [
+          "[WetBandage]"
+        ]
+      },
+      "passCriteria": [
+        "TreatmentStarted=true до exposure",
+        "После дождя: HarveyMod_WetBandage активен",
+        "MainInjuryId не меняется"
+      ],
+      "failureHints": [
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump",
+        "ComplicationManager — eligibility и эскалация",
+        "PlayerEventHandler.TryApplyWetBandageFromWater"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-COMP-003",
+      "title": "WetBandage не появляется без лечения",
+      "priority": "P1",
+      "mechanics": [
+        "WetBandage",
+        "negative"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Injury MCP / SMAPI доступны",
+        "StardewMCP user-stardew доступен"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Main buffDeepCuts без StartTreatment",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_weather",
+          "description": "Дождь",
+          "args": {
+            "weather": "rain"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Outdoor под дождём",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_rain_debug",
+          "description": "Exposure counters",
+          "args": {
+            "seconds_today": 600
+          }
+        },
+        {
+          "type": "observe",
+          "description": "После exposure без лечения: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После exposure без лечения: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После exposure без лечения: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsAbsent": [
+          "HarveyMod_WetBandage"
+        ],
+        "state": {
+          "MainInjuryId": "buffDeepCuts",
+          "TreatmentStarted": false
+        },
+        "logsContain": [
+          "[WetBandage] skip"
+        ]
+      },
+      "passCriteria": [
+        "TreatmentStarted=false",
+        "HarveyMod_WetBandage не появился",
+        "ActiveComplications пуст"
+      ],
+      "failureHints": [
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump",
+        "ComplicationManager — eligibility и эскалация"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-COMP-004",
+      "title": "DirtyWound в шахте",
+      "priority": "P1",
+      "mechanics": [
+        "DirtyWound",
+        "mine"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Injury MCP / SMAPI доступны",
+        "StardewMCP user-stardew доступен"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Main buffDeepCuts (DirtyInMines)",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Телепорт в шахту",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "pause_time",
+          "description": "Пауза для exposure (если tool доступен)",
+          "args": {
+            "paused": true
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_mine_dirty_simulate",
+          "description": "Симуляция mine dirty exposure (Injury MCP)",
+          "args": {
+            "minutes": 60,
+            "force_roll": true
+          }
+        },
+        {
+          "type": "observe",
+          "description": "После mine exposure: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После mine exposure: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После mine exposure: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "HarveyMod_DirtyWound"
+        ],
+        "topicsPresent": [
+          "topicHarvey_DirtyWound"
+        ],
+        "state": {
+          "MainInjuryId": "buffDeepCuts"
+        },
+        "logsContain": [
+          "[DirtyWound]"
+        ]
+      },
+      "passCriteria": [
+        "HarveyMod_DirtyWound активен после exposure",
+        "MainInjuryId=buffDeepCuts"
+      ],
+      "failureHints": [
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump",
+        "ComplicationManager — eligibility и эскалация",
+        "PlayerEventHandler mine dirty rolls",
+        "injury_mine_dirty_simulate в Injury MCP"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-COMP-005",
+      "title": "DirtyWound не для неподходящих main",
+      "priority": "P1",
+      "mechanics": [
+        "DirtyWound",
+        "negative"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Injury MCP / SMAPI доступны",
+        "StardewMCP user-stardew доступен"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Main buffFracturedBone (не DirtyInMines)",
+          "args": {
+            "buff_id": "buffFracturedBone"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Шахта",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_mine_dirty_simulate",
+          "description": "Попытка dirty roll",
+          "args": {
+            "minutes": 60,
+            "force_roll": true
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_complication_add",
+          "description": "QA add DirtyWound — ожидается SKIP",
+          "args": {
+            "complication_buff_id": "HarveyMod_DirtyWound"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "После neg dirty: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После neg dirty: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После neg dirty: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsAbsent": [
+          "HarveyMod_DirtyWound"
+        ],
+        "state": {
+          "MainInjuryId": "buffFracturedBone"
+        },
+        "logsContain": [
+          "SKIP"
+        ]
+      },
+      "passCriteria": [
+        "HarveyMod_DirtyWound не применён",
+        "injury_complication_add SKIP: main not DirtyInMines"
+      ],
+      "failureHints": [
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump",
+        "ComplicationManager — eligibility и эскалация",
+        "Нужна команда injury_complication_add"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-COMP-006",
+      "title": "DirtyWound → InfectedWound эскалация",
+      "priority": "P1",
+      "mechanics": [
+        "infection_escalation",
+        "DirtyWound"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Injury MCP / SMAPI доступны",
+        "StardewMCP user-stardew доступен"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Main buffDeepCuts",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_complication_add",
+          "description": "DirtyWound age 2 дня для escalation roll",
+          "args": {
+            "complication_buff_id": "HarveyMod_DirtyWound",
+            "age_days": 2
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Следующий день для daily infection check"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_run_daily_checks",
+          "description": "Запустить daily infection roll (Injury MCP)"
+        },
+        {
+          "type": "observe",
+          "description": "После escalation: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После escalation: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После escalation: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "buffInfectedWound"
+        ],
+        "buffsAbsent": [
+          "HarveyMod_DirtyWound",
+          "buffDeepCuts"
+        ],
+        "topicsPresent": [
+          "topicInfectedWound"
+        ],
+        "topicsAbsent": [
+          "topicHarvey_DirtyWound"
+        ],
+        "state": {
+          "MainInjuryId": "buffInfectedWound"
+        },
+        "logsContain": [
+          "Infection escalation"
+        ]
+      },
+      "passCriteria": [
+        "MainInjuryId заменён на buffInfectedWound",
+        "DirtyWound complication cleared"
+      ],
+      "failureHints": [
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump",
+        "ComplicationManager — eligibility и эскалация",
+        "Нужна команда injury_complication_add",
+        "Нужна команда injury_test_age_complication",
+        "injury_run_daily_checks в Injury MCP"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-COMP-007",
+      "title": "WetBandage → InfectedWound эскалация",
+      "priority": "P1",
+      "mechanics": [
+        "infection_escalation",
+        "WetBandage"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Injury MCP / SMAPI доступны",
+        "StardewMCP user-stardew доступен"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Main buffDeepCuts",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_harvey_click",
+          "description": "StartTreatment"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_complication_add",
+          "description": "WetBandage aged для infection",
+          "args": {
+            "complication_buff_id": "HarveyMod_WetBandage",
+            "age_days": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Daily check"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_run_daily_checks",
+          "description": "Infection roll"
+        },
+        {
+          "type": "observe",
+          "description": "После wet→infected: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После wet→infected: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После wet→infected: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "buffInfectedWound"
+        ],
+        "buffsAbsent": [
+          "HarveyMod_WetBandage"
+        ],
+        "state": {
+          "MainInjuryId": "buffInfectedWound"
+        }
+      },
+      "passCriteria": [
+        "Эскалация WetBandage → buffInfectedWound",
+        "WetBandage cleared"
+      ],
+      "failureHints": [
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump",
+        "ComplicationManager — eligibility и эскалация",
+        "Нужна команда injury_complication_add",
+        "Нужна команда injury_test_age_complication"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-COMP-008",
+      "title": "WetStitches в BathHouse_Pool",
+      "priority": "P1",
+      "mechanics": [
+        "WetStitches",
+        "KeepDry"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Injury MCP / SMAPI доступны",
+        "StardewMCP user-stardew доступен"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Main buffSurgicalWound",
+          "args": {
+            "buff_id": "buffSurgicalWound"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_harvey_click",
+          "description": "StartTreatment / post-op context"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Бассейн BathHouse_Pool",
+          "args": {
+            "location": "BathHouse_Pool",
+            "x": 13,
+            "y": 17
+          }
+        },
+        {
+          "type": "wait",
+          "description": "Exposure в воде — игровые минуты",
+          "args": {
+            "seconds": 20
+          }
+        },
+        {
+          "type": "observe",
+          "description": "После pool exposure: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После pool exposure: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После pool exposure: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "HarveyMod_WetStitches"
+        ],
+        "topicsPresent": [
+          "topicHarvey_WetStitches"
+        ],
+        "state": {
+          "MainInjuryId": "buffSurgicalWound"
+        },
+        "logsContain": [
+          "[Prescription] KeepDry",
+          "WetStitches"
+        ]
+      },
+      "passCriteria": [
+        "HarveyMod_WetStitches после pool",
+        "MainInjuryId=buffSurgicalWound"
+      ],
+      "failureHints": [
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump",
+        "ComplicationManager — eligibility и эскалация",
+        "Prescription KeepDry violation path"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-COMP-009",
+      "title": "Neglect — просрочка фазы лечения",
+      "priority": "P1",
+      "mechanics": [
+        "Neglect",
+        "HarveyMod_Neglect"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Injury MCP / SMAPI доступны",
+        "StardewMCP user-stardew доступен"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Фазовая buffDeepCuts",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_harvey_click",
+          "description": "StartTreatment phase 1"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_test_age_injury",
+          "description": "Сдвинуть PhaseStartDay для neglect (если доступен)",
+          "args": {
+            "buff_id": "buffDeepCuts",
+            "days_back": 5
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_neglect_set",
+          "description": "Или выставить NeglectStrikes (Injury MCP)",
+          "args": {
+            "buff_id": "buffDeepCuts",
+            "strikes": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "DayStarted phase neglect check"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_run_daily_checks",
+          "description": "Neglect roll если доступен"
+        },
+        {
+          "type": "observe",
+          "description": "После neglect: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После neglect: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После neglect: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "HarveyMod_Neglect"
+        ],
+        "topicsPresent": [
+          "topicHarvey_Neglect"
+        ],
+        "logsContain": [
+          "[Neglect]"
+        ]
+      },
+      "passCriteria": [
+        "HarveyMod_Neglect появился при просрочке фазы",
+        "NeglectStrikesByInjury увеличился"
+      ],
+      "failureHints": [
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump",
+        "ComplicationManager — eligibility и эскалация",
+        "Нужна команда injury_test_age_injury",
+        "injury_neglect_set в Injury MCP",
+        "ComplicationManager.CheckPhaseNeglect"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-COMP-010",
+      "title": "PainFlare на грозу",
+      "priority": "P2",
+      "mechanics": [
+        "PainFlare",
+        "storm"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Injury MCP / SMAPI доступны",
+        "StardewMCP user-stardew доступен",
+        "Main ∈ StormPainSensitive"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Main buffFracturedBone",
+          "args": {
+            "buff_id": "buffFracturedBone"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_weather",
+          "description": "Гроза для PainFlare roll",
+          "args": {
+            "weather": "thunderstorm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Дневное время",
+          "args": {
+            "time": "2pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "DayStarted storm roll (если нужен новый день)"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_run_daily_checks",
+          "description": "Storm PainFlare check если доступен"
+        },
+        {
+          "type": "observe",
+          "description": "После storm roll: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После storm roll: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После storm roll: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "notes": [
+          "HarveyMod_PainFlare может появиться с вероятностью 30%/час — повторить advance_day при FAIL",
+          "MainInjuryId=buffFracturedBone не меняется"
+        ],
+        "state": {
+          "MainInjuryId": "buffFracturedBone"
+        },
+        "logsContain": [
+          "[Complication]"
+        ]
+      },
+      "passCriteria": [
+        "PainFlare не заменяет main injury",
+        "При успехе roll: HarveyMod_PainFlare + topicHarvey_PainFlare"
+      ],
+      "failureHints": [
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump",
+        "ComplicationManager — eligibility и эскалация",
+        "TryApplyStormPainFlareIfEligible — probabilistic, может потребоваться несколько дней"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-COMP-011",
+      "title": "AllergicRash весной",
+      "priority": "P2",
+      "mechanics": [
+        "AllergicRash",
+        "spring"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Injury MCP / SMAPI доступны",
+        "StardewMCP user-stardew доступен"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_date",
+          "description": "Весна для AllergicRash контекста",
+          "args": {
+            "season": "spring",
+            "day": 15
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_complication_add",
+          "description": "AllergicRash — только через QA (автотриггер отсутствует в C#)",
+          "args": {
+            "complication_buff_id": "HarveyMod_AllergicRash"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "После AllergicRash: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После AllergicRash: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После AllergicRash: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "manual",
+          "description": "Клик Harvey для TreatComplications (если нужно снять)"
+        },
+        {
+          "type": "observe",
+          "description": "После treat: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После treat: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После treat: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "HarveyMod_AllergicRash"
+        ],
+        "topicsPresent": [
+          "topicHarvey_AllergicRash"
+        ],
+        "notes": [
+          "Автотриггер SpringRashChance не подключён — QA add обязателен"
+        ]
+      },
+      "passCriteria": [
+        "HarveyMod_AllergicRash через injury_complication_add или injury_debuff_add",
+        "TreatComplications снимает rash без смены main"
+      ],
+      "failureHints": [
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump",
+        "ComplicationManager — eligibility и эскалация",
+        "Нужна команда injury_complication_add",
+        "01-csharp-mechanics-inventory — нет autotrigger AllergicRash"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    }
+  ]
+}

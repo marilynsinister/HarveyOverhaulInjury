@@ -1,0 +1,434 @@
+{
+  "suiteId": "09-save-load",
+  "suiteName": "Save/load и персистентность",
+  "description": "Фазовое лечение, complications, SavedActiveBuffs, AppliedTriggers, reset после load. Источник: docs/testing/07-smoke-save-tests.md.",
+  "requires": {
+    "stardewMcp": true,
+    "smapiConsole": true,
+    "manualClick": true,
+    "debugCommands": [
+      "injury_reset",
+      "injury_debuff_add",
+      "injury_harvey_click",
+      "injury_phase_list",
+      "injury_debug_dump"
+    ]
+  },
+  "tests": [
+    {
+      "id": "HOI-SAVE-001",
+      "title": "Save/load фазовой травмы в лечении",
+      "priority": "P0",
+      "mechanics": [
+        "save_load",
+        "phased_injury"
+      ],
+      "preconditions": [
+        "Тестовый слот сохранения для B2 path"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "buffDeepCuts",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_harvey_click",
+          "description": "StartTreatment phase 1"
+        },
+        {
+          "type": "observe",
+          "description": "До persist: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "До persist: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "До persist: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "note",
+          "description": "B1: StardewMCP advance_day ИЛИ B2: вручную save slot → title → load slot"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Путь B1 — сон DayEnding snapshot"
+        },
+        {
+          "type": "manual",
+          "description": "Путь B2: сохранить и перезагрузить слот вручную"
+        },
+        {
+          "type": "observe",
+          "description": "После reload/advance_day: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После reload/advance_day: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После reload/advance_day: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffDeepCuts",
+          "TreatmentStarted": true,
+          "CurrentPhase": 1,
+          "valid": true
+        },
+        "buffsPresent": [
+          "HarveyMod_DeepCuts_Acute"
+        ],
+        "buffsAbsent": [
+          "buffDeepCuts"
+        ],
+        "logsContain": [
+          "[BuffRestore] restored",
+          "Состояние загружено из сохранения"
+        ]
+      },
+      "passCriteria": [
+        "После load/advance: MainInjuryId=buffDeepCuts, phase buff restored",
+        "Нет дубля base+phase buff"
+      ],
+      "failureHints": [
+        "GameEventHandler RestoreBuffsFromSnapshot / SavedActiveBuffs",
+        "Нужна команда injury_state_dump",
+        "docs/testing/07-smoke-save-tests.md HOI-SAVE-001"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-SAVE-002",
+      "title": "Save/load осложнения",
+      "priority": "P1",
+      "mechanics": [
+        "save_load",
+        "complication"
+      ],
+      "preconditions": [
+        "injury_complication_add доступен или injury_debuff_add complication"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "buffDeepCuts",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_complication_add",
+          "description": "HarveyMod_DirtyWound",
+          "args": {
+            "complication_buff_id": "HarveyMod_DirtyWound"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "До save: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "До save: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "До save: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "manual",
+          "description": "Save slot → title → load slot (или advance_day B1)"
+        },
+        {
+          "type": "observe",
+          "description": "После load: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После load: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После load: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "HarveyMod_DirtyWound",
+          "buffDeepCuts"
+        ],
+        "state": {
+          "MainInjuryId": "buffDeepCuts"
+        },
+        "topicsPresent": [
+          "topicHarvey_DirtyWound"
+        ]
+      },
+      "passCriteria": [
+        "Complication buff/state/topic персистят после load"
+      ],
+      "failureHints": [
+        "StateManager ActiveComplications persist",
+        "Нужна команда injury_complication_add"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-SAVE-003",
+      "title": "SavedActiveBuffs восстанавливает баффы утром",
+      "priority": "P1",
+      "mechanics": [
+        "save_load",
+        "buff_restore"
+      ],
+      "preconditions": [
+        "TreatmentStarted=true с phase buff"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "buffDeepCuts",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_harvey_click",
+          "description": "StartTreatment"
+        },
+        {
+          "type": "observe",
+          "description": "SavedActiveBuffs после DayEnding — injury_state_dump",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "DayStarted BuffRestore"
+        },
+        {
+          "type": "observe",
+          "description": "Phase buff restored",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "HarveyMod_DeepCuts_Acute"
+        ],
+        "logsContain": [
+          "Снапшот баффов",
+          "[BuffRestore] restored"
+        ]
+      },
+      "passCriteria": [
+        "Утром phase buff снова на игроке без base trauma duplicate"
+      ],
+      "failureHints": [
+        "GameEventHandler OnDayEnding snapshot / DayStarted restore"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-SAVE-004",
+      "title": "AppliedTriggers не сбрасываются при save/load",
+      "priority": "P2",
+      "mechanics": [
+        "save_load",
+        "AppliedTriggers"
+      ],
+      "preconditions": [
+        "Story trigger one-shot в AppliedTriggers"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "note",
+          "description": "Установить AppliedTriggers через gameplay или QA (injury_state_dump read-only — мутация только если injury_state_set появится)"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debug_dump",
+          "description": "Проверить AppliedTriggers в dump"
+        },
+        {
+          "type": "manual",
+          "description": "Save → load"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debug_dump",
+          "description": "AppliedTriggers после load"
+        }
+      ],
+      "expected": {
+        "notes": [
+          "AppliedTriggers сохраняются в injury_state save key",
+          "One-shot triggers не повторяются после load"
+        ]
+      },
+      "passCriteria": [
+        "AppliedTriggers идентичны до/после load"
+      ],
+      "failureHints": [
+        "StateManager AppliedTriggers persist",
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_trigger_set для QA setup"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-SAVE-005",
+      "title": "injury_reset после save/load",
+      "priority": "P1",
+      "mechanics": [
+        "save_load",
+        "injury_reset"
+      ],
+      "preconditions": [
+        "Persisted injury state после load"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Первый reset"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "buffDeepCuts + complication",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Complication",
+          "args": {
+            "buff_id": "HarveyMod_DirtyWound"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Save → load"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Reset после load"
+        },
+        {
+          "type": "observe",
+          "description": "После reset post-load: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После reset post-load: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После reset post-load: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": null,
+          "valid": true
+        },
+        "buffsAbsent": [
+          "buffDeepCuts",
+          "HarveyMod_DirtyWound"
+        ]
+      },
+      "passCriteria": [
+        "injury_reset после load очищает state как обычно",
+        "Нет orphan buffs"
+      ],
+      "failureHints": [
+        "ModEntry FullReset после SaveLoaded",
+        "Нужна команда injury_buff_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    }
+  ]
+}

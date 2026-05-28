@@ -87,6 +87,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 Save();
         }
 
+        /// <summary>QA: run MigrateMainInjuryId after injury_main_clear (clears QaSuppressMainInjuryAutoSync).</summary>
+        public string DebugMigrateMainInjuryId()
+        {
+            QaSuppressMainInjuryAutoSync = false;
+            MigrateMainInjuryId();
+            Save();
+            return _state.MainInjuryId ?? "(none)";
+        }
+
         /// <summary>
         /// Миграция MainInjuryId для старых сохранений и восстановление при рассинхроне.
         /// </summary>
@@ -399,6 +408,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
 
             _state.MainInjuryId = buffId;
+            QaSuppressMainInjuryAutoSync = false;
             Save();
             _monitor.Log($"[MainInjury] Установлена основная травма: {buffId}", LogLevel.Debug);
         }
@@ -432,19 +442,25 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>
         /// DEBUG ONLY: очистить MainInjuryId без удаления баффов и DebuffState.
         /// </summary>
+        /// <summary>When true, GetCurrentMainInjuryId does not auto-fill MainInjuryId from ActiveDebuffs (QA migration tests).</summary>
+        public bool QaSuppressMainInjuryAutoSync { get; set; }
+
         public void DebugClearMainInjuryId()
         {
             if (string.IsNullOrEmpty(_state.MainInjuryId))
             {
                 _monitor.Log("[MainInjury][Debug] MainInjuryId уже пуст", LogLevel.Info);
+                QaSuppressMainInjuryAutoSync = true;
+                Save();
                 return;
             }
 
             string previous = _state.MainInjuryId;
             _state.MainInjuryId = null;
+            QaSuppressMainInjuryAutoSync = true;
             Save();
             _monitor.Log(
-                $"[MainInjury][Debug] MainInjuryId очищен (было: {previous}). Баффы не удалены.",
+                $"[MainInjury][Debug] MainInjuryId очищен (было: {previous}). Баффы не удалены. Auto-sync suppressed.",
                 LogLevel.Info);
         }
 
@@ -473,6 +489,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
 
             _state.MainInjuryId = buffId;
+            QaSuppressMainInjuryAutoSync = false;
             Save();
             _monitor.Log($"[MainInjury][Debug] MainInjuryId установлен: {buffId}", LogLevel.Info);
             return true;
@@ -659,6 +676,25 @@ namespace HarveyOverhaul.InjuryCare.Managers
             {
                 _monitor.Log($"[Neglect] Сброс NeglectStrikesByInjury для {injuryId}", LogLevel.Debug);
             }
+        }
+
+        /// <summary>DEBUG: set neglect strike counter for one injury (QA scenario 11).</summary>
+        public void SetNeglectStrikesForQa(string injuryId, int strikes)
+        {
+            if (string.IsNullOrWhiteSpace(injuryId))
+                return;
+
+            EnsureNeglectStrikesState();
+            int value = Math.Max(0, strikes);
+            if (value == 0)
+            {
+                ResetNeglectStrikes(injuryId);
+                return;
+            }
+
+            _state.NeglectStrikesByInjury[injuryId] = value;
+            Save();
+            _monitor.Log($"[Neglect][QA] NeglectStrikesByInjury[{injuryId}]={value}", LogLevel.Info);
         }
 
         /// <summary>

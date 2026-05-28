@@ -1,0 +1,361 @@
+{
+  "suiteId": "07-proximity",
+  "suiteName": "Proximity-реакции Харви",
+  "description": "Реакция рядом с игроком, cooldown, смена локации. Источник: docs/testing/11-hospital-proximity-events-tests.md.",
+  "requires": {
+    "stardewMcp": true,
+    "smapiConsole": true,
+    "manualClick": false,
+    "debugCommands": [
+      "injury_reset",
+      "injury_debuff_add",
+      "injury_phase_list",
+      "injury_proximity_test"
+    ]
+  },
+  "tests": [
+    {
+      "id": "HOI-PROX-001",
+      "title": "Реакция Харви рядом с игроком при травме",
+      "priority": "P1",
+      "mechanics": [
+        "proximity",
+        "HarveyReaction"
+      ],
+      "preconditions": [
+        "Harvey 3+ сердечка",
+        "ProximityTiles из config (default 3)"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Active main buffHurt",
+          "args": {
+            "buff_id": "buffHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey hearts",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Hospital рядом с Harvey",
+          "args": {
+            "location": "Hospital",
+            "x": 19,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_surroundings",
+          "description": "Harvey в радиусе ProximityTiles"
+        },
+        {
+          "type": "wait",
+          "description": "Update tick proximity check",
+          "args": {
+            "seconds": 10
+          }
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log [Proximity] или speech bubble"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_proximity_test",
+          "description": "Опционально: CP proximity line only (Injury MCP)",
+          "args": {
+            "situation": "injury",
+            "tone": "neutral"
+          }
+        }
+      ],
+      "expected": {
+        "logsContain": [
+          "[Proximity]"
+        ],
+        "notes": [
+          "Speech bubble / topicHarvey_Proximity* может быть добавлен"
+        ]
+      },
+      "passCriteria": [
+        "Harvey реагирует на injured player в радиусе",
+        "TreatmentStarted не меняется автоматически"
+      ],
+      "failureHints": [
+        "HarveyReactionManager",
+        "PlayerEventHandler proximity",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PROX-002",
+      "title": "Proximity не начинает лечение автоматически",
+      "priority": "P1",
+      "mechanics": [
+        "proximity",
+        "negative"
+      ],
+      "preconditions": [
+        "Main injury active, TreatmentStarted=false"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "buffDeepCuts без лечения",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Рядом с Harvey",
+          "args": {
+            "location": "Hospital",
+            "x": 19,
+            "y": 5
+          }
+        },
+        {
+          "type": "wait",
+          "description": "Proximity reaction tick",
+          "args": {
+            "seconds": 10
+          }
+        },
+        {
+          "type": "observe",
+          "description": "TreatmentStarted=false после proximity",
+          "tool": "injury_phase_list"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffDeepCuts",
+          "TreatmentStarted": false,
+          "CurrentPhase": 0
+        },
+        "buffsPresent": [
+          "buffDeepCuts"
+        ]
+      },
+      "passCriteria": [
+        "Proximity не вызывает StartTreatment",
+        "CurrentPhase остаётся 0"
+      ],
+      "failureHints": [
+        "InteractionHandler — лечение только по клику"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PROX-003",
+      "title": "Реакция не спамится в одной локации",
+      "priority": "P2",
+      "mechanics": [
+        "proximity",
+        "cooldown"
+      ],
+      "preconditions": [
+        "Main injury active"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "buffHurt",
+          "args": {
+            "buff_id": "buffHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Hospital",
+          "args": {
+            "location": "Hospital",
+            "x": 19,
+            "y": 5
+          }
+        },
+        {
+          "type": "wait",
+          "description": "Первый proximity tick",
+          "args": {
+            "seconds": 10
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Зафиксировать LastProximityReactionMinute в injury_state_dump",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "wait",
+          "description": "Вторая proximity попытка в той же локации",
+          "args": {
+            "seconds": 15
+          }
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: повторная реакция подавлена cooldown"
+        }
+      ],
+      "expected": {
+        "notes": [
+          "LastProximityReactionMinute не спамится каждый tick"
+        ]
+      },
+      "passCriteria": [
+        "Вторая реакция в той же локации не дублируется без cooldown expiry"
+      ],
+      "failureHints": [
+        "StateManager LastProximityReactionMinute",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PROX-004",
+      "title": "Смена локации сбрасывает флаг реакции",
+      "priority": "P2",
+      "mechanics": [
+        "proximity",
+        "location_reset"
+      ],
+      "preconditions": [
+        "Main injury active"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "buffHurt",
+          "args": {
+            "buff_id": "buffHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Hospital proximity",
+          "args": {
+            "location": "Hospital",
+            "x": 19,
+            "y": 5
+          }
+        },
+        {
+          "type": "wait",
+          "description": "Proximity reaction",
+          "args": {
+            "seconds": 10
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Смена локации Farm",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Вернуться Hospital",
+          "args": {
+            "location": "Hospital",
+            "x": 19,
+            "y": 5
+          }
+        },
+        {
+          "type": "wait",
+          "description": "Proximity после смены локации",
+          "args": {
+            "seconds": 10
+          }
+        },
+        {
+          "type": "observe",
+          "description": "Новая реакция возможна после location change",
+          "command": "injury_state_dump"
+        }
+      ],
+      "expected": {
+        "logsContain": [
+          "[Proximity]"
+        ],
+        "notes": [
+          "LastProximityReactionReason/location reset on warp"
+        ]
+      },
+      "passCriteria": [
+        "После смены локации proximity может сработать снова"
+      ],
+      "failureHints": [
+        "PlayerEventHandler proximity location reset"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    }
+  ]
+}

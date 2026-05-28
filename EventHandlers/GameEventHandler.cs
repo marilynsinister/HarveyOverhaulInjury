@@ -95,6 +95,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 {
                     try
                     {
+                        // 0. Orphan MineForbidden не должен восстанавливаться из снапшота
+                        SanitizeOrphanMineForbiddenBuff();
+
                         // 1. Восстанавливаем баффы из снапшота конца прошлого дня
                         RestoreBuffsFromSnapshot();
 
@@ -155,6 +158,58 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         }
 
         /// <summary>
+        /// QA/MCP: run morning checks synchronously (infection roll, buff restore) without waiting for DayStarted delay.
+        /// Use after StardewMCP advance_day when DayEnding snapshot may be missing.
+        /// </summary>
+        public string RunQaDailyChecks(bool runPhaseChecks = true)
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            _injuryManager.SyncActiveBuffsFromStateForQa();
+            SanitizeOrphanMineForbiddenBuff();
+
+            if (_stateManager.State.SavedActiveBuffs.Count == 0)
+            {
+                _stateManager.State.SavedActiveBuffs = BuildSavedActiveBuffSnapshot();
+                _monitor.Log(
+                    $"[QA] SavedActiveBuffs refreshed ({_stateManager.State.SavedActiveBuffs.Count} entries)",
+                    LogLevel.Debug);
+            }
+
+            RestoreBuffsFromSnapshot();
+            _stateManager.SanitizeNonPhasedReadyFlags();
+
+            ApplyMineForbiddenIfWarningWasYesterday();
+            ExpireMineForbiddenIfDue();
+            _passOutHandler?.TriggerMineRescueEvents();
+
+            bool infectionEscalated = _complicationManager.CheckTreatmentCompletion();
+
+            if (!infectionEscalated && runPhaseChecks)
+            {
+                CheckSimpleTreatmentCompletion();
+                CheckInjuryPhases();
+            }
+
+            RunQaCheckNeglect();
+
+            _stateManager.State.SavedActiveBuffs = BuildSavedActiveBuffSnapshot();
+            _stateManager.Save();
+
+            return
+                $"[QA] RunQaDailyChecks infectionEscalated={infectionEscalated} " +
+                $"MainInjuryId={_stateManager.GetMainInjuryId() ?? "(none)"} " +
+                $"Complications={string.Join(", ", _stateManager.State.ActiveComplications.Keys)} " +
+                $"Neglect={_buffManager.HasBuff(InjuryBuffs.Neglect)} " +
+                $"MineWarningDay={_stateManager.State.MineWarningDay} " +
+                $"MineForbidden={_buffManager.HasBuff(InjuryBuffs.MineForbidden)}";
+        }
+
+        /// <summary>QA/MCP: DayEnding neglect strikes without sleeping.</summary>
+        public void RunQaCheckNeglect() => CheckNeglect();
+
+        /// <summary>
         /// Конец дня (перед сном)
         /// </summary>
         public void OnDayEnding(object? sender, DayEndingEventArgs e)
@@ -179,7 +234,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 }
 
                 // Сохраняем снапшот активных баффов мода на момент конца дня
-                _stateManager.State.SavedActiveBuffs = _buffManager.GetActiveModBuffs();
+                _stateManager.State.SavedActiveBuffs = BuildSavedActiveBuffSnapshot();
                 _monitor.Log($"Снапшот баффов ({_stateManager.State.SavedActiveBuffs.Count}): {string.Join(", ", _stateManager.State.SavedActiveBuffs)}", LogLevel.Debug);
 
                 // Сохранение состояния
@@ -383,8 +438,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private void ApplyNeglectPenalty()
         {
             _monitor.Log("Применение штрафа за заброшенность", LogLevel.Warn);
-            _buffManager.AddBuff(InjuryBuffs.Neglect, -2);
-            _dialogueManager.AddTopic(ConversationTopics.Neglect, 7);
+            _complicationManager.TryApplyNeglectComplication(
+                hudMessage: new HUDMessage("Ты запустила лечение...", HUDMessage.error_type));
 
             // Если Харви рядом — короткая реплика о пропуске лечения (без снижения Friendship)
             var harvey = Game1.getCharacterFromName("Harvey");
@@ -394,8 +449,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     HarveyEmotes.NeglectedCare,
                     HarveyTextMessages.NotTreating);
             }
-
-            Game1.addHUDMessage(new HUDMessage("Ты запустил${^а}$ лечение...", HUDMessage.error_type));
         }
 
         private int GetToday() => (int)Game1.stats.DaysPlayed;
@@ -429,6 +482,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 _buffManager.RemoveBuff(InjuryBuffs.MineForbidden);
                 _stateManager.State.MineForbiddenAppliedDay = -1;
+                _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
+                    string.Equals(id, InjuryBuffs.MineForbidden, StringComparison.OrdinalIgnoreCase));
                 _monitor.Log($"[Шахта] Снят дебафф «Харви запретил шахту» (истёк срок: {durationDays} дн.)", LogLevel.Debug);
             }
         }
@@ -564,6 +619,51 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 RemoveStaleComplicationState(buffId);
 
             return true;
+        }
+
+        /// <summary>
+        /// Снапшот только валидных mod-бaffов (без orphan MineForbidden и осложнений вне ActiveComplications).
+        /// </summary>
+        private List<string> BuildSavedActiveBuffSnapshot()
+        {
+            SanitizeOrphanMineForbiddenBuff();
+
+            var snapshot = new List<string>();
+            foreach (string buffId in _buffManager.GetActiveModBuffs())
+            {
+                if (ShouldIncludeInSavedSnapshot(buffId))
+                    snapshot.Add(buffId);
+            }
+
+            return snapshot;
+        }
+
+        private bool ShouldIncludeInSavedSnapshot(string buffId)
+        {
+            if (string.Equals(buffId, InjuryBuffs.MineForbidden, StringComparison.OrdinalIgnoreCase)
+                && _stateManager.State.MineForbiddenAppliedDay < 0)
+                return false;
+
+            if (InjurySets.KnownComplicationBuffIds.Contains(buffId)
+                && !_stateManager.State.ActiveComplications.ContainsKey(buffId))
+                return false;
+
+            return true;
+        }
+
+        private void SanitizeOrphanMineForbiddenBuff()
+        {
+            if (_stateManager.State.MineForbiddenAppliedDay >= 0)
+                return;
+
+            _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
+                string.Equals(id, InjuryBuffs.MineForbidden, StringComparison.OrdinalIgnoreCase));
+
+            if (!_buffManager.HasBuff(InjuryBuffs.MineForbidden))
+                return;
+
+            _buffManager.RemoveBuff(InjuryBuffs.MineForbidden);
+            _monitor.Log("[BuffRestore] removed orphan MineForbidden (AppliedDay=-1)", LogLevel.Debug);
         }
 
         private void RemoveStaleComplicationState(string complicationId)

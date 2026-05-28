@@ -21,6 +21,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private TreatmentManager? _treatmentManager;
         private bool _pendingReturnToHospital;
         private bool _pendingBlockedExitReaction;
+        private bool _returnWarpInFlight;
+        private int _returnWarpStartedTick = -1;
+        private const int ReturnWarpTimeoutTicks = 180;
 
         /// <summary>
         /// Ожидается отложенный возврат в палату после заблокированного выхода.
@@ -174,16 +177,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _ => GetGeneralExplanation()
             };
 
-            if (harvey != null && Game1.currentLocation.characters.Contains(harvey))
-            {
-                harvey.CurrentDialogue.Clear();
-                harvey.CurrentDialogue.Push(new Dialogue(harvey, null, explanation));
-                Game1.drawDialogue(harvey);
-            }
-            else
-            {
-                Game1.drawObjectDialogue(explanation);
-            }
+            _dialogueManager.SpeakHarveyDelayed(explanation, 500, harvey);
         }
 
         /// <summary>
@@ -270,7 +264,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 "Харви разрешил выписку. Но сегодня без риска.",
                 HUDMessage.health_type));
 
-            NPC? harvey = HarveyHelper.FindHarvey(Game1.currentLocation);
+            NPC? harvey = HarveyHelper.GetHarvey();
             if (harvey != null)
             {
                 _dialogueManager.ShowEmoteWithText(
@@ -316,7 +310,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             int x = Math.Max(0, _config.HospitalBedX);
             int y = Math.Max(0, _config.HospitalBedY);
 
-            if (string.Equals(Game1.currentLocation?.Name, loc, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(Game1.currentLocation?.NameOrUniqueName, loc, StringComparison.OrdinalIgnoreCase))
             {
                 Game1.player.setTileLocation(new Vector2(x, y));
                 Game1.player.faceDirection(0);
@@ -332,7 +326,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public bool IsInClinic(GameLocation? location = null)
         {
             location ??= Game1.currentLocation;
-            return string.Equals(location?.Name, _config.HospitalLocationName, 
+            return string.Equals(location?.NameOrUniqueName, _config.HospitalLocationName,
                 StringComparison.OrdinalIgnoreCase);
         }
 
@@ -344,7 +338,37 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return Game1.eventUp
                 || Game1.CurrentEvent != null
                 || Game1.activeClickableMenu != null
-                || !Context.IsPlayerFree;
+                || !Context.IsPlayerFree
+                || Game1.locationRequest != null;
+        }
+
+        /// <summary>
+        /// Вызывается из Player.Warped после смены локации — завершает отложенный возврат в палату.
+        /// </summary>
+        public void NotifyPlayerWarped(GameLocation? newLocation)
+        {
+            if (!IsHospitalized)
+            {
+                ResetReturnWarpState();
+                return;
+            }
+
+            if (CanDischarge())
+            {
+                ResetReturnWarpState();
+                return;
+            }
+
+            if (!IsInClinic(newLocation))
+                return;
+
+            bool showReaction = _pendingBlockedExitReaction;
+            _pendingReturnToHospital = false;
+            ResetReturnWarpState();
+            _pendingBlockedExitReaction = false;
+
+            if (showReaction)
+                ShowBlockedExitReaction();
         }
 
         /// <summary>
@@ -354,6 +378,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             if (!IsHospitalized)
             {
+                ResetReturnWarpState();
                 _pendingReturnToHospital = false;
                 _pendingBlockedExitReaction = false;
                 return;
@@ -375,34 +400,39 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!Context.IsWorldReady)
                 return;
 
+            ClearReturnWarpIfTimedOut();
+
+            if (_returnWarpInFlight)
+                return;
+
             if (IsGameBusy())
                 return;
 
-            WarpToHospitalBed();
+            TryStartReturnToHospital();
+        }
+
+        /// <summary>
+        /// QA/MCP: enforce hospital lock when player is outside clinic (StardewMCP warp bypasses HandleWarpAttempt).
+        /// </summary>
+        public string EnforceLockForQa()
+        {
+            if (!IsHospitalized)
+                return "SKIP: not hospitalized";
+
+            if (CanDischarge())
+                return "SKIP: CanDischarge=true, lock not enforced";
 
             if (!IsInClinic(Game1.currentLocation))
-                return;
-
-            _pendingReturnToHospital = false;
-
-            if (!_pendingBlockedExitReaction)
-                return;
-
-            _pendingBlockedExitReaction = false;
-
-            NPC? harvey = Game1.getCharacterFromName("Harvey");
-            if (harvey != null && Game1.currentLocation.characters.Contains(harvey))
             {
-                _dialogueManager.ShowFullReaction(
-                    harvey,
-                    HarveyEmotes.StayInBed,
-                    HarveyTextMessages.DontMove,
-                    "Назад в палату. Я не обсуждаю это.$a");
+                _pendingReturnToHospital = true;
+                ResetReturnWarpState();
+                WarpToHospitalBed();
             }
-            else
-            {
-                Game1.addHUDMessage(new HUDMessage("Харви не разрешает тебе покидать палату.", HUDMessage.error_type));
-            }
+
+            return
+                $"location={Game1.currentLocation?.Name ?? "(none)"} " +
+                $"inClinic={IsInClinic(Game1.currentLocation)} " +
+                $"CanDischarge={CanDischarge()}";
         }
 
         /// <summary>
@@ -427,8 +457,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _monitor.Log("✅ Игрок покидает больницу после окончания срока", LogLevel.Info);
                 Discharge();
 
-                NPC? harvey = Game1.getCharacterFromName("Harvey");
-                if (harvey != null && Game1.currentLocation.characters.Contains(harvey))
+                NPC? harvey = HarveyHelper.GetHarvey();
+                if (harvey != null)
                 {
                     _dialogueManager.ShowFullReaction(harvey,
                         HarveyEmotes.FullRecovery,
@@ -444,6 +474,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _pendingReturnToHospital = true;
             _pendingBlockedExitReaction = true;
             Game1.addHUDMessage(new HUDMessage("Тебе пока нельзя покидать больницу.", HUDMessage.error_type));
+
+            if (Context.IsWorldReady && !IsGameBusy())
+                TryStartReturnToHospital();
+
             return true;
         }
 
@@ -493,10 +527,71 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return baseMinutes;
         }
 
+        private bool TryStartReturnToHospital()
+        {
+            if (_returnWarpInFlight)
+                return false;
+
+            if (!IsHospitalized || CanDischarge())
+                return false;
+
+            if (IsInClinic(Game1.currentLocation))
+            {
+                _pendingReturnToHospital = false;
+                ResetReturnWarpState();
+                return false;
+            }
+
+            if (Game1.locationRequest != null)
+                return false;
+
+            _returnWarpInFlight = true;
+            _returnWarpStartedTick = (int)Game1.ticks;
+            _monitor.Log("[Hospital] return warp → clinic bed", LogLevel.Debug);
+            WarpToHospitalBed();
+            return true;
+        }
+
+        private void ClearReturnWarpIfTimedOut()
+        {
+            if (!_returnWarpInFlight || _returnWarpStartedTick < 0)
+                return;
+
+            if ((int)Game1.ticks - _returnWarpStartedTick <= ReturnWarpTimeoutTicks)
+                return;
+
+            _monitor.Log("[Hospital] return warp timed out — retry allowed", LogLevel.Debug);
+            ResetReturnWarpState();
+        }
+
+        private void ResetReturnWarpState()
+        {
+            _returnWarpInFlight = false;
+            _returnWarpStartedTick = -1;
+        }
+
+        private void ShowBlockedExitReaction()
+        {
+            NPC? harvey = HarveyHelper.GetHarvey();
+            if (harvey != null)
+            {
+                _dialogueManager.ShowFullReaction(
+                    harvey,
+                    HarveyEmotes.StayInBed,
+                    HarveyTextMessages.DontMove,
+                    "Назад в палату. Я не обсуждаю это.$a");
+            }
+            else
+            {
+                Game1.addHUDMessage(new HUDMessage("Харви не разрешает тебе покидать палату.", HUDMessage.error_type));
+            }
+        }
+
         private void ClearHospitalizationState()
         {
             _pendingReturnToHospital = false;
             _pendingBlockedExitReaction = false;
+            ResetReturnWarpState();
 
             var state = _stateManager.State;
             state.IsHospitalized = false;

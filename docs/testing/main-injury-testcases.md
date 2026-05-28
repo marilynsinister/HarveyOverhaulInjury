@@ -54,6 +54,7 @@
 - [ ] SMAPI загружен, консоль открыта (`\`)
 - [ ] C# `HarveyOverhaulInjury` + CP `HarveyOverhaul [CP]` установлены
 - [ ] В `config.json`: `SendLetters: true` (если проверяете mail)
+- [ ] **Injury MCP** (опционально): `EnableInjuryMcp: true`, в SMAPI-логе `[InjuryMCP] listening on http://localhost:24843` — см. [`injury-mcp.md`](injury-mcp.md)
 - [ ] Перед **каждым** изолированным сценарием — чистый старт (см. ниже)
 
 ### Команды MainInjury и диагностика
@@ -74,6 +75,7 @@
 | `injury_phase_recovery <buffId> [1\|0]` | «Можно завершить лечение» |
 | `injury_phase_advance <buffId>` | Принудительная смена фазы (без диалога) |
 | `injury_phase_cure <buffId>` | Полное выздоровление без клика по Харви |
+| `injury_harvey_click [dry]` | **[DEBUG]** Мед. действие как после клика по Харви (без диалога): StartTreatment, AdvancePhase, CompleteRecovery, TreatComplications |
 | `injury_mine_dirty_debug` | Read-only: риск грязной раны в шахте |
 | `injury_debug_mine_rescue` | Флаги mine rescue → сработает на `DayStarted` |
 | `injury_foreign_topic_add <topicId> [days]` | Поставить topic для теста |

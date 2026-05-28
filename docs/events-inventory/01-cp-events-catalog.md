@@ -298,7 +298,7 @@
 - **Preconditions:** `Friendship Harvey 1500/Time 1400 1800/Weather sunny/GameStateQuery PLAYER_HAS_MAIL Current mailHarveyMedicalCheckReminder Received/GameStateQuery !PLAYER_NPC_RELATIONSHIP Current Harvey Dating Married`
 - **Commands:** —
 - **Bridge (mail/topic):** —
-- **Script preview:** `         Hospital_Ambient/         10 15/         Harvey 10 14 2/         playSound doorOpen/         warp farmer 10 19 true/         faceDirection farmer 0/         skippable/         pause 500/         emote farmer 12/         speak Harvey "Привет. Рад, что ты ${пришёл^пришла}$.$h"/         pause 300/         move Harvey 0 2 2 true/         move farmer 0 -2 0 true/         pause 200/         speak Harvey "Ты дрожишь. Давай сядем."/         pause 200/         faceDirection Harvey 0/         pau...`
+- **Script preview:** `         Hospital_Ambient/         10 15/         Harvey 10 14 2/         playSound doorOpen/         warp farmer 10 19 true/         faceDirection farmer 0/         skippable/         pause 500/         emote farmer 12/         speak Harvey "Привет. Рад, что ты пришла.$h"/         pause 300/         move Harvey 0 2 2 true/         move farmer 0 -2 0 true/         pause 200/         speak Harvey "Ты дрожишь. Давай сядем."/         pause 200/         faceDirection Harvey 0/         pau...`
 
 ### `eventHarveyMedicalCheck_Dating/Friendship Harvey 1500/Time 1400 1800/Weather sunny/GameStateQuery PLAYER_HAS_MAIL Current mailHarveyMedicalCheckReminder Received/GameStateQuery PLAYER_NPC_RELATIONSHIP Current Harvey Dating Married`
 

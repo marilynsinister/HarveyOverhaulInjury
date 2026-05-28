@@ -1,0 +1,518 @@
+{
+  "suiteId": "01-simple-injuries",
+  "suiteName": "Простые травмы — лечение у Харви",
+  "description": "Полный цикл simple treatment для buffHurt, buffBadlyHurt, buffSurgicalWound. Источник: docs/testing/08-injury-treatment-tests.md.",
+  "requires": {
+    "stardewMcp": true,
+    "smapiConsole": true,
+    "manualClick": true,
+    "debugCommands": [
+      "injury_reset",
+      "injury_debuff_add",
+      "injury_phase_list",
+      "injury_harvey_click"
+    ]
+  },
+  "tests": [
+    {
+      "id": "HOI-SIMPLE-001",
+      "title": "buffHurt — simple treatment",
+      "priority": "P1",
+      "mechanics": [
+        "simple_injury",
+        "buffHurt"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв (Context.IsWorldReady)",
+        "Injury MCP или SMAPI console доступны",
+        "StardewMCP user-stardew доступен"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить простую main-травму buffHurt",
+          "args": {
+            "buff_id": "buffHurt"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "После debuff_add: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После debuff_add: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После debuff_add: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey в Hospital для StartSimpleTreatment (альтернатива без UI: injury_harvey_click)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "note",
+          "description": "Дождаться завершения simple treatment: StardewMCP advance_day ×2 (или injury_test_age_injury если доступен)"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Следующий игровой день (повторить до 2 дней после StartTreatment)"
+        },
+        {
+          "type": "observe",
+          "description": "После срока лечения: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После срока лечения: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После срока лечения: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics после cure (если injury_topic_dump доступен)",
+          "command": "injury_topic_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffHurt",
+          "TreatmentStarted": false,
+          "TotalPhases": 0,
+          "CurrentPhase": 0,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffHurt"
+        ],
+        "topicsPresent": [
+          "topicHurt"
+        ],
+        "notes": [
+          "После клика Harvey: buffsPresent=[buffHarveyTreatment], buffsAbsent=[buffHurt], TreatmentStarted=true",
+          "После 2 игровых дней: MainInjuryId=null, cure и trauma buffs сняты"
+        ]
+      },
+      "passCriteria": [
+        "После debuff_add: MainInjuryId=buffHurt, TreatmentStarted=false, buff активен",
+        "После клика Harvey: base buffHurt снят, cure buffHarveyTreatment активен",
+        "После срока (2 дн.): MainInjuryId пуст, cure buff снят"
+      ],
+      "failureHints": [
+        "TreatmentManager.StartSimpleTreatment для buffHurt",
+        "InteractionHandler — клик Harvey",
+        "GameEventHandler.CheckSimpleTreatmentCompletion",
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-SIMPLE-002",
+      "title": "buffBadlyHurt — simple treatment",
+      "priority": "P1",
+      "mechanics": [
+        "simple_injury",
+        "buffBadlyHurt"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв (Context.IsWorldReady)",
+        "Injury MCP или SMAPI console доступны",
+        "StardewMCP user-stardew доступен"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить простую main-травму buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "После debuff_add: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После debuff_add: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После debuff_add: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey в Hospital для StartSimpleTreatment (альтернатива без UI: injury_harvey_click)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "note",
+          "description": "Дождаться завершения simple treatment: StardewMCP advance_day ×4 (или injury_test_age_injury если доступен)"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Следующий игровой день (повторить до 4 дней после StartTreatment)"
+        },
+        {
+          "type": "observe",
+          "description": "После срока лечения: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После срока лечения: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После срока лечения: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics после cure (если injury_topic_dump доступен)",
+          "command": "injury_topic_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffBadlyHurt",
+          "TreatmentStarted": false,
+          "TotalPhases": 0,
+          "CurrentPhase": 0,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffBadlyHurt"
+        ],
+        "topicsPresent": [
+          "topicBadlyHurt",
+          "topicHealthDamageCritical"
+        ],
+        "notes": [
+          "После клика Harvey: buffsPresent=[buffHarveyIntensiveCare], buffsAbsent=[buffBadlyHurt], TreatmentStarted=true",
+          "После 4 игровых дней: MainInjuryId=null, cure и trauma buffs сняты"
+        ]
+      },
+      "passCriteria": [
+        "После debuff_add: MainInjuryId=buffBadlyHurt, TreatmentStarted=false, buff активен",
+        "После клика Harvey: base buffBadlyHurt снят, cure buffHarveyIntensiveCare активен",
+        "После срока (4 дн.): MainInjuryId пуст, cure buff снят"
+      ],
+      "failureHints": [
+        "TreatmentManager.StartSimpleTreatment для buffBadlyHurt",
+        "InteractionHandler — клик Harvey",
+        "GameEventHandler.CheckSimpleTreatmentCompletion",
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-SIMPLE-003",
+      "title": "buffSurgicalWound — simple treatment",
+      "priority": "P1",
+      "mechanics": [
+        "simple_injury",
+        "buffSurgicalWound"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв (Context.IsWorldReady)",
+        "Injury MCP или SMAPI console доступны",
+        "StardewMCP user-stardew доступен"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Наложить простую main-травму buffSurgicalWound",
+          "args": {
+            "buff_id": "buffSurgicalWound"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "После debuff_add: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После debuff_add: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После debuff_add: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey 3+ сердечка для диалогов лечения",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 3
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Рабочие часы клиники",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Телепорт в Hospital к Харви",
+          "args": {
+            "location": "Hospital",
+            "x": 20,
+            "y": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_location",
+          "description": "Убедиться что Harvey в той же локации",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Кликнуть по Harvey в Hospital для StartSimpleTreatment (альтернатива без UI: injury_harvey_click)"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После StartTreatment: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "note",
+          "description": "Дождаться завершения simple treatment: StardewMCP advance_day ×7 (или injury_test_age_injury если доступен)"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Следующий игровой день (повторить до 7 дней после StartTreatment)"
+        },
+        {
+          "type": "observe",
+          "description": "После срока лечения: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После срока лечения: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После срока лечения: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics после cure (если injury_topic_dump доступен)",
+          "command": "injury_topic_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffSurgicalWound",
+          "TreatmentStarted": false,
+          "TotalPhases": 0,
+          "CurrentPhase": 0,
+          "valid": true
+        },
+        "buffsPresent": [
+          "buffSurgicalWound"
+        ],
+        "topicsPresent": [
+          "topicSurgicalWound",
+          "topicPostOperativeCare"
+        ],
+        "notes": [
+          "После клика Harvey: buffsPresent=[buffPostSurgicalCare], buffsAbsent=[buffSurgicalWound], TreatmentStarted=true",
+          "После 7 игровых дней: MainInjuryId=null, cure и trauma buffs сняты"
+        ]
+      },
+      "passCriteria": [
+        "После debuff_add: MainInjuryId=buffSurgicalWound, TreatmentStarted=false, buff активен",
+        "После клика Harvey: base buffSurgicalWound снят, cure buffPostSurgicalCare активен",
+        "После срока (7 дн.): MainInjuryId пуст, cure buff снят"
+      ],
+      "failureHints": [
+        "TreatmentManager.StartSimpleTreatment для buffSurgicalWound",
+        "InteractionHandler — клик Harvey",
+        "GameEventHandler.CheckSimpleTreatmentCompletion",
+        "Нужна команда injury_state_dump",
+        "Нужна команда injury_buff_dump",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    }
+  ]
+}

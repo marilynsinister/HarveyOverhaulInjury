@@ -125,6 +125,19 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// </summary>
         public void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
         {
+            if (Game1.eventUp || Game1.CurrentEvent != null)
+            {
+                if (_pendingMedicalAction != null)
+                {
+                    _monitor.Log(
+                        "[MedicalAction] сброс pending: активно игровое событие",
+                        LogLevel.Debug);
+                    ClearPendingMedicalAction();
+                }
+
+                return;
+            }
+
             if (_pendingMedicalAction == null)
                 return;
 
@@ -190,6 +203,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         public void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
         {
             if (!Context.IsWorldReady || !Context.IsPlayerFree) return;
+            if (Game1.eventUp || Game1.CurrentEvent != null) return;
             if (!e.Button.IsActionButton()) return;
             if (Game1.activeClickableMenu is DialogueBox) return;
 
@@ -297,6 +311,56 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return "none (standard dialogue allowed)";
 
             return $"SELECT {FormatMedicalActionLabel(resolved)}";
+        }
+
+        /// <summary>
+        /// DEBUG: применить медицинское действие как после клика по Харви и закрытия диалога (без UI).
+        /// </summary>
+        public string TryDebugApplyHarveyMedicalAction(bool dryRun = false, bool ignoreHospital = false)
+        {
+            if (!Context.IsWorldReady)
+                return "Error: load a save first.";
+
+            if (_pendingMedicalAction is { Applied: false } pending)
+                return $"BLOCKED: pending {FormatMedicalActionLabel(pending)}";
+
+            if (_hospitalizationManager.IsHospitalized && !ignoreHospital)
+                return "BLOCKED: player hospitalized (pipeline idle); use ignore_hospital or injury_hospital_discharge";
+
+            _stateManager.SanitizeNonPhasedReadyFlags();
+
+            var resolved = TryResolveMedicalAction(_injuryManager.CollectAllInjuries());
+            if (resolved == null)
+            {
+                LastClickDebug = "DEBUG: no InjuryCare medical action";
+                return "NO_ACTION: standard Harvey dialogue would apply";
+            }
+
+            LogResolvedMedicalAction(resolved);
+
+            if (dryRun)
+            {
+                LastClickDebug = BuildClickDebugSnapshot(null, resolved, "DRY_RUN: would apply");
+                return $"DRY_RUN: {FormatMedicalActionLabel(resolved)}";
+            }
+
+            try
+            {
+                bool applied = ApplyPendingMedicalAction(resolved);
+                LastClickDebug = BuildClickDebugSnapshot(
+                    null,
+                    resolved,
+                    applied ? "DEBUG: applied without dialogue" : "DEBUG: apply skipped (stale state)");
+
+                return applied
+                    ? $"APPLIED: {FormatMedicalActionLabel(resolved)}"
+                    : $"SKIPPED: {FormatMedicalActionLabel(resolved)} (state changed or already done)";
+            }
+            catch (Exception ex)
+            {
+                _monitor.Log($"[MedicalAction] DEBUG apply error ({resolved.Type}): {ex}", LogLevel.Error);
+                return $"Error: {ex.Message}";
+            }
         }
 
         private string BuildClickDebugSnapshot(
@@ -744,7 +808,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             dialogueKey = TopicIds.GetCuredTopic(injuryId);
             return _dialogueManager.PickRandomDialogueByPrefix(
                 dialogueKey,
-                "Осмотр окончен. Ты ${выздоровел^выздоровела}$, но я всё равно хочу, чтобы ты берегла себя.$h");
+                "Осмотр окончен. Ты выздоровела, но я всё равно хочу, чтобы ты берегла себя.$h");
         }
 
         private string BuildSimpleCompletionDialogueText(string topicId, out string dialogueKey)
@@ -752,7 +816,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             dialogueKey = topicId;
             return _dialogueManager.PickRandomDialogueByPrefix(
                 topicId,
-                "Отлично! Ты полностью ${выздоровел^выздоровела}$. Я горжусь тобой за то, что ты следовал${^а}$ всем моим рекомендациям. Береги себя!$h");
+                "Отлично! Ты полностью выздоровела. Я горжусь тобой за то, что ты следовала всем моим рекомендациям. Береги себя!$h");
         }
 
         private void ShowMedicalEmote(NPC harvey, MedicalActionType type)
@@ -853,7 +917,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 if (reason == "mine_rescue")
                     _dialogueManager.RemoveTopic(ConversationTopics.MineInjuryRescue);
 
-                NPC? harvey = HarveyHelper.FindHarvey(Game1.currentLocation);
+                NPC? harvey = HarveyHelper.GetHarvey();
                 _hospitalizationManager.StartForcedHospitalizationWithExplanation(
                     action.InjuryId,
                     harvey,

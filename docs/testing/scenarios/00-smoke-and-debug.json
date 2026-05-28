@@ -1,0 +1,645 @@
+{
+  "suiteId": "00-smoke-and-debug",
+  "suiteName": "Smoke и debug-команды ModEntry",
+  "description": "Базовые smoke-проверки загрузки мода и автоматизируемые тесты 8 core-команд из ModEntry.cs (injury_reset, injury_debuff_*, injury_phase_*). Источник: docs/testing/03-existing-debug-commands.md, docs/testing/07-smoke-save-tests.md.",
+  "requires": {
+    "stardewMcp": true,
+    "smapiConsole": true,
+    "manualClick": false,
+    "debugCommands": [
+      "injury_reset",
+      "injury_debuff_list",
+      "injury_debuff_add",
+      "injury_phase_list",
+      "injury_phase_ready",
+      "injury_phase_recovery",
+      "injury_phase_advance",
+      "injury_harvey_click"
+    ]
+  },
+  "tests": [
+    {
+      "id": "HOI-SMOKE-001",
+      "title": "Игра и мод загружены",
+      "priority": "P0",
+      "mechanics": [
+        "smoke",
+        "mod_load"
+      ],
+      "preconditions": [
+        "Stardew Valley запущен через SMAPI",
+        "Загружен тестовый сейв (Context.IsWorldReady)",
+        "HarveyOverhaulInjury и HarveyOverhaul [CP] установлены в Mods",
+        "StardewMCP доступен на http://localhost:24842"
+      ],
+      "steps": [
+        {
+          "type": "observe",
+          "description": "Проверить SMAPI log: нет Error/Failed для HarveyOverhaulInjury и HarveyOverhaul [CP]; мод loaded; CP pack без failed patches на Data/Buffs"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Убедиться, что игрок в мире и ответ содержит location, health, name"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_game_time",
+          "description": "Проверить доступность игрового времени (день, сезон, время суток)"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_weather",
+          "description": "Проверить доступность погоды (для последующих сценариев с дождём)"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "args": {
+            "npc_name": "Harvey"
+          },
+          "description": "Проверить, что NPC Harvey найден (hearts, schedule, location)"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_list",
+          "description": "Read-only: каталог KnownTraumas/KnownComplications — мод отвечает без ошибки"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "Error: HarveyOverhaulInjury",
+          "Failed loading mod 'HarveyOverhaulInjury'",
+          "[Buffs] Ошибка загрузки Data/Buffs"
+        ],
+        "logsContain": [
+          "HarveyOverhaulInjury",
+          "HarveyOverhaul [CP]",
+          "[Buffs] Загружено"
+        ],
+        "notes": [
+          "get_player_info возвращает валидный JSON с полями игрока",
+          "get_npc_info Harvey: npc найден, friendship/hearts доступны",
+          "injury_debuff_list выводит секции травм и осложнений без exception"
+        ]
+      },
+      "passCriteria": [
+        "В SMAPI log нет Error/Failed по HarveyOverhaulInjury и CP-паку",
+        "HarveyOverhaulInjury отображается как loaded",
+        "Content Patcher загрузил HarveyOverhaul [CP] без failed patches",
+        "StardewMCP get_player_info / get_game_time / get_weather / get_npc_info Harvey — успешный ответ",
+        "injury_debuff_list выполняется без ошибки"
+      ],
+      "failureHints": [
+        "SMAPI log при старте — ModEntry.cs, manifest.json, зависимости CP",
+        "Отсутствие [Buffs] Загружено — порядок загрузки CP или Data/Buffs.json",
+        "StardewMCP недоступен — docs/testing/stardew-mcp.md, порт 24842"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Cleanup не требуется — тест read-only"
+        }
+      ]
+    },
+    {
+      "id": "HOI-SMOKE-002",
+      "title": "injury_reset очищает состояние",
+      "priority": "P0",
+      "mechanics": [
+        "smoke",
+        "injury_reset"
+      ],
+      "preconditions": [
+        "Загружен сейв (Context.IsWorldReady)",
+        "Injury MCP или SMAPI console доступны"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Чистый лист перед наложением тестовых состояний"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          },
+          "description": "Наложить main-травму buffDeepCuts"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "args": {
+            "buff_id": "HarveyMod_DirtyWound"
+          },
+          "description": "Наложить осложнение HarveyMod_DirtyWound"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_list",
+          "description": "Снять состояние после add: MainInjuryId, ActiveDebuffs, Complications"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Полный сброс BuffManager + StateManager + owned topics"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_list",
+          "description": "Проверить состояние после reset"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": null,
+          "valid": true
+        },
+        "buffsAbsent": [
+          "buffDeepCuts",
+          "HarveyMod_DirtyWound"
+        ],
+        "logsNotContain": [
+          "NullReferenceException",
+          "Error: load a save first"
+        ],
+        "notes": [
+          "После первого injury_phase_list (шаг 4): MainInjuryId=buffDeepCuts, в Complications есть HarveyMod_DirtyWound, ActiveDebuffs не пуст",
+          "После второго injury_phase_list (шаг 6): MainInjuryId: (none), ActiveDebuffs пуст, Complications пуст"
+        ]
+      },
+      "passCriteria": [
+        "После debuff_add + первый phase_list: MainInjuryId=buffDeepCuts, complication HarveyMod_DirtyWound активна",
+        "После injury_reset + второй phase_list: MainInjuryId: (none), нет активных debuff/topic мода",
+        "Ни один шаг не вызывает exception или Error в логе"
+      ],
+      "failureHints": [
+        "ModEntry.cs FullReset — BuffManager.RemoveBuff*, StateManager.Clear(), ModTopicRegistry topics",
+        "Orphan buffs вне reset-списков — docs/testing/03-existing-debug-commands.md § injury_reset edge cases"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CMD-001",
+      "title": "injury_debuff_list — каталог травм и осложнений",
+      "priority": "P1",
+      "mechanics": [
+        "injury_debuff_list"
+      ],
+      "preconditions": [
+        "Мод загружен (сейв не обязателен для статического списка, но рекомендуется loaded save)"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_list",
+          "description": "Read-only: вывести KnownTraumas и KnownComplications"
+        }
+      ],
+      "expected": {
+        "hudContains": [
+          "buffHurt",
+          "buffDeepCuts",
+          "buffFracturedBone",
+          "HarveyMod_DirtyWound",
+          "HarveyMod_WetBandage"
+        ],
+        "notes": [
+          "Ответ содержит секцию/строки KnownTraumas с buffId и topicId",
+          "Ответ содержит секцию/строки KnownComplications (HarveyMod_*)",
+          "Команда не изменяет buffs, state, topics"
+        ]
+      },
+      "passCriteria": [
+        "injury_debuff_list выполняется без ошибки",
+        "В выводе есть минимум одна main-травма (buffHurt, buffDeepCuts или buffFracturedBone)",
+        "В выводе есть минимум одно осложнение (HarveyMod_DirtyWound или HarveyMod_WetBandage)",
+        "BuffManager / StateManager / DialogueManager не изменены"
+      ],
+      "failureHints": [
+        "ModEntry.cs CmdDebuffList — KnownTraumas / KnownComplications",
+        "docs/testing/01-csharp-mechanics-inventory.md — полный справочник ID"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Cleanup не требуется — read-only команда"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CMD-002",
+      "title": "injury_debuff_add buffHurt — simple main",
+      "priority": "P1",
+      "mechanics": [
+        "injury_debuff_add",
+        "simple_injury"
+      ],
+      "preconditions": [
+        "Загружен сейв",
+        "MainInjuryId пуст (injury_reset перед тестом)"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "args": {
+            "buff_id": "buffHurt"
+          },
+          "description": "Наложить простую main-травму buffHurt"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_list",
+          "description": "Assert MainInjuryId, DebuffState, valid"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Опционально: проверить topicHurt через injury_topic_dump или injury_debug_dump (topics не в phase_list)"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "buffHurt"
+        ],
+        "topicsPresent": [
+          "topicHurt"
+        ],
+        "state": {
+          "MainInjuryId": "buffHurt",
+          "valid": true,
+          "TotalPhases": 0,
+          "TreatmentStarted": false
+        },
+        "notes": [
+          "DebuffState для buffHurt создан в ActiveDebuffs (строка в phase_list)",
+          "topicHurt добавлен в activeDialogueEvents (проверка через topic_dump или debug_dump)"
+        ]
+      },
+      "passCriteria": [
+        "buffHurt активен на игроке",
+        "injury_phase_list: MainInjuryId=buffHurt, valid=yes, DebuffState buffHurt в ActiveDebuffs",
+        "topicHurt присутствует у игрока",
+        "TotalPhases=0 (простая травма), TreatmentStarted=false"
+      ],
+      "failureHints": [
+        "ModEntry.cs CmdDebuffAddTrauma — CreateDebuffState, AddTopic",
+        "InjuryManager.TryApplyMainInjury — блокировка второй main",
+        "docs/testing/04-missing-debug-commands.md — injury_topic_dump для assert topics"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Снять buffHurt и topics"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CMD-003",
+      "title": "injury_debuff_add buffDeepCuts — phased main baseline",
+      "priority": "P1",
+      "mechanics": [
+        "injury_debuff_add",
+        "phased_injury"
+      ],
+      "preconditions": [
+        "Загружен сейв",
+        "MainInjuryId пуст"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          },
+          "description": "Наложить фазовую main-травму buffDeepCuts (3 фазы)"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_list",
+          "description": "Снять DebuffState: TotalPhases, CurrentPhase, TreatmentStarted"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "buffDeepCuts"
+        ],
+        "topicsPresent": [
+          "topicDeepCuts"
+        ],
+        "state": {
+          "MainInjuryId": "buffDeepCuts",
+          "valid": true,
+          "TotalPhases": 3,
+          "CurrentPhase": 0,
+          "TreatmentStarted": false
+        },
+        "notes": [
+          "DebuffState buffDeepCuts создан: фаза 0/3, не в лечении",
+          "topicDeepCuts добавлен; возможен topicHarveyNeedsFirstTreatment"
+        ]
+      },
+      "passCriteria": [
+        "buffDeepCuts активен, MainInjuryId=buffDeepCuts, valid=yes",
+        "DebuffState: TotalPhases=3, CurrentPhase=0, TreatmentStarted=false",
+        "topicDeepCuts присутствует"
+      ],
+      "failureHints": [
+        "ModEntry.cs CreateDebuffState — P1/P2/P3 durations для buffDeepCuts",
+        "docs/testing/01-csharp-mechanics-inventory.md — buffDeepCuts row"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Снять buffDeepCuts и phase state"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CMD-004",
+      "title": "injury_phase_ready — ReadyForNextPhase",
+      "priority": "P1",
+      "mechanics": [
+        "injury_phase_ready",
+        "phased_injury"
+      ],
+      "preconditions": [
+        "Загружен сейв",
+        "Фазовая main buffDeepCuts активна (после reset + debuff_add)"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          },
+          "description": "Наложить buffDeepCuts для теста phase_ready"
+        },
+        {
+          "type": "note",
+          "description": "Клик по Harvey не обязателен для этого TC: injury_phase_ready выставляет флаг без StartTreatment (см. 03-existing-debug-commands.md). При необходимости E2E — manual клик или injury_harvey_click"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "args": {
+            "buff_id": "buffDeepCuts",
+            "ready": true
+          },
+          "description": "SetReadyForNextPhase(buffDeepCuts, true)"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_list",
+          "description": "Assert ReadyForNextPhase и маркер [→след.фаза]"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffDeepCuts",
+          "ReadyForNextPhase": true,
+          "ReadyForRecovery": false
+        },
+        "hudContains": [
+          "[→след.фаза]"
+        ],
+        "notes": [
+          "ReadyForNextPhase=true в DebuffState buffDeepCuts",
+          "HUD-сообщение «готовность к смене фазы = да» опционально"
+        ]
+      },
+      "passCriteria": [
+        "injury_phase_ready buffDeepCuts 1 выполняется без warn (не last phase, TotalPhases>0)",
+        "injury_phase_list: ReadyForNextPhase=yes / true, флаг [→след.фаза] в строке buffDeepCuts",
+        "ReadyForRecovery=false"
+      ],
+      "failureHints": [
+        "ModEntry.cs CmdPhaseReady — отказ для simple injuries и last phase",
+        "StateManager.SetReadyForNextPhase",
+        "Для advance после ready нужен CurrentPhase>0 (injury_harvey_click) — см. HOI-CMD-005"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Сброс phase flags и debuff"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CMD-005",
+      "title": "injury_phase_recovery — ReadyForRecovery на последней фазе",
+      "priority": "P1",
+      "mechanics": [
+        "injury_phase_recovery",
+        "phased_injury",
+        "injury_phase_advance"
+      ],
+      "preconditions": [
+        "Загружен сейв",
+        "buffDeepCuts в лечении на последней фазе (3/3)"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          },
+          "description": "Наложить buffDeepCuts"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_harvey_click",
+          "description": "StartTreatment: CurrentPhase=1, TreatmentStarted=true (альтернатива ручному клику Harvey)"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "args": {
+            "buff_id": "buffDeepCuts",
+            "ready": true
+          },
+          "description": "ReadyForNextPhase перед advance 1→2"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_advance",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          },
+          "description": "Перевести на фазу 2/3"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_ready",
+          "args": {
+            "buff_id": "buffDeepCuts",
+            "ready": true
+          },
+          "description": "ReadyForNextPhase перед advance 2→3"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_advance",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          },
+          "description": "Перевести на последнюю фазу 3/3"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_recovery",
+          "args": {
+            "buff_id": "buffDeepCuts",
+            "ready": true
+          },
+          "description": "SetReadyForRecovery(buffDeepCuts, true)"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_list",
+          "description": "Assert ReadyForRecovery и маркер [→выздоровление]"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": "buffDeepCuts",
+          "CurrentPhase": 3,
+          "TotalPhases": 3,
+          "ReadyForRecovery": true,
+          "ReadyForNextPhase": false
+        },
+        "hudContains": [
+          "[→выздоровление]"
+        ],
+        "notes": [
+          "TreatmentStarted=true, фаза 3/3 перед recovery",
+          "ReadyForRecovery=true; advance дальше невозможен — только CompleteRecovery"
+        ]
+      },
+      "passCriteria": [
+        "После цепочки advance: CurrentPhase=3, TotalPhases=3, TreatmentStarted=true",
+        "injury_phase_recovery buffDeepCuts 1 — успех без exception",
+        "injury_phase_list: ReadyForRecovery=yes / true, маркер [→выздоровление]",
+        "ReadyForNextPhase=false после recovery"
+      ],
+      "failureHints": [
+        "injury_phase_advance требует ReadyForNextPhase=true и CurrentPhase>0 — docs/testing/03-existing-debug-commands.md",
+        "TreatmentManager.AdvanceInjuryToNextPhase — ModEntry.cs CmdPhaseAdvance",
+        "Если harvey_click не стартует лечение — teleport Hospital + set_npc_relationship Harvey 3 + manual click"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Сброс phased state и topics"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CMD-006",
+      "title": "injury_debuff_add — неизвестный buff id",
+      "priority": "P2",
+      "mechanics": [
+        "injury_debuff_add",
+        "edge_case"
+      ],
+      "preconditions": [
+        "Загружен сейв"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Чистый старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "args": {
+            "buff_id": "Unknown_Test_Buff"
+          },
+          "description": "Попытка добавить несуществующий buff ID (unknown path)"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_phase_list",
+          "description": "Убедиться, что MainInjuryId не установлен для unknown buff"
+        },
+        {
+          "type": "observe",
+          "description": "Проверить SMAPI log: warning о неизвестном ID, нет NullReferenceException, игра не крашнулась"
+        }
+      ],
+      "expected": {
+        "state": {
+          "MainInjuryId": null
+        },
+        "logsContain": [
+          "Unknown_Test_Buff"
+        ],
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Warn в логе (неизвестный buff / нет в Data/Buffs)",
+          "DebuffState и MainInjury не создаются для unknown ID",
+          "Игра продолжает работать; Context.IsWorldReady=true"
+        ]
+      },
+      "passCriteria": [
+        "Команда завершается без crash и без NullReferenceException",
+        "В логе есть warning, упоминающий Unknown_Test_Buff",
+        "MainInjuryId остаётся (none); unknown buff не регистрируется в DebuffState",
+        "Последующие injury_* команды работают (phase_list OK)"
+      ],
+      "failureHints": [
+        "ModEntry.cs unknown branch — только AddBuff + warn",
+        "BuffManager.AddBuff для несуществующего ID — проверить graceful handling",
+        "docs/testing/03-existing-debug-commands.md § injury_debuff_add edge cases"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Снять orphan buff если AddBuff его наложил"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,546 @@
+{
+  "suiteId": "04-mine-forbidden",
+  "suiteName": "Шахта — Severe warning и MineForbidden",
+  "description": "Severe mine entry, MineForbidden lifecycle, CP interception regression. Источник: docs/testing/10-mine-passout-tests.md.",
+  "requires": {
+    "stardewMcp": true,
+    "smapiConsole": true,
+    "manualClick": true,
+    "debugCommands": [
+      "injury_reset",
+      "injury_debuff_add",
+      "injury_phase_list",
+      "injury_mine_forbidden_clear"
+    ]
+  },
+  "tests": [
+    {
+      "id": "HOI-MINE-001",
+      "title": "Severe injury — вход в шахту",
+      "priority": "P1",
+      "mechanics": [
+        "MineForbidden",
+        "severe_warning"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "SendLetters=true для mail asserts",
+        "NeedsMineRescueEvent=False после injury_reset"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe main buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "До входа в шахту: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "До входа в шахту: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "До входа в шахту: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "10am",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Вход в шахту",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Дождаться HUD error: серьёзные раны — не идти в шахту"
+        },
+        {
+          "type": "observe",
+          "description": "После первого входа: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После первого входа: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После первого входа: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsContain": [
+          "[Шахта]",
+          "серьёзные раны"
+        ],
+        "notes": [
+          "MineWarningDay=today, LastMineSevereWarningDay=today в injury_state_dump"
+        ]
+      },
+      "passCriteria": [
+        "HUD error при первом входе с Severe main",
+        "MineWarningDay выставлен"
+      ],
+      "failureHints": [
+        "PlayerEventHandler.TryHandleSevereMineEntry",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_mine_forbidden_clear",
+          "description": "Снять MineForbidden debuff если остался"
+        }
+      ]
+    },
+    {
+      "id": "HOI-MINE-002",
+      "title": "Light injury — вход в шахту без запрета",
+      "priority": "P1",
+      "mechanics": [
+        "mine",
+        "light_injury"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "SendLetters=true для mail asserts",
+        "NeedsMineRescueEvent=False после injury_reset"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Light main buffHurt",
+          "args": {
+            "buff_id": "buffHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Вход в шахту",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "observe",
+          "description": "После входа light: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После входа light: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После входа light: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsAbsent": [
+          "HarveyMod_MineForbidden"
+        ],
+        "logsNotContain": [
+          "ПРИНУДИТЕЛЬНЫЙ ВЫХОД из шахты"
+        ]
+      },
+      "passCriteria": [
+        "Нет Severe warning chain",
+        "MineWarningDay не выставлен для buffHurt"
+      ],
+      "failureHints": [
+        "InjurySets.Severe whitelist"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_mine_forbidden_clear",
+          "description": "Снять MineForbidden debuff если остался"
+        }
+      ]
+    },
+    {
+      "id": "HOI-MINE-003",
+      "title": "Severe warning не спамится в один день",
+      "priority": "P1",
+      "mechanics": [
+        "MineForbidden",
+        "cooldown"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "SendLetters=true для mail asserts",
+        "NeedsMineRescueEvent=False после injury_reset"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Первый вход",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Зафиксировать первый HUD warning"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Выйти из шахты",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Повторный вход в тот же день",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: второй warning не дублируется или HUD не спамится"
+        }
+      ],
+      "expected": {
+        "notes": [
+          "Второй вход в тот же день — без повторного MineWarningDay increment"
+        ]
+      },
+      "passCriteria": [
+        "Warning один раз за день",
+        "LastMineSevereWarningDay не меняется повторно"
+      ],
+      "failureHints": [
+        "GameEventHandler / PlayerEventHandler mine warning dedupe"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_mine_forbidden_clear",
+          "description": "Снять MineForbidden debuff если остался"
+        }
+      ]
+    },
+    {
+      "id": "HOI-MINE-004",
+      "title": "MineForbidden появляется на следующий день",
+      "priority": "P1",
+      "mechanics": [
+        "MineForbidden"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "SendLetters=true для mail asserts",
+        "NeedsMineRescueEvent=False после injury_reset"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Warning day",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Сон — DayStarted apply MineForbidden"
+        },
+        {
+          "type": "observe",
+          "description": "injury_buff_dump — HarveyMod_MineForbidden",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "manual",
+          "description": "Проверить почту mailHarveyMineForbidden утром"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "HarveyMod_MineForbidden"
+        ],
+        "logsContain": [
+          "[Шахта] Наложен дебафф"
+        ]
+      },
+      "passCriteria": [
+        "После advance_day: HarveyMod_MineForbidden активен",
+        "MineForbiddenAppliedDay=today"
+      ],
+      "failureHints": [
+        "GameEventHandler DayStarted mine forbidden apply",
+        "Нужна команда injury_buff_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_mine_forbidden_clear",
+          "description": "Снять MineForbidden debuff если остался"
+        }
+      ]
+    },
+    {
+      "id": "HOI-MINE-005",
+      "title": "MineForbidden истекает через MineForbiddenDurationDays",
+      "priority": "P2",
+      "mechanics": [
+        "MineForbidden",
+        "expiry"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "SendLetters=true для mail asserts",
+        "NeedsMineRescueEvent=False после injury_reset"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Trigger warning",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "note",
+          "description": "Повторить advance_day × MineForbiddenDurationDays (default 2) после apply forbidden"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "День 1 после forbidden"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "День 2 — expiry по config MineForbiddenDurationDays"
+        },
+        {
+          "type": "observe",
+          "description": "MineForbidden снят",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsAbsent": [
+          "HarveyMod_MineForbidden"
+        ],
+        "notes": [
+          "Срок = MineForbiddenDurationDays из config.json мода (default 2)"
+        ]
+      },
+      "passCriteria": [
+        "HarveyMod_MineForbidden снят после N дней",
+        "MineForbiddenAppliedDay cleared"
+      ],
+      "failureHints": [
+        "Config MineForbiddenDurationDays",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_mine_forbidden_clear",
+          "description": "Снять MineForbidden debuff если остался"
+        }
+      ]
+    },
+    {
+      "id": "HOI-MINE-006",
+      "title": "MineForbidden не ломает CP event interception",
+      "priority": "P0",
+      "mechanics": [
+        "MineForbidden",
+        "cp_event"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "SendLetters=true для mail asserts",
+        "NeedsMineRescueEvent=False после injury_reset"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Warning",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Apply MineForbidden"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Повторный вход с forbidden",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console: debug ebi eventHarveyMineInterception (не StardewMCP)"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventHarveyMineInterception — нет black screen / NRE"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — управление вернулось",
+          "tool": "injury_game_ui_status"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "black screen"
+        ],
+        "notes": [
+          "Игрок в логичной локации после event",
+          "Mine forbidden state не corrupted"
+        ]
+      },
+      "passCriteria": [
+        "CP event стартует и завершается",
+        "Нет NRE в SMAPI log",
+        "Управление вернулось игроку"
+      ],
+      "failureHints": [
+        "debug ebi в SMAPI console",
+        "docs/testing/11-hospital-proximity-events-tests.md HOI-CP-004"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_mine_forbidden_clear",
+          "description": "Снять MineForbidden debuff если остался"
+        }
+      ]
+    }
+  ]
+}

@@ -106,6 +106,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return false;
             }
 
+            // Хирургическая рана после лечения — WetStitches, не WetBandage
+            if (string.Equals(mainInjuryId, "buffSurgicalWound", StringComparison.OrdinalIgnoreCase))
+            {
+                LogWetBandageSkip(mainInjuryId, treatmentStarted, "surgical wound uses WetStitches");
+                return false;
+            }
+
             if (!HasActiveBandageOrWoundDressing())
             {
                 LogWetBandageSkip(mainInjuryId, treatmentStarted, "no active bandage/treatment");
@@ -188,6 +195,168 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 LogLevel.Info);
             _stateManager.Save();
         }
+
+        /// <summary>QA: добавить осложнение через TryApplyComplication с проверкой eligibility.</summary>
+        public bool TryApplyComplicationForQa(string complicationId, int? ageDays, out string skipReason)
+        {
+            skipReason = string.Empty;
+            if (!InjurySets.KnownComplicationBuffIds.Contains(complicationId))
+            {
+                skipReason = "unknown complication id";
+                return false;
+            }
+
+            if (HasComplication(complicationId))
+            {
+                skipReason = "already active";
+                return false;
+            }
+
+            if (!CheckQaComplicationEligibility(complicationId, out skipReason))
+                return false;
+
+            var (requiredSet, topicDays) = GetQaComplicationParams(complicationId);
+            if (!TryApplyComplication(complicationId, requiredSet, topicDays))
+            {
+                skipReason = "apply failed";
+                return false;
+            }
+
+            if (ageDays.HasValue)
+            {
+                int today = GameUtils.Today();
+                int startDay = today - Math.Max(0, ageDays.Value);
+                _stateManager.State.ActiveComplications[complicationId] = startDay;
+                if (_stateManager.State.ActiveDebuffs.TryGetValue(complicationId, out DebuffState? ds))
+                {
+                    ds.InjuryStartDay = startDay;
+                    ds.PhaseStartDay = startDay;
+                }
+            }
+
+            _stateManager.Save();
+            return true;
+        }
+
+        /// <summary>QA: снять одно осложнение (buff + ActiveComplications + DebuffState + topic).</summary>
+        public bool RemoveComplicationForQa(string complicationId)
+        {
+            bool hadBuff = _buffManager.HasBuff(complicationId);
+            bool hadComplication = _stateManager.State.ActiveComplications.ContainsKey(complicationId);
+            bool hadDebuffState = _stateManager.HasDebuffState(complicationId);
+            bool hadTopic = _dialogueManager.HasTopic(GetComplicationTopic(complicationId));
+
+            if (!hadBuff && !hadComplication && !hadDebuffState && !hadTopic)
+                return false;
+
+            RemoveComplication(complicationId);
+            _stateManager.Save();
+            return true;
+        }
+
+        private bool CheckQaComplicationEligibility(string complicationId, out string skipReason)
+        {
+            skipReason = string.Empty;
+            string? mainInjuryId = GetActiveMainInjuryId();
+            DebuffState? mainDebuff = !string.IsNullOrEmpty(mainInjuryId)
+                ? _stateManager.GetDebuffState(mainInjuryId)
+                : null;
+            bool treatmentStarted = mainDebuff?.TreatmentStarted ?? false;
+
+            switch (complicationId)
+            {
+                case InjuryBuffs.DirtyWound:
+                    if (string.IsNullOrEmpty(mainInjuryId))
+                    {
+                        skipReason = "no main injury";
+                        return false;
+                    }
+                    if (!InjurySets.DirtyInMines.Contains(mainInjuryId))
+                    {
+                        skipReason = "main not in DirtyInMines";
+                        return false;
+                    }
+                    if (!_injuryManager.HasInjuryOrPhase(mainInjuryId))
+                    {
+                        skipReason = "no base buff or phase for main";
+                        return false;
+                    }
+                    return true;
+
+                case InjuryBuffs.WetBandage:
+                    if (string.IsNullOrEmpty(mainInjuryId))
+                    {
+                        skipReason = "no main injury";
+                        return false;
+                    }
+                    if (mainDebuff == null || !treatmentStarted)
+                    {
+                        skipReason = "treatment not started";
+                        return false;
+                    }
+                    if (!InjurySets.WetBandageSensitive.Contains(mainInjuryId))
+                    {
+                        skipReason = "main not WetBandageSensitive";
+                        return false;
+                    }
+                    if (!HasActiveBandageOrWoundDressing())
+                    {
+                        skipReason = "no active bandage/treatment";
+                        return false;
+                    }
+                    return true;
+
+                case InjuryBuffs.WetStitches:
+                    if (string.IsNullOrEmpty(mainInjuryId))
+                    {
+                        skipReason = "no main injury";
+                        return false;
+                    }
+                    if (!string.Equals(mainInjuryId, "buffSurgicalWound", StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(mainInjuryId, "buffShrapnelWounds", StringComparison.OrdinalIgnoreCase))
+                    {
+                        skipReason = "main not surgical/shrapnel";
+                        return false;
+                    }
+                    return true;
+
+                case InjuryBuffs.PainFlare:
+                    if (!IsMainInjuryIn(InjurySets.StormPainSensitive)
+                        && !IsMainInjuryIn(InjurySets.OverworkSensitive))
+                    {
+                        skipReason = "main not pain-sensitive";
+                        return false;
+                    }
+                    return true;
+
+                default:
+                    return true;
+            }
+        }
+
+        private (HashSet<string>? requiredSet, int topicDays) GetQaComplicationParams(string complicationId)
+        {
+            return complicationId switch
+            {
+                InjuryBuffs.DirtyWound => (InjurySets.DirtyInMines, 4),
+                InjuryBuffs.WetBandage => (InjurySets.WetBandageSensitive, 4),
+                InjuryBuffs.WetStitches => (QaSurgicalShrapnelSet, 4),
+                InjuryBuffs.PainFlare => (
+                    IsMainInjuryIn(InjurySets.StormPainSensitive)
+                        ? InjurySets.StormPainSensitive
+                        : InjurySets.OverworkSensitive,
+                    2),
+                InjuryBuffs.Neglect => (null, 7),
+                InjuryBuffs.AllergicRash => (null, 4),
+                _ => (null, 4),
+            };
+        }
+
+        private static readonly HashSet<string> QaSurgicalShrapnelSet = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "buffSurgicalWound",
+            "buffShrapnelWounds",
+        };
 
         private HashSet<string> CollectTrackedComplicationIds()
         {
@@ -891,6 +1060,38 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// Небрежность через стандартный путь осложнения (buff + ActiveComplications + topic).
+        /// </summary>
+        public bool TryApplyNeglectComplication(string? injuryIdForStrikes = null, HUDMessage? hudMessage = null)
+        {
+            bool alreadyActive = HasComplication(InjuryBuffs.Neglect);
+
+            if (!_dialogueManager.HasTopic(ConversationTopics.Neglect))
+                _dialogueManager.AddTopic(ConversationTopics.Neglect, 7);
+
+            if (alreadyActive)
+                return false;
+
+            bool applied = TryApplyComplication(
+                InjuryBuffs.Neglect,
+                requiredMainInjurySet: null,
+                topicDays: 7,
+                hudMessage ?? new HUDMessage(
+                    "Травма ухудшилась из-за отсутствия лечения!",
+                    HUDMessage.error_type));
+
+            if (applied && !string.IsNullOrEmpty(injuryIdForStrikes))
+            {
+                int strikes = _stateManager.IncrementNeglectStrikes(injuryIdForStrikes);
+                _monitor.Log(
+                    $"📊 [Neglect] strikes ({injuryIdForStrikes}): {strikes}",
+                    LogLevel.Warn);
+            }
+
+            return applied;
+        }
+
+        /// <summary>
         /// Дней отсрочки после окончания текущей фазы, прежде чем наступит небрежность.
         /// </summary>
         private int GetNeglectGraceDays(string injuryId)
@@ -988,22 +1189,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
                         $"🚫 ОСЛОЖНЕНИЕ: {injuryId} → небрежность (день {daysSincePhaseStart}, порог {neglectDay})",
                         LogLevel.Error);
 
-                    if (!Game1.player.hasBuff(InjuryBuffs.Neglect))
-                    {
-                        _buffManager.AddBuff(InjuryBuffs.Neglect, -2);
-                        _dialogueManager.AddTopic(ConversationTopics.Neglect, 7);
-                        int strikes = _stateManager.IncrementNeglectStrikes(injuryId);
-                        _monitor.Log(
-                            $"📊 Счетчик небрежности ({injuryId}): {strikes}",
-                            LogLevel.Warn);
-                    }
+                    TryApplyNeglectComplication(
+                        injuryId,
+                        sentNeglect
+                            ? null
+                            : new HUDMessage(
+                                "Травма ухудшилась из-за отсутствия лечения!",
+                                HUDMessage.error_type));
 
                     if (!sentNeglect)
                     {
                         sentNeglect = true;
                         if (_config.SendLetters)
                             Game1.addMailForTomorrow(MailIds.NeglectWarning);
-                        Game1.addHUDMessage(new HUDMessage("Травма ухудшилась из-за отсутствия лечения!", HUDMessage.error_type));
                     }
                 }
             }

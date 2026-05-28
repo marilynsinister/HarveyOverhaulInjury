@@ -252,7 +252,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager.AddTopic(ConversationTopics.TreatmentCompleted, 7);
 
             StardewValley.Game1.addHUDMessage(new StardewValley.HUDMessage(
-                "🎉 Лечение завершено! Ты полностью здоров${^а}$!",
+                "🎉 Лечение завершено! Ты полностью здорова!",
                 StardewValley.HUDMessage.achievement_type));
         }
         

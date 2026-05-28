@@ -10,6 +10,20 @@ using StardewValley.Locations;
 
 namespace HarveyOverhaul.InjuryCare.Managers
 {
+    /// <summary>Результат проверки согласованности основной травмы с баффами игрока.</summary>
+    public sealed class MainInjuryValidation
+    {
+        public bool Valid { get; init; }
+        public string? Reason { get; init; }
+        public string? MainInjuryId { get; init; }
+        public bool BaseBuffActive { get; init; }
+        public string? CureBuffId { get; init; }
+        public bool CureBuffActive { get; init; }
+        public string? PhaseBuffId { get; init; }
+        public bool PhaseBuffActive { get; init; }
+        public bool TreatmentStarted { get; init; }
+    }
+
     /// <summary>
     /// Управление травмами игрока
     /// </summary>
@@ -70,7 +84,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             bool forceReplace = false,
             bool suppressBlockedFeedback = false)
         {
-            string? currentMain = _stateManager.GetMainInjuryId();
+            string? currentMain = GetCurrentMainInjuryId();
 
             if (string.IsNullOrEmpty(currentMain))
             {
@@ -196,13 +210,234 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (currentState?.TreatmentStarted == true)
             {
                 _monitor.Log(
-                    $"[MainInjury] Upgrade заблокирован: {currentInjuryId} уже в лечении, попытка {newInjuryId}",
+                    $"[MainInjury] Upgrade blocked: current main injury {currentInjuryId} is already in treatment",
                     LogLevel.Info);
                 return false;
             }
 
             return true;
         }
+
+        /// <summary>
+        /// Основная травма из ActiveDebuffs по приоритету (без осложнений).
+        /// </summary>
+        public string? ResolveMainInjuryFromActiveDebuffs()
+        {
+            var candidates = _stateManager.State.ActiveDebuffs.Keys
+                .Where(id => IsBaseMainInjuryId(id))
+                .ToList();
+
+            return InjurySets.SelectMainInjuryByPriority(candidates);
+        }
+
+        /// <summary>
+        /// Текущий MainInjuryId: синхронизирует сохранённое значение с ActiveDebuffs.
+        /// </summary>
+        public string? GetCurrentMainInjuryId()
+        {
+            if (_stateManager.QaSuppressMainInjuryAutoSync)
+                return _stateManager.GetMainInjuryId();
+
+            string? resolved = ResolveMainInjuryFromActiveDebuffs();
+            if (resolved == null)
+                return _stateManager.GetMainInjuryId();
+
+            if (!_stateManager.IsMainInjury(resolved))
+                _stateManager.SetMainInjury(resolved, force: true);
+
+            return resolved;
+        }
+
+        /// <summary>
+        /// QA: ensure player buffs match ActiveDebuffs / ActiveComplications before daily checks or infection tests.
+        /// </summary>
+        public void SyncActiveBuffsFromStateForQa()
+        {
+            foreach (var (buffId, debuffState) in _stateManager.State.ActiveDebuffs)
+            {
+                if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
+                    continue;
+
+                if (!debuffState.TreatmentStarted && !_buffManager.HasBuff(buffId))
+                    _buffManager.AddBuff(buffId, -2);
+            }
+
+            foreach (string compId in _stateManager.State.ActiveComplications.Keys)
+            {
+                if (!_buffManager.HasBuff(compId))
+                    _buffManager.AddBuff(compId, -2);
+            }
+        }
+
+        public string? GetExpectedCureBuffId(string injuryId)
+        {
+            if (TreatmentManager.CureByInjury.TryGetValue(injuryId, out string? cureBuff))
+                return cureBuff;
+
+            return null;
+        }
+
+        public bool IsCureBuffActive(string injuryId)
+        {
+            string? cureBuffId = GetExpectedCureBuffId(injuryId);
+            if (cureBuffId == null)
+                return false;
+
+            if (_buffManager.HasBuff(cureBuffId))
+                return true;
+
+            return string.Equals(injuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase)
+                && _buffManager.HasBuff(CureBuffs.BadlyHurtOutpatientCare);
+        }
+
+        /// <summary>
+        /// Проверить согласованность основной травмы с DebuffState и активными баффами.
+        /// </summary>
+        public MainInjuryValidation ValidateMainInjury(string? mainInjuryId)
+        {
+            if (string.IsNullOrEmpty(mainInjuryId))
+                return new MainInjuryValidation { Valid = false, Reason = "no main injury id" };
+
+            if (InjurySets.KnownComplicationBuffIds.Contains(mainInjuryId))
+            {
+                return new MainInjuryValidation
+                {
+                    Valid = false,
+                    Reason = "main id is a complication",
+                    MainInjuryId = mainInjuryId,
+                };
+            }
+
+            DebuffState? debuffState = _stateManager.GetDebuffState(mainInjuryId);
+            if (debuffState == null)
+            {
+                return new MainInjuryValidation
+                {
+                    Valid = false,
+                    Reason = "no DebuffState in ActiveDebuffs",
+                    MainInjuryId = mainInjuryId,
+                };
+            }
+
+            bool baseBuffActive = _buffManager.HasBuff(mainInjuryId);
+            string? cureBuffId = GetExpectedCureBuffId(mainInjuryId);
+            bool cureBuffActive = IsCureBuffActive(mainInjuryId);
+            string? phaseBuffId = debuffState.TreatmentStarted && debuffState.IsPhasedInjury && debuffState.CurrentPhase > 0
+                ? GetPhaseBuffId(mainInjuryId, debuffState.CurrentPhase)
+                : null;
+            bool phaseBuffActive = !string.IsNullOrEmpty(phaseBuffId) && _buffManager.HasBuff(phaseBuffId);
+
+            if (!debuffState.TreatmentStarted)
+            {
+                if (!baseBuffActive)
+                {
+                    return new MainInjuryValidation
+                    {
+                        Valid = false,
+                        Reason = "TreatmentStarted=false but base buff missing",
+                        MainInjuryId = mainInjuryId,
+                        BaseBuffActive = baseBuffActive,
+                        CureBuffId = cureBuffId,
+                        CureBuffActive = cureBuffActive,
+                        PhaseBuffId = phaseBuffId,
+                        PhaseBuffActive = phaseBuffActive,
+                        TreatmentStarted = false,
+                    };
+                }
+
+                return BuildValidMainInjuryValidation(
+                    mainInjuryId, debuffState, baseBuffActive, cureBuffId, cureBuffActive, phaseBuffId, phaseBuffActive);
+            }
+
+            if (TreatmentManager.IsSimpleTreatmentInjury(mainInjuryId))
+            {
+                if (!cureBuffActive)
+                {
+                    return new MainInjuryValidation
+                    {
+                        Valid = false,
+                        Reason = $"TreatmentStarted=true but cure buff {cureBuffId} missing",
+                        MainInjuryId = mainInjuryId,
+                        BaseBuffActive = baseBuffActive,
+                        CureBuffId = cureBuffId,
+                        CureBuffActive = false,
+                        PhaseBuffId = phaseBuffId,
+                        PhaseBuffActive = phaseBuffActive,
+                        TreatmentStarted = true,
+                    };
+                }
+
+                return BuildValidMainInjuryValidation(
+                    mainInjuryId, debuffState, baseBuffActive, cureBuffId, cureBuffActive, phaseBuffId, phaseBuffActive);
+            }
+
+            if (debuffState.IsPhasedInjury)
+            {
+                if (debuffState.CurrentPhase <= 0)
+                {
+                    return new MainInjuryValidation
+                    {
+                        Valid = false,
+                        Reason = "TreatmentStarted=true but CurrentPhase=0 for phased injury",
+                        MainInjuryId = mainInjuryId,
+                        BaseBuffActive = baseBuffActive,
+                        CureBuffId = cureBuffId,
+                        CureBuffActive = cureBuffActive,
+                        PhaseBuffId = phaseBuffId,
+                        PhaseBuffActive = phaseBuffActive,
+                        TreatmentStarted = true,
+                    };
+                }
+
+                if (!phaseBuffActive)
+                {
+                    return new MainInjuryValidation
+                    {
+                        Valid = false,
+                        Reason = $"TreatmentStarted=true but phase buff {phaseBuffId} missing",
+                        MainInjuryId = mainInjuryId,
+                        BaseBuffActive = baseBuffActive,
+                        CureBuffId = cureBuffId,
+                        CureBuffActive = cureBuffActive,
+                        PhaseBuffId = phaseBuffId,
+                        PhaseBuffActive = false,
+                        TreatmentStarted = true,
+                    };
+                }
+
+                return BuildValidMainInjuryValidation(
+                    mainInjuryId, debuffState, baseBuffActive, cureBuffId, cureBuffActive, phaseBuffId, phaseBuffActive);
+            }
+
+            return BuildValidMainInjuryValidation(
+                mainInjuryId, debuffState, baseBuffActive, cureBuffId, cureBuffActive, phaseBuffId, phaseBuffActive);
+        }
+
+        public MainInjuryValidation GetMainInjuryDebugInfo()
+        {
+            string? mainId = GetCurrentMainInjuryId() ?? ResolveMainInjuryFromActiveDebuffs();
+            return ValidateMainInjury(mainId);
+        }
+
+        private static MainInjuryValidation BuildValidMainInjuryValidation(
+            string mainInjuryId,
+            DebuffState debuffState,
+            bool baseBuffActive,
+            string? cureBuffId,
+            bool cureBuffActive,
+            string? phaseBuffId,
+            bool phaseBuffActive) =>
+            new()
+            {
+                Valid = true,
+                MainInjuryId = mainInjuryId,
+                BaseBuffActive = baseBuffActive,
+                CureBuffId = cureBuffId,
+                CureBuffActive = cureBuffActive,
+                PhaseBuffId = phaseBuffId,
+                PhaseBuffActive = phaseBuffActive,
+                TreatmentStarted = debuffState.TreatmentStarted,
+            };
 
         private void RemoveMainInjuryTopics(string injuryId)
         {
@@ -236,36 +471,26 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public string? GetActiveInjury()
         {
-            string? mainInjuryId = _stateManager.GetMainInjuryId();
-
-            if (!string.IsNullOrEmpty(mainInjuryId))
+            string? mainInjuryId = ResolveMainInjuryFromActiveDebuffs();
+            if (mainInjuryId == null)
             {
-                if (!IsBaseMainInjuryId(mainInjuryId))
-                {
-                    _stateManager.ClearMainInjury(mainInjuryId);
-                }
-                else if (HasInjuryOrPhase(mainInjuryId))
-                {
-                    LogActiveMainInjury(mainInjuryId);
-                    return mainInjuryId;
-                }
-                else
-                {
-                    _stateManager.ClearMainInjury(mainInjuryId);
-                }
+                string? storedMain = _stateManager.GetMainInjuryId();
+                if (!string.IsNullOrEmpty(storedMain))
+                    _stateManager.ClearMainInjury(storedMain);
+                return null;
             }
 
-            foreach (string injuryId in InjurySets.MainInjuryPriorityOrder)
+            if (!IsBaseMainInjuryId(mainInjuryId))
             {
-                if (!HasInjuryOrPhase(injuryId))
-                    continue;
-
-                _stateManager.SetMainInjury(injuryId);
-                LogActiveMainInjury(injuryId);
-                return injuryId;
+                _stateManager.ClearMainInjury(mainInjuryId);
+                return null;
             }
 
-            return null;
+            if (!_stateManager.IsMainInjury(mainInjuryId))
+                _stateManager.SetMainInjury(mainInjuryId, force: true);
+
+            LogActiveMainInjury(mainInjuryId);
+            return mainInjuryId;
         }
 
         /// <summary>
@@ -326,25 +551,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public bool HasAnySevereInjuryOrPhase() => IsMainInjurySerious();
 
         /// <summary>
-        /// Проверить наличие травмы или её фазы
+        /// Проверить наличие травмы или её фазы (DebuffState + ожидаемый бафф для текущего этапа лечения).
         /// </summary>
-        public bool HasInjuryOrPhase(string injuryId)
-        {
-            // Проверяем основную травму
-            if (_buffManager.HasBuff(injuryId))
-                return true;
-
-            // Проверяем фазовые баффы через новую систему DebuffState
-            var debuffState = _stateManager.GetDebuffState(injuryId);
-            if (debuffState != null && debuffState.IsInTreatment)
-            {
-                string phaseBuffId = GetPhaseBuffId(injuryId, debuffState.CurrentPhase);
-                if (_buffManager.HasBuff(phaseBuffId))
-                    return true;
-            }
-
-            return false;
-        }
+        public bool HasInjuryOrPhase(string injuryId) => ValidateMainInjury(injuryId).Valid;
 
         /// <summary>
         /// Получить ID баффа фазы (с учетом реальных ID из JSON)
@@ -886,8 +1095,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (_config.ForceHospitalization)
             {
-                var harvey = HarveyHelper.FindHarvey(Game1.currentLocation);
-                _hospitalizationManager.StartForcedHospitalization("buffConcussion", harvey);
+                _hospitalizationManager.StartForcedHospitalization(
+                    "buffConcussion",
+                    HarveyHelper.GetHarvey());
             }
         }
 

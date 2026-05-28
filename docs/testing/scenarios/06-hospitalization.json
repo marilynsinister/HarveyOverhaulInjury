@@ -1,0 +1,738 @@
+{
+  "suiteId": "06-hospitalization",
+  "suiteName": "Принудительная госпитализация",
+  "description": "Hospital hold, bed warp, exit lock, discharge, activities. Источник: docs/testing/11-hospital-proximity-events-tests.md.",
+  "requires": {
+    "stardewMcp": true,
+    "smapiConsole": true,
+    "manualClick": true,
+    "debugCommands": [
+      "injury_reset",
+      "injury_debuff_add",
+      "injury_phase_list"
+    ]
+  },
+  "tests": [
+    {
+      "id": "HOI-HOSP-001",
+      "title": "Forced hospitalization start",
+      "priority": "P0",
+      "mechanics": [
+        "hospitalization",
+        "forced"
+      ],
+      "preconditions": [
+        "ForceHospitalization=true в config",
+        "MinHospitalStayMinutes / HospitalBedX/Y записать в журнал"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_topic_add",
+          "description": "topicMineInjuryRescue для forced hosp (если injury_topic_add доступен)",
+          "args": {
+            "topic_id": "topicMineInjuryRescue"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Если injury_topic_add недоступен — использовать injury_foreign_topic_add topicMineInjuryRescue или pipeline PASSOUT-002"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "10am",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Вход в Hospital — старт hold",
+          "args": {
+            "location": "Hospital"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "injury_hospital_status после входа",
+          "command": "injury_hospital_status"
+        },
+        {
+          "type": "observe",
+          "description": "Hospital hold: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Hospital hold: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Hospital hold: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "IsHospitalized": true,
+          "HospitalizedInjuryId": "buffBadlyHurt",
+          "HospitalizationReason": "mine_rescue"
+        },
+        "topicsAbsent": [
+          "topicMineInjuryRescue"
+        ],
+        "logsContain": [
+          "ПРИНУДИТЕЛЬНАЯ ГОСПИТАЛИЗАЦИЯ"
+        ]
+      },
+      "passCriteria": [
+        "IsHospitalized=true",
+        "HospitalizationReason=mine_rescue",
+        "topicMineInjuryRescue снят"
+      ],
+      "failureHints": [
+        "HospitalizationManager",
+        "Нужна команда injury_hospital_status",
+        "Нужна команда injury_topic_add"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_hospital_discharge",
+          "description": "Emergency discharge если hold остался (если команда доступна)"
+        }
+      ]
+    },
+    {
+      "id": "HOI-HOSP-002",
+      "title": "Warp на HospitalBedX/Y",
+      "priority": "P1",
+      "mechanics": [
+        "hospitalization",
+        "warp"
+      ],
+      "preconditions": [
+        "ForceHospitalization=true в config",
+        "MinHospitalStayMinutes / HospitalBedX/Y записать в журнал"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_topic_add",
+          "description": "topicMineInjuryRescue для forced hosp (если injury_topic_add доступен)",
+          "args": {
+            "topic_id": "topicMineInjuryRescue"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Если injury_topic_add недоступен — использовать injury_foreign_topic_add topicMineInjuryRescue или pipeline PASSOUT-002"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "10am",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Вход в Hospital — старт hold",
+          "args": {
+            "location": "Hospital"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Координаты игрока после hosp start"
+        },
+        {
+          "type": "note",
+          "description": "Сверить tile с config HospitalBedX/HospitalBedY (default 20/4)"
+        }
+      ],
+      "expected": {
+        "location": "Hospital",
+        "notes": [
+          "Игрок на койке HospitalBedX/Y из config.json"
+        ]
+      },
+      "passCriteria": [
+        "get_player_info: location=Hospital, tile ≈ HospitalBedX/Y"
+      ],
+      "failureHints": [
+        "HospitalizationManager.WarpToHospitalBed",
+        "Config HospitalBedX/Y"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_hospital_discharge",
+          "description": "Emergency discharge если hold остался (если команда доступна)"
+        }
+      ]
+    },
+    {
+      "id": "HOI-HOSP-003",
+      "title": "Выход заблокирован до MinHospitalStayMinutes",
+      "priority": "P1",
+      "mechanics": [
+        "hospitalization",
+        "lock"
+      ],
+      "preconditions": [
+        "ForceHospitalization=true в config",
+        "MinHospitalStayMinutes / HospitalBedX/Y записать в журнал"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_topic_add",
+          "description": "topicMineInjuryRescue для forced hosp (если injury_topic_add доступен)",
+          "args": {
+            "topic_id": "topicMineInjuryRescue"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Если injury_topic_add недоступен — использовать injury_foreign_topic_add topicMineInjuryRescue или pipeline PASSOUT-002"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "10am",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Вход в Hospital — старт hold",
+          "args": {
+            "location": "Hospital"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Попытка выхода из Hospital (exit tile)",
+          "args": {
+            "location": "Hospital",
+            "x": 10,
+            "y": 19
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Попытаться выйти из Hospital — warp заблокирован"
+        },
+        {
+          "type": "observe",
+          "description": "injury_hospital_status — CanDischarge=false",
+          "command": "injury_hospital_status"
+        }
+      ],
+      "expected": {
+        "location": "Hospital",
+        "logsContain": [
+          "Попытка покинуть больницу заблокирована"
+        ]
+      },
+      "passCriteria": [
+        "Игрок остаётся в Hospital до min stay",
+        "HandleWarpAttempt блокирует exit"
+      ],
+      "failureHints": [
+        "TimeEventHandler HandleWarpAttempt",
+        "Нужна команда injury_hospital_status"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_hospital_discharge",
+          "description": "Emergency discharge если hold остался (если команда доступна)"
+        }
+      ]
+    },
+    {
+      "id": "HOI-HOSP-004",
+      "title": "Выход разрешён после срока",
+      "priority": "P1",
+      "mechanics": [
+        "hospitalization",
+        "discharge"
+      ],
+      "preconditions": [
+        "ForceHospitalization=true в config",
+        "MinHospitalStayMinutes / HospitalBedX/Y записать в журнал"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_topic_add",
+          "description": "topicMineInjuryRescue для forced hosp (если injury_topic_add доступен)",
+          "args": {
+            "topic_id": "topicMineInjuryRescue"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Если injury_topic_add недоступен — использовать injury_foreign_topic_add topicMineInjuryRescue или pipeline PASSOUT-002"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "10am",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Вход в Hospital — старт hold",
+          "args": {
+            "location": "Hospital"
+          }
+        },
+        {
+          "type": "note",
+          "description": "StardewMCP set_time / pause_time false — прогнать MinHospitalStayMinutes игровых минут"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "pause_time",
+          "description": "Разрешить течение времени",
+          "args": {
+            "paused": false
+          }
+        },
+        {
+          "type": "wait",
+          "description": "Ожидание MinHospitalStayMinutes (default 120 игровых минут)",
+          "args": {
+            "seconds": 60
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Попытка выхода из Hospital после срока — должна пройти"
+        },
+        {
+          "type": "observe",
+          "description": "injury_hospital_status — IsHospitalized=false",
+          "command": "injury_hospital_status"
+        }
+      ],
+      "expected": {
+        "state": {
+          "IsHospitalized": false
+        },
+        "logsContain": [
+          "Минимальный срок госпитализации прошёл"
+        ]
+      },
+      "passCriteria": [
+        "CanDischarge после min stay",
+        "IsHospitalized=false после выхода"
+      ],
+      "failureHints": [
+        "HospitalizationManager.CanDischarge / Discharge"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_hospital_discharge",
+          "description": "Emergency discharge если hold остался (если команда доступна)"
+        }
+      ]
+    },
+    {
+      "id": "HOI-HOSP-005",
+      "title": "Hospital activities каждые 20 игровых минут",
+      "priority": "P2",
+      "mechanics": [
+        "hospitalization",
+        "activities"
+      ],
+      "preconditions": [
+        "ForceHospitalization=true в config",
+        "MinHospitalStayMinutes / HospitalBedX/Y записать в журнал"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_topic_add",
+          "description": "topicMineInjuryRescue для forced hosp (если injury_topic_add доступен)",
+          "args": {
+            "topic_id": "topicMineInjuryRescue"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Если injury_topic_add недоступен — использовать injury_foreign_topic_add topicMineInjuryRescue или pipeline PASSOUT-002"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "10am",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Вход в Hospital — старт hold",
+          "args": {
+            "location": "Hospital"
+          }
+        },
+        {
+          "type": "note",
+          "description": "В config временно HospitalActivityIntervalMinutes=20 для теста"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "pause_time",
+          "description": "Время течёт",
+          "args": {
+            "paused": false
+          }
+        },
+        {
+          "type": "wait",
+          "description": "Прогнать ≥20 игровых минут in-hospital",
+          "args": {
+            "seconds": 45
+          }
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: 🏥 Активность #N"
+        }
+      ],
+      "expected": {
+        "logsContain": [
+          "🏥 Активность"
+        ],
+        "notes": [
+          "MaxHospitalActivitiesPerStay лимит из config"
+        ]
+      },
+      "passCriteria": [
+        "Hospital activity log каждые N минут",
+        "Не более MaxHospitalActivitiesPerStay"
+      ],
+      "failureHints": [
+        "HospitalActivityManager",
+        "Config HospitalActivityIntervalMinutes"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_hospital_discharge",
+          "description": "Emergency discharge если hold остался (если команда доступна)"
+        }
+      ]
+    },
+    {
+      "id": "HOI-HOSP-006",
+      "title": "injury_hospital_discharge — emergency exit",
+      "priority": "P1",
+      "mechanics": [
+        "hospitalization",
+        "debug"
+      ],
+      "preconditions": [
+        "ForceHospitalization=true в config",
+        "MinHospitalStayMinutes / HospitalBedX/Y записать в журнал"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_topic_add",
+          "description": "topicMineInjuryRescue для forced hosp (если injury_topic_add доступен)",
+          "args": {
+            "topic_id": "topicMineInjuryRescue"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Если injury_topic_add недоступен — использовать injury_foreign_topic_add topicMineInjuryRescue или pipeline PASSOUT-002"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "10am",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Вход в Hospital — старт hold",
+          "args": {
+            "location": "Hospital"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_hospital_discharge",
+          "description": "Принудительный discharge (если команда есть)"
+        },
+        {
+          "type": "observe",
+          "description": "injury_hospital_status после discharge",
+          "command": "injury_hospital_status"
+        },
+        {
+          "type": "manual",
+          "description": "Проверить выход из Hospital без ожидания min stay"
+        }
+      ],
+      "expected": {
+        "state": {
+          "IsHospitalized": false
+        },
+        "location": "Hospital"
+      },
+      "passCriteria": [
+        "injury_hospital_discharge ok=yes",
+        "Hold снят, buff cleanup по правилам discharge"
+      ],
+      "failureHints": [
+        "Нужна команда injury_hospital_discharge",
+        "HospitalizationManager.Discharge"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_hospital_discharge",
+          "description": "Emergency discharge если hold остался (если команда доступна)"
+        }
+      ]
+    },
+    {
+      "id": "HOI-HOSP-007",
+      "title": "Другое событие при выходе не ломает госпитализацию",
+      "priority": "P1",
+      "mechanics": [
+        "hospitalization",
+        "regression"
+      ],
+      "preconditions": [
+        "ForceHospitalization=true в config",
+        "MinHospitalStayMinutes / HospitalBedX/Y записать в журнал"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_topic_add",
+          "description": "topicMineInjuryRescue для forced hosp (если injury_topic_add доступен)",
+          "args": {
+            "topic_id": "topicMineInjuryRescue"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Если injury_topic_add недоступен — использовать injury_foreign_topic_add topicMineInjuryRescue или pipeline PASSOUT-002"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "10am",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Вход в Hospital — старт hold",
+          "args": {
+            "location": "Hospital"
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI: debug ebi eventStayInHospital во время hold (до discharge)"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать короткий CP event — esc если зависло"
+        },
+        {
+          "type": "observe",
+          "description": "injury_hospital_status — hold сохранён",
+          "command": "injury_hospital_status"
+        },
+        {
+          "type": "manual",
+          "description": "После event — hospital lock всё ещё активен"
+        }
+      ],
+      "expected": {
+        "state": {
+          "IsHospitalized": true
+        },
+        "logsNotContain": [
+          "NullReferenceException"
+        ],
+        "notes": [
+          "[Warped] Пропуск location logic: активно событие — ожидаемо во время cutscene"
+        ]
+      },
+      "passCriteria": [
+        "Hospital hold не сброшен чужим event",
+        "Нет NRE",
+        "После event CanDischarge logic intact"
+      ],
+      "failureHints": [
+        "TimeEventHandler regression",
+        "debug ebi eventStayInHospital"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_hospital_discharge",
+          "description": "Emergency discharge если hold остался (если команда доступна)"
+        }
+      ]
+    }
+  ]
+}

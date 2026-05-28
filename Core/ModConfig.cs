@@ -5,6 +5,12 @@ namespace HarveyOverhaul.InjuryCare.Core
     /// </summary>
     public sealed class ModConfig
     {
+        /// <summary>MCP HTTP server for Cursor/agents (injury_* debug tools). localhost only.</summary>
+        public bool EnableInjuryMcp { get; set; } = true;
+
+        /// <summary>Port for Injury MCP (default 24843; StardewMCP uses 24842).</summary>
+        public int InjuryMcpPort { get; set; } = 24843;
+
         public bool OnlyAtClinic { get; set; } = true;
         public bool SendLetters { get; set; } = true;
 

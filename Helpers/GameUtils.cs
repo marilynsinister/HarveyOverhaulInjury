@@ -22,6 +22,11 @@ namespace HarveyOverhaul.InjuryCare.Helpers
         /// <param name="probability">Вероятность от 0.0 до 1.0</param>
         public static bool Roll(double probability)
         {
+            if (probability >= 1.0)
+                return true;
+            if (probability <= 0.0)
+                return false;
+
             return Game1.random.NextDouble() < probability;
         }
 

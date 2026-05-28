@@ -126,14 +126,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             _monitor.Log("Ночной визит Харви", LogLevel.Info);
 
-            var harvey = HarveyHelper.FindHarvey(Game1.currentLocation);
             string line = "Тихо постучал и заглянул — не спи на животе, ладно?$u#$b#" +
                             "Пульс ровный. Не геройствуй до утра — я присмотрю.$l";
 
+            var harvey = HarveyHelper.GetHarvey();
             if (harvey != null)
                 _dialogueManager.Speak(harvey, line);
-            else
-                Game1.drawObjectDialogue(line);
 
             _stateManager.State.LastNightRoundDay = today;
             _stateManager.Save();

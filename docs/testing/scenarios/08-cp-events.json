@@ -1,0 +1,1088 @@
+{
+  "suiteId": "08-cp-events",
+  "suiteName": "CP cutscenes — debug ebi smoke",
+  "description": "Smoke CP InjuryCare events через debug ebi: no black screen, no NRE, control restored. Источник: docs/testing/11-hospital-proximity-events-tests.md, 02-cp-content-inventory.md.",
+  "requires": {
+    "stardewMcp": true,
+    "smapiConsole": true,
+    "manualClick": true,
+    "debugCommands": [
+      "injury_reset",
+      "injury_debug_dump",
+      "injury_game_ui_status"
+    ]
+  },
+  "tests": [
+    {
+      "id": "HOI-CP-001",
+      "title": "eventHarveyMineRescueDating smoke",
+      "priority": "P1",
+      "mechanics": [
+        "cp_event",
+        "eventHarveyMineRescueDating"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey dating/married для dating-specific events (get_npc_info)",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Warp на локацию event eventHarveyMineRescueDating",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console (не StardewMCP): debug ebi eventHarveyMineRescueDating"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventHarveyMineRescueDating — дождаться возврата управления, нет чёрного экрана"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — event ended, menu closed",
+          "tool": "injury_game_ui_status"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Локация игрока после event"
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: нет NullReferenceException",
+          "command": "injury_debug_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics/buffs после event",
+          "command": "injury_topic_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Buffs после event",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Cutscene завершилась — управление игроку",
+          "Нет зависшего чёрного экрана (esc + log если FAIL)",
+          "Dating/married Harvey required"
+        ],
+        "topicsPresent": [
+          "topicMineInjuryRescue"
+        ],
+        "buffsPresent": [
+          "buffBadlyHurt"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi eventHarveyMineRescueDating стартует без exception",
+        "Нет чёрного экрана / NRE в SMAPI log",
+        "Управление вернулось игроку после cutscene",
+        "Игрок в логичной локации (обычно Hospital для rescue)"
+      ],
+      "failureHints": [
+        "CP event eventHarveyMineRescueDating — docs/testing/02-cp-content-inventory.md",
+        "docs/events-inventory/01-cp-events-catalog.md",
+        "injury_game_ui_end_event в Injury MCP если зависло",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CP-002",
+      "title": "eventHarveyMineRescue smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "eventHarveyMineRescue"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey dating/married для dating-specific events (get_npc_info)",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Warp на локацию event eventHarveyMineRescue",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console (не StardewMCP): debug ebi eventHarveyMineRescue"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventHarveyMineRescue — дождаться возврата управления, нет чёрного экрана"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — event ended, menu closed",
+          "tool": "injury_game_ui_status"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Локация игрока после event"
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: нет NullReferenceException",
+          "command": "injury_debug_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics/buffs после event",
+          "command": "injury_topic_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Buffs после event",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Cutscene завершилась — управление игроку",
+          "Нет зависшего чёрного экрана (esc + log если FAIL)",
+          "Legacy fallback !dating"
+        ],
+        "topicsPresent": [
+          "topicMineInjuryRescue"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi eventHarveyMineRescue стартует без exception",
+        "Нет чёрного экрана / NRE в SMAPI log",
+        "Управление вернулось игроку после cutscene",
+        "Игрок в логичной локации (обычно Hospital для rescue)"
+      ],
+      "failureHints": [
+        "CP event eventHarveyMineRescue — docs/testing/02-cp-content-inventory.md",
+        "docs/events-inventory/01-cp-events-catalog.md",
+        "injury_game_ui_end_event в Injury MCP если зависло",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CP-003",
+      "title": "eventHarveyMinorMineRescue smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "eventHarveyMinorMineRescue"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey dating/married для dating-specific events (get_npc_info)",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Warp на локацию event eventHarveyMinorMineRescue",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console (не StardewMCP): debug ebi eventHarveyMinorMineRescue"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventHarveyMinorMineRescue — дождаться возврата управления, нет чёрного экрана"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — event ended, menu closed",
+          "tool": "injury_game_ui_status"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Локация игрока после event"
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: нет NullReferenceException",
+          "command": "injury_debug_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics/buffs после event",
+          "command": "injury_topic_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Buffs после event",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Cutscene завершилась — управление игроку",
+          "Нет зависшего чёрного экрана (esc + log если FAIL)"
+        ],
+        "topicsPresent": [
+          "topicHarveyMinorMineRescue"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi eventHarveyMinorMineRescue стартует без exception",
+        "Нет чёрного экрана / NRE в SMAPI log",
+        "Управление вернулось игроку после cutscene",
+        "Игрок в логичной локации (обычно Hospital для rescue)"
+      ],
+      "failureHints": [
+        "CP event eventHarveyMinorMineRescue — docs/testing/02-cp-content-inventory.md",
+        "docs/events-inventory/01-cp-events-catalog.md",
+        "injury_game_ui_end_event в Injury MCP если зависло",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CP-004",
+      "title": "eventHarveyMineInterception smoke",
+      "priority": "P1",
+      "mechanics": [
+        "cp_event",
+        "eventHarveyMineInterception"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey dating/married для dating-specific events (get_npc_info)",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Warp на локацию event eventHarveyMineInterception",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console (не StardewMCP): debug ebi eventHarveyMineInterception"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventHarveyMineInterception — дождаться возврата управления, нет чёрного экрана"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — event ended, menu closed",
+          "tool": "injury_game_ui_status"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Локация игрока после event"
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: нет NullReferenceException",
+          "command": "injury_debug_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics/buffs после event",
+          "command": "injury_topic_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Buffs после event",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Cutscene завершилась — управление игроку",
+          "Нет зависшего чёрного экрана (esc + log если FAIL)",
+          "Topic HarveyMineIntercept (не topic*)"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi eventHarveyMineInterception стартует без exception",
+        "Нет чёрного экрана / NRE в SMAPI log",
+        "Управление вернулось игроку после cutscene",
+        "Игрок в логичной локации (обычно Hospital для rescue)"
+      ],
+      "failureHints": [
+        "CP event eventHarveyMineInterception — docs/testing/02-cp-content-inventory.md",
+        "docs/events-inventory/01-cp-events-catalog.md",
+        "injury_game_ui_end_event в Injury MCP если зависло",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CP-005",
+      "title": "eventHarveySkullCavePrevention smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "eventHarveySkullCavePrevention"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey dating/married для dating-specific events (get_npc_info)",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp на локацию event eventHarveySkullCavePrevention",
+          "args": {
+            "location": "SkullCave",
+            "x": 5,
+            "y": 5
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console (не StardewMCP): debug ebi eventHarveySkullCavePrevention"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventHarveySkullCavePrevention — дождаться возврата управления, нет чёрного экрана"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — event ended, menu closed",
+          "tool": "injury_game_ui_status"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Локация игрока после event"
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: нет NullReferenceException",
+          "command": "injury_debug_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics/buffs после event",
+          "command": "injury_topic_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Buffs после event",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Cutscene завершилась — управление игроку",
+          "Нет зависшего чёрного экрана (esc + log если FAIL)"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi eventHarveySkullCavePrevention стартует без exception",
+        "Нет чёрного экрана / NRE в SMAPI log",
+        "Управление вернулось игроку после cutscene",
+        "Игрок в логичной локации (обычно Hospital для rescue)"
+      ],
+      "failureHints": [
+        "CP event eventHarveySkullCavePrevention — docs/testing/02-cp-content-inventory.md",
+        "docs/events-inventory/01-cp-events-catalog.md",
+        "injury_game_ui_end_event в Injury MCP если зависло",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CP-006",
+      "title": "eventStayInHospital orphan smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "eventStayInHospital"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey dating/married для dating-specific events (get_npc_info)",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp на локацию event eventStayInHospital",
+          "args": {
+            "location": "Hospital",
+            "x": 9,
+            "y": 16
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console (не StardewMCP): debug ebi eventStayInHospital"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventStayInHospital — дождаться возврата управления, нет чёрного экрана"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — event ended, menu closed",
+          "tool": "injury_game_ui_status"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Локация игрока после event"
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: нет NullReferenceException",
+          "command": "injury_debug_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics/buffs после event",
+          "command": "injury_topic_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Buffs после event",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Cutscene завершилась — управление игроку",
+          "Нет зависшего чёрного экрана (esc + log если FAIL)",
+          "Orphan — C# hosp не требует event"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi eventStayInHospital стартует без exception",
+        "Нет чёрного экрана / NRE в SMAPI log",
+        "Управление вернулось игроку после cutscene",
+        "Игрок в логичной локации (обычно Hospital для rescue)"
+      ],
+      "failureHints": [
+        "CP event eventStayInHospital — docs/testing/02-cp-content-inventory.md",
+        "docs/events-inventory/01-cp-events-catalog.md",
+        "injury_game_ui_end_event в Injury MCP если зависло",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CP-007",
+      "title": "eventHarveyLateNightCollapse smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "eventHarveyLateNightCollapse"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey dating/married для dating-specific events (get_npc_info)",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp на локацию event eventHarveyLateNightCollapse",
+          "args": {
+            "location": "Town",
+            "x": 37,
+            "y": 59
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Late night",
+          "args": {
+            "time": "1:30am"
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console (не StardewMCP): debug ebi eventHarveyLateNightCollapse"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventHarveyLateNightCollapse — дождаться возврата управления, нет чёрного экрана"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — event ended, menu closed",
+          "tool": "injury_game_ui_status"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Локация игрока после event"
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: нет NullReferenceException",
+          "command": "injury_debug_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics/buffs после event",
+          "command": "injury_topic_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Buffs после event",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Cutscene завершилась — управление игроку",
+          "Нет зависшего чёрного экрана (esc + log если FAIL)"
+        ],
+        "buffsPresent": [
+          "buffSleepy"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi eventHarveyLateNightCollapse стартует без exception",
+        "Нет чёрного экрана / NRE в SMAPI log",
+        "Управление вернулось игроку после cutscene",
+        "Игрок в логичной локации (обычно Hospital для rescue)"
+      ],
+      "failureHints": [
+        "CP event eventHarveyLateNightCollapse — docs/testing/02-cp-content-inventory.md",
+        "docs/events-inventory/01-cp-events-catalog.md",
+        "injury_game_ui_end_event в Injury MCP если зависло",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CP-008",
+      "title": "eventHarveyCheckHealthFarmer smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "eventHarveyCheckHealthFarmer"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey dating/married для dating-specific events (get_npc_info)",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp на локацию event eventHarveyCheckHealthFarmer",
+          "args": {
+            "location": "Farm",
+            "x": 64,
+            "y": 15
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Morning",
+          "args": {
+            "time": "8am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_npc_relationship",
+          "description": "Harvey dating hearts",
+          "args": {
+            "npc_name": "Harvey",
+            "hearts": 10
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console (не StardewMCP): debug ebi eventHarveyCheckHealthFarmer"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventHarveyCheckHealthFarmer — дождаться возврата управления, нет чёрного экрана"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — event ended, menu closed",
+          "tool": "injury_game_ui_status"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Локация игрока после event"
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: нет NullReferenceException",
+          "command": "injury_debug_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics/buffs после event",
+          "command": "injury_topic_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Buffs после event",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Cutscene завершилась — управление игроку",
+          "Нет зависшего чёрного экрана (esc + log если FAIL)",
+          "Requires PlayerKilled seen + dating"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi eventHarveyCheckHealthFarmer стартует без exception",
+        "Нет чёрного экрана / NRE в SMAPI log",
+        "Управление вернулось игроку после cutscene",
+        "Игрок в логичной локации (обычно Hospital для rescue)"
+      ],
+      "failureHints": [
+        "CP event eventHarveyCheckHealthFarmer — docs/testing/02-cp-content-inventory.md",
+        "docs/events-inventory/01-cp-events-catalog.md",
+        "injury_game_ui_end_event в Injury MCP если зависло",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CP-009",
+      "title": "eventHarveyEmergencyCare smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "eventHarveyEmergencyCare"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey dating/married для dating-specific events (get_npc_info)",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp на локацию event eventHarveyEmergencyCare",
+          "args": {
+            "location": "Hospital",
+            "x": 17,
+            "y": 7
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console (не StardewMCP): debug ebi eventHarveyEmergencyCare"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventHarveyEmergencyCare — дождаться возврата управления, нет чёрного экрана"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — event ended, menu closed",
+          "tool": "injury_game_ui_status"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Локация игрока после event"
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: нет NullReferenceException",
+          "command": "injury_debug_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics/buffs после event",
+          "command": "injury_topic_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Buffs после event",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Cutscene завершилась — управление игроку",
+          "Нет зависшего чёрного экрана (esc + log если FAIL)",
+          "C# PassOutHandler EmergencyCare queue"
+        ],
+        "buffsPresent": [
+          "buffBadlyHurt"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi eventHarveyEmergencyCare стартует без exception",
+        "Нет чёрного экрана / NRE в SMAPI log",
+        "Управление вернулось игроку после cutscene",
+        "Игрок в логичной локации (обычно Hospital для rescue)"
+      ],
+      "failureHints": [
+        "CP event eventHarveyEmergencyCare — docs/testing/02-cp-content-inventory.md",
+        "docs/events-inventory/01-cp-events-catalog.md",
+        "injury_game_ui_end_event в Injury MCP если зависло",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CP-010",
+      "title": "eventHarveyExhaustion smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "eventHarveyExhaustion"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey dating/married для dating-specific events (get_npc_info)",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp на локацию event eventHarveyExhaustion",
+          "args": {
+            "location": "Hospital",
+            "x": 17,
+            "y": 7
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console (не StardewMCP): debug ebi eventHarveyExhaustion"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventHarveyExhaustion — дождаться возврата управления, нет чёрного экрана"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — event ended, menu closed",
+          "tool": "injury_game_ui_status"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Локация игрока после event"
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: нет NullReferenceException",
+          "command": "injury_debug_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics/buffs после event",
+          "command": "injury_topic_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Buffs после event",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Cutscene завершилась — управление игроку",
+          "Нет зависшего чёрного экрана (esc + log если FAIL)"
+        ],
+        "topicsPresent": [
+          "topicFarmerExhausted"
+        ],
+        "buffsPresent": [
+          "buffHarveyDropper"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi eventHarveyExhaustion стартует без exception",
+        "Нет чёрного экрана / NRE в SMAPI log",
+        "Управление вернулось игроку после cutscene",
+        "Игрок в логичной локации (обычно Hospital для rescue)"
+      ],
+      "failureHints": [
+        "CP event eventHarveyExhaustion — docs/testing/02-cp-content-inventory.md",
+        "docs/events-inventory/01-cp-events-catalog.md",
+        "injury_game_ui_end_event в Injury MCP если зависло",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-CP-011",
+      "title": "eventHarveyTreatmentCollapse orphan smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "eventHarveyTreatmentCollapse"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв",
+        "Harvey dating/married для dating-specific events (get_npc_info)",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp на локацию event eventHarveyTreatmentCollapse",
+          "args": {
+            "location": "Hospital",
+            "x": 17,
+            "y": 7
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI debug console (не StardewMCP): debug ebi eventHarveyTreatmentCollapse"
+        },
+        {
+          "type": "manual",
+          "description": "Прогнать cutscene eventHarveyTreatmentCollapse — дождаться возврата управления, нет чёрного экрана"
+        },
+        {
+          "type": "observe",
+          "description": "injury_game_ui_status — event ended, menu closed",
+          "tool": "injury_game_ui_status"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_player_info",
+          "description": "Локация игрока после event"
+        },
+        {
+          "type": "observe",
+          "description": "SMAPI log: нет NullReferenceException",
+          "command": "injury_debug_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Topics/buffs после event",
+          "command": "injury_topic_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Buffs после event",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed"
+        ],
+        "notes": [
+          "Cutscene завершилась — управление игроку",
+          "Нет зависшего чёрного экрана (esc + log если FAIL)",
+          "Orphan — no C# trigger"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi eventHarveyTreatmentCollapse стартует без exception",
+        "Нет чёрного экрана / NRE в SMAPI log",
+        "Управление вернулось игроку после cutscene",
+        "Игрок в логичной локации (обычно Hospital для rescue)"
+      ],
+      "failureHints": [
+        "CP event eventHarveyTreatmentCollapse — docs/testing/02-cp-content-inventory.md",
+        "docs/events-inventory/01-cp-events-catalog.md",
+        "injury_game_ui_end_event в Injury MCP если зависло",
+        "Нужна команда injury_topic_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    }
+  ]
+}

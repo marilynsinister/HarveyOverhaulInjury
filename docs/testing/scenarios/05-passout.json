@@ -1,0 +1,472 @@
+{
+  "suiteId": "05-passout",
+  "suiteName": "Обмороки и mine rescue",
+  "description": "Critical HP, mine death rescue, forced hospital, exhaustion, late town collapse. Источник: docs/testing/10-mine-passout-tests.md.",
+  "requires": {
+    "stardewMcp": true,
+    "smapiConsole": true,
+    "manualClick": true,
+    "debugCommands": [
+      "injury_reset",
+      "injury_debuff_add",
+      "injury_debug_mine_rescue",
+      "injury_phase_list"
+    ]
+  },
+  "tests": [
+    {
+      "id": "HOI-PASSOUT-001",
+      "title": "HP 0–10 + Harvey dating/married → buffBadlyHurt",
+      "priority": "P0",
+      "mechanics": [
+        "pass_out",
+        "buffBadlyHurt"
+      ],
+      "preconditions": [
+        "Сейв с Harvey dating или married (StardewMCP get_npc_info)",
+        "ForceHospitalization в config записать в журнал"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Проверить Harvey dating/married",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_health",
+          "description": "HP 0–10 для critical pass-out",
+          "args": {
+            "health": 5
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Outdoor локация",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "manual",
+          "description": "Дождаться pass-out pipeline или simulate через gameplay damage"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Следующий день если pass-out overnight"
+        },
+        {
+          "type": "observe",
+          "description": "После pass-out: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После pass-out: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После pass-out: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "buffsPresent": [
+          "buffBadlyHurt"
+        ],
+        "topicsPresent": [
+          "topicBadlyHurt",
+          "topicHealthDamageCritical"
+        ],
+        "logsContain": [
+          "[PassOut]"
+        ]
+      },
+      "passCriteria": [
+        "buffBadlyHurt наложен при critical HP + dating Harvey",
+        "PassOutHandler отработал без NRE"
+      ],
+      "failureHints": [
+        "PassOutHandler critical pass-out",
+        "Нужна команда injury_pass_out_sim для полной автоматизации",
+        "Нужна команда injury_state_dump"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PASSOUT-002",
+      "title": "Mine death rescue pipeline",
+      "priority": "P0",
+      "mechanics": [
+        "mine_rescue",
+        "pass_out"
+      ],
+      "preconditions": [
+        "Сейв с Harvey dating или married (StardewMCP get_npc_info)"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "description": "Шахта",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_health",
+          "description": "HP=0 mine death",
+          "args": {
+            "health": 0
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Утро — mine rescue event queue"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debug_mine_rescue",
+          "description": "Альтернатива: QA flags mine rescue (Injury MCP)"
+        },
+        {
+          "type": "observe",
+          "description": "Mine rescue flags: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "Mine rescue flags: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "Mine rescue flags: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "manual",
+          "description": "Дождаться eventHarveyMineRescueDating или eventHarveyMineRescue cutscene"
+        }
+      ],
+      "expected": {
+        "topicsPresent": [
+          "topicMineInjuryRescue"
+        ],
+        "state": {
+          "NeedsMineRescueEvent": true
+        },
+        "notes": [
+          "PendingMineRescueEventId = eventHarveyMineRescueDating или eventHarveyMineRescue"
+        ]
+      },
+      "passCriteria": [
+        "NeedsMineRescueEvent=true после mine death",
+        "Mine rescue event запускается на DayStarted"
+      ],
+      "failureHints": [
+        "PassOutHandler.BeginMineRescueWarp",
+        "injury_debug_mine_rescue в Injury MCP"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PASSOUT-003",
+      "title": "topicMineInjuryRescue → forced hospitalization",
+      "priority": "P1",
+      "mechanics": [
+        "forced_hospitalization",
+        "mine_rescue"
+      ],
+      "preconditions": [
+        "ForceHospitalization=true в config"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_topic_add",
+          "description": "Мост topicMineInjuryRescue (если команда доступна; иначе injury_foreign_topic_add не подходит)",
+          "args": {
+            "topic_id": "topicMineInjuryRescue"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Если injury_topic_add недоступен: добиться topic через HOI-PASSOUT-002 pipeline"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "description": "Severe main buffBadlyHurt",
+          "args": {
+            "buff_id": "buffBadlyHurt"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Вход в Hospital",
+          "args": {
+            "location": "Hospital"
+          }
+        },
+        {
+          "type": "observe",
+          "description": "injury_hospital_status — IsHospitalized=true",
+          "command": "injury_hospital_status"
+        },
+        {
+          "type": "observe",
+          "description": "После forced hosp: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После forced hosp: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После forced hosp: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "state": {
+          "IsHospitalized": true,
+          "HospitalizedInjuryId": "buffBadlyHurt"
+        },
+        "topicsAbsent": [
+          "topicMineInjuryRescue"
+        ],
+        "location": "Hospital"
+      },
+      "passCriteria": [
+        "IsHospitalized=true при входе в Hospital",
+        "topicMineInjuryRescue снят"
+      ],
+      "failureHints": [
+        "HospitalizationManager.StartForcedHospitalizationWithExplanation",
+        "Нужна команда injury_topic_add",
+        "Нужна команда injury_hospital_status"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PASSOUT-004",
+      "title": "Exhaustion pass-out (stamina ≤ −15)",
+      "priority": "P1",
+      "mechanics": [
+        "exhaustion",
+        "pass_out"
+      ],
+      "preconditions": [
+        "Harvey dating для hospital event path"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Farm outdoor",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Истощить stamina до −15 через gameplay (инструменты) — StardewMCP не выставляет stamina напрямую"
+        },
+        {
+          "type": "manual",
+          "description": "Работать до exhaustion collapse или дождаться PassOutHandler exhaustion branch"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Если pass-out переносит на утро"
+        },
+        {
+          "type": "observe",
+          "description": "После exhaustion: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После exhaustion: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После exhaustion: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        }
+      ],
+      "expected": {
+        "topicsPresent": [
+          "topicFarmerExhausted"
+        ],
+        "logsContain": [
+          "[PassOutEvent]"
+        ],
+        "notes": [
+          "eventHarveyExhaustion может быть queued — см. HOI-CP-010"
+        ]
+      },
+      "passCriteria": [
+        "Exhaustion pass-out без NRE",
+        "topicFarmerExhausted или exhaustion event path"
+      ],
+      "failureHints": [
+        "PassOutHandler exhaustion branch",
+        "Нужна команда injury_pass_out_sim kind=exhaustion"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    },
+    {
+      "id": "HOI-PASSOUT-005",
+      "title": "Late town collapse (2:00 AM)",
+      "priority": "P1",
+      "mechanics": [
+        "pass_out",
+        "town_collapse"
+      ],
+      "preconditions": [
+        "Сейв с Harvey dating или married (StardewMCP get_npc_info)"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Изолированный старт"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Town late collapse tile",
+          "args": {
+            "location": "Town",
+            "x": 37,
+            "y": 59
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "После полуночи",
+          "args": {
+            "time": "2am"
+          }
+        },
+        {
+          "type": "wait",
+          "description": "Дождаться pass-out / collapse pipeline",
+          "args": {
+            "seconds": 30
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Утро после collapse"
+        },
+        {
+          "type": "observe",
+          "description": "После town collapse: injury_phase_list — MainInjuryId, phases, complications",
+          "tool": "injury_phase_list"
+        },
+        {
+          "type": "observe",
+          "description": "После town collapse: injury_state_dump (если команда доступна)",
+          "command": "injury_state_dump"
+        },
+        {
+          "type": "observe",
+          "description": "После town collapse: injury_buff_dump (если команда доступна)",
+          "command": "injury_buff_dump"
+        },
+        {
+          "type": "manual",
+          "description": "Проверить mailHarveySleepControl / topicPassedOutInTown если SendLetters=true"
+        }
+      ],
+      "expected": {
+        "topicsPresent": [
+          "topicPassedOutInTown"
+        ],
+        "logsContain": [
+          "[PassOut]"
+        ],
+        "notes": [
+          "eventHarveyLateNightCollapse — см. HOI-CP-007"
+        ]
+      },
+      "passCriteria": [
+        "Town pass-out/collapse без crash",
+        "topicPassedOutInTown или late collapse event"
+      ],
+      "failureHints": [
+        "PassOutHandler town late",
+        "CP eventHarveyLateNightCollapse"
+      ],
+      "cleanup": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset",
+          "description": "Гарантированный сброс injury_reset после теста"
+        }
+      ]
+    }
+  ]
+}

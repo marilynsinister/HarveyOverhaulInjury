@@ -15,6 +15,11 @@
 4. В игре нажмите **F10** — debug-HUD с активными травмами, флагами, топиками.
 5. В `config.json` мода: `SendLetters: true` — иначе письма не проверить.
 
+**Cursor + MCP:**
+
+- **Injury MCP** (`user-harvey-injury`, порт 24843) — `injury_*` команды и `MainInjuryId` для автотестов → [`injury-mcp.md`](injury-mcp.md)
+- **StardewMCP** (`user-stardew`, порт 24842) — телепорт, время, погода, NPC → [`stardew-mcp.md`](stardew-mcp.md)
+
 ---
 
 ## Консольные команды SMAPI
