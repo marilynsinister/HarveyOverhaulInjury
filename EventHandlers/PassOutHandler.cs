@@ -61,15 +61,17 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
-            // === Запуск отложенного события спасения после боевой смерти ===
+            // === Запуск отложенного утреннего rescue у кровати (FarmHouse) ===
             string pendingMineId = _stateManager.State.PendingMineRescueEventId;
             if (!string.IsNullOrEmpty(pendingMineId) &&
-                e.NewLocation?.NameOrUniqueName == "Mine")
+                IsFarmHouseLocation(e.NewLocation))
             {
-                _monitor.Log($"[MineRescue] Игрок в шахте — запускаем событие: {pendingMineId}", LogLevel.Info);
-                if (!TryStartLocationEvent(pendingMineId, "Mine", OnMineRescueEventFinished))
-                    RunMineRescueFallback(pendingMineId);
+                string farmHouseName = e.NewLocation!.NameOrUniqueName;
+                _monitor.Log($"[MineRescue] Игрок дома — запускаем утреннее событие: {pendingMineId}", LogLevel.Info);
+                if (TryStartFarmhouseMineRescueEvent(pendingMineId, farmHouseName))
+                    return;
 
+                RunMineRescueFallback(pendingMineId);
                 return;
             }
 
@@ -137,13 +139,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 }
             }
             // === 3. Шахтная гибель / rescue pipeline (без hospital cutscene) ===
-            else if (isDatingOrMarried &&
-                     isMinePassOut &&
+            else if (isMinePassOut &&
                      _stateManager.State.LastPassedOutHealth >= 0 &&
                      _stateManager.State.LastPassedOutHealth <= 10)
             {
                 _monitor.Log($"⚠️ Критический pass-out в шахте — mine rescue, не hospital cutscene", LogLevel.Warn);
                 _injuryManager.ApplyBadlyHurtFromMinePassOut();
+
+                if (CanHarveyMineRescue())
+                    _stateManager.State.NeedsMineRescueEvent = true;
             }
             // === 4. Обморок в городе из-за позднего времени ===
             else if (_stateManager.State.WasUpTooLate &&
@@ -182,7 +186,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (Game1.player.health > 0) return;
             if (_stateManager.State.NeedsMineRescueEvent) return;
-            if (!_dialogueManager.IsDatingOrMarriedToHarvey()) return;
 
             _stateManager.State.WasPassedOut = true;
             _stateManager.State.WasExhausted = false;
@@ -190,12 +193,22 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _stateManager.State.LastPassedOutHealth = 0;
             _stateManager.State.LastPassedOutLocation = loc;
             _stateManager.State.PassedOutInMineYesterday = true;
-            _stateManager.State.NeedsMineRescueEvent = true;
 
             _injuryManager.ApplyBadlyHurtFromMinePassOut();
-            _stateManager.Save();
 
-            _monitor.Log($"[MineRescue] Зафиксирована боевая смерть в шахте в реальном времени: {loc}", LogLevel.Info);
+            if (CanHarveyMineRescue())
+            {
+                _stateManager.State.NeedsMineRescueEvent = true;
+                _monitor.Log($"[MineRescue] Зафиксирована боевая смерть в шахте в реальном времени: {loc}", LogLevel.Info);
+            }
+            else
+            {
+                _monitor.Log(
+                    $"[MineRescue] Боевая смерть в шахте ({loc}): buffBadlyHurt применён, rescue Харви недоступен (мало дружбы / нет лечения)",
+                    LogLevel.Debug);
+            }
+
+            _stateManager.Save();
         }
 
         /// <summary>
@@ -240,28 +253,33 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 && !_stateManager.State.WasExhausted
                 && !_stateManager.State.WasUpTooLate;
 
-            if (isMineLocation && isCombatDeath && _dialogueManager.IsDatingOrMarriedToHarvey())
+            if (isMineLocation && isCombatDeath)
             {
                 _stateManager.State.PassedOutInMineYesterday = true;
-                _stateManager.State.NeedsMineRescueEvent = true;
-
                 _injuryManager.ApplyBadlyHurtFromMinePassOut();
-                _stateManager.State.SavedActiveBuffs = _buffManager.GetActiveModBuffs();
-                _stateManager.Save();
 
-                _monitor.Log($"[MineRescue] Snapshot баффов обновлён после TrackPassOut fallback: {string.Join(", ", _stateManager.State.SavedActiveBuffs)}", LogLevel.Debug);
-                _monitor.Log("[MineRescue] Шахтная смерть зафиксирована в TrackPassOut fallback", LogLevel.Warn);
-            }
-            else if (isMineLocation && isCombatDeath)
-            {
-                _monitor.Log("[MineRescue] Боевая смерть в шахте зафиксирована, но rescue Харви не запускается: нет отношений dating/married", LogLevel.Debug);
+                if (CanHarveyMineRescue())
+                {
+                    _stateManager.State.NeedsMineRescueEvent = true;
+                    _stateManager.State.SavedActiveBuffs = _buffManager.GetActiveModBuffs();
+                    _monitor.Log($"[MineRescue] Snapshot баффов обновлён после TrackPassOut fallback: {string.Join(", ", _stateManager.State.SavedActiveBuffs)}", LogLevel.Debug);
+                    _monitor.Log("[MineRescue] Шахтная смерть зафиксирована в TrackPassOut fallback", LogLevel.Warn);
+                }
+                else
+                {
+                    _monitor.Log(
+                        "[MineRescue] Боевая смерть в шахте (TrackPassOut): buffBadlyHurt применён, rescue Харви недоступен",
+                        LogLevel.Debug);
+                }
+
+                _stateManager.Save();
             }
         }
 
         /// <summary>
-        /// Инициирует событие спасения из шахты на следующее утро.
-        /// Вызывается из DayStarted. Телепортирует игрока в шахту, событие запускается
-        /// в OnPlayerWarped после прибытия. Событие само добавляет topicMineInjuryRescue.
+        /// Инициирует утреннее событие после боевой смерти в шахте.
+        /// Вызывается из DayStarted, когда игрок уже проснулся дома (ванильная механика).
+        /// Cutscene у кровати в FarmHouse; событие добавляет topicMineInjuryRescue.
         /// </summary>
         public void TriggerMineRescueEvents()
         {
@@ -269,9 +287,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             _monitor.Log("[MineRescue] Подготовка события спасения из шахты", LogLevel.Info);
 
-            if (!_dialogueManager.IsDatingOrMarriedToHarvey())
+            if (!CanHarveyMineRescue())
             {
-                _monitor.Log("[MineRescue] Нет отношений с Харви — пропускаем", LogLevel.Debug);
+                _monitor.Log("[MineRescue] Харви не участвует в rescue — пропускаем cutscene", LogLevel.Debug);
                 ClearMineRescueState();
                 return;
             }
@@ -282,7 +300,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _monitor.Log(
                     $"[MineRescue] Resume pending: {_stateManager.State.PendingMineRescueEventId}",
                     LogLevel.Info);
-                BeginMineRescueWarp(_stateManager.State.PendingMineRescueEventId);
+                BeginMineRescueMorningEvent(_stateManager.State.PendingMineRescueEventId);
                 return;
             }
 
@@ -301,11 +319,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
-            BeginMineRescueWarp(eventId);
+            BeginMineRescueMorningEvent(eventId);
         }
 
         /// <summary>
-        /// После загрузки сохранения: retry, если reload случился между warp Mine и startEvent.
+        /// После загрузки сохранения: retry, если reload случился между warp домой и startEvent.
         /// </summary>
         public void ResumePendingMineRescueIfNeeded()
         {
@@ -319,7 +337,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
 
             _monitor.Log("[MineRescue] SaveLoaded: resume pending mine rescue", LogLevel.Info);
-            BeginMineRescueWarp(_stateManager.State.PendingMineRescueEventId);
+            BeginMineRescueMorningEvent(_stateManager.State.PendingMineRescueEventId);
         }
 
         /// <summary>
@@ -515,29 +533,79 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _stateManager.Save();
         }
 
-        private void BeginMineRescueWarp(string eventId)
+        /// <summary>
+        /// Утренний cutscene у кровати: без warp в шахту (ваниль — игрок уже дома).
+        /// </summary>
+        private void BeginMineRescueMorningEvent(string eventId)
         {
             _dialogueManager.AddTopic(ConversationTopics.MineRescuePending, 1);
 
-            var mineLocation = Game1.getLocationFromName("Mine");
-            if (mineLocation == null)
+            string farmHouseName = GetFarmHouseLocationName();
+            if (!LocationEventExists(eventId, farmHouseName))
             {
-                _monitor.Log("[MineRescue] ❌ Локация Mine не найдена, запускаем fallback без кинематики", LogLevel.Error);
+                _monitor.Log(
+                    $"[MineRescue] ❌ {eventId} не найден в Data/Events/{farmHouseName}, fallback",
+                    LogLevel.Error);
                 RunMineRescueFallback(eventId);
                 return;
             }
 
-            if (string.Equals(Game1.currentLocation?.NameOrUniqueName, "Mine", StringComparison.OrdinalIgnoreCase))
+            if (IsFarmHouseLocation(Game1.currentLocation))
             {
-                if (!TryStartLocationEvent(eventId, "Mine", OnMineRescueEventFinished))
-                    RunMineRescueFallback(eventId);
+                if (TryStartFarmhouseMineRescueEvent(eventId, farmHouseName))
+                    return;
+
+                RunMineRescueFallback(eventId);
+                return;
+            }
+
+            var farmHouse = Game1.getLocationFromName(farmHouseName);
+            if (farmHouse == null)
+            {
+                _monitor.Log($"[MineRescue] ❌ Локация '{farmHouseName}' не найдена", LogLevel.Error);
+                RunMineRescueFallback(eventId);
                 return;
             }
 
             _stateManager.State.PendingMineRescueEventId = eventId;
             _stateManager.Save();
-            _monitor.Log($"[MineRescue] Телепортация в шахту для запуска: {eventId}", LogLevel.Info);
-            Game1.warpFarmer(new LocationRequest("Mine", false, mineLocation), 17, 7, 2);
+
+            var bed = Game1.player.mostRecentBed;
+            int bedX = bed.X >= 0 ? (int)bed.X : 9;
+            int bedY = bed.Y >= 0 ? (int)bed.Y : 9;
+            _monitor.Log($"[MineRescue] Warp домой ({bedX},{bedY}) для утреннего cutscene: {eventId}", LogLevel.Info);
+            Game1.warpFarmer(farmHouseName, bedX, bedY, 2);
+        }
+
+        private bool TryStartFarmhouseMineRescueEvent(string eventId, string locationName)
+        {
+            int fx = (int)Game1.player.Tile.X;
+            int fy = (int)Game1.player.Tile.Y;
+            int hx = fx + 1;
+            int hy = fy;
+
+            string setup =
+                $"viewport {fx} {fy} true/skippable/pause 200/faceDirection farmer 2/warp Harvey {hx} {hy} 3/faceDirection Harvey 3/";
+
+            return TryStartLocationEvent(eventId, locationName, OnMineRescueEventFinished, setup);
+        }
+
+        private static string GetFarmHouseLocationName()
+        {
+            return Game1.player?.homeLocation.Value ?? "FarmHouse";
+        }
+
+        private static bool IsFarmHouseLocation(GameLocation? location)
+        {
+            if (location == null)
+                return false;
+
+            string name = location.NameOrUniqueName ?? "";
+            if (string.Equals(name, GetFarmHouseLocationName(), StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return name.Contains("FarmHouse", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(name, "Cabin", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -644,6 +712,29 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _stateManager.State.LastPassedOutHealth = -1;
             _stateManager.State.LastPassedOutLocation = "";
             _stateManager.Save();
+        }
+
+        /// <summary>
+        /// Харви приезжает в шахту: dating/married, 8+ сердец, или игрок уже на лечении у Харви.
+        /// </summary>
+        private bool CanHarveyMineRescue()
+        {
+            if (_dialogueManager.IsDatingOrMarriedToHarvey())
+                return true;
+
+            if (_dialogueManager.GetHarveyFriendship() >= RescueOperationIds.MinFriendshipPoints)
+                return true;
+
+            foreach (var debuffState in _stateManager.GetAllActiveDebuffStates())
+            {
+                if (debuffState.TreatmentStarted)
+                    return true;
+            }
+
+            if (_buffManager.HasBuff(CureBuffs.Treatment))
+                return true;
+
+            return Helpers.GameUtils.HasConversationTopic(ConversationTopics.HarveyNeedsFirstTreatment);
         }
 
         private bool IsMineRelatedPassOut()
@@ -777,10 +868,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
                 EnsureMineRescueTopic();
                 ClearMineRescueState();
-                WarpFarmerToHospitalBed();
+
+                if (!IsMorningMineRescueEvent(eventId))
+                    WarpFarmerToHospitalBed();
+
                 StartMineRescueTreatmentIfNeeded();
 
-                _monitor.Log($"[MineRescue] ✅ Событие '{eventId}' завершено — eventsSeen, флаги, госпиталь и фаза 1 лечения обновлены", LogLevel.Info);
+                _monitor.Log(
+                    $"[MineRescue] ✅ Событие '{eventId}' завершено — eventsSeen, флаги и лечение обновлены",
+                    LogLevel.Info);
             }
             catch (Exception ex)
             {
@@ -789,24 +885,32 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         }
 
         /// <summary>
-        /// Severe + dating/married: dating-сцена, если есть в CP; иначе legacy major.
+        /// Утренний cutscene у кровати: dating-тон или нейтральный.
         /// </summary>
         private string ResolveSevereMineRescueEventId()
         {
-            const string datingEvent = "eventHarveyMineRescueDating";
-            const string legacyEvent = "eventHarveyMineRescue";
+            string farmHouseName = GetFarmHouseLocationName();
 
-            if (MineRescueEventExists(datingEvent))
-                return datingEvent;
+            if (_dialogueManager.IsDatingOrMarriedToHarvey()
+                && LocationEventExists(EventIds.MineRescueMorningDating, farmHouseName))
+            {
+                return EventIds.MineRescueMorningDating;
+            }
+
+            if (LocationEventExists(EventIds.MineRescueMorning, farmHouseName))
+                return EventIds.MineRescueMorning;
 
             _monitor.Log(
-                $"[MineRescue] {datingEvent} не найден в Data/Events/Mine — fallback на {legacyEvent}",
+                $"[MineRescue] Утренние события не найдены в Data/Events/{farmHouseName} — будет fallback",
                 LogLevel.Warn);
-            return legacyEvent;
+            return EventIds.MineRescueMorning;
         }
 
-        private static bool MineRescueEventExists(string eventId)
-            => LocationEventExists(eventId, "Mine");
+        private static bool IsMorningMineRescueEvent(string eventId)
+        {
+            return string.Equals(eventId, EventIds.MineRescueMorning, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(eventId, EventIds.MineRescueMorningDating, StringComparison.OrdinalIgnoreCase);
+        }
 
         /// <summary>
         /// Проверяет наличие entry в Data/Events/{locationName}.
@@ -831,12 +935,24 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// </summary>
         private static bool IsMineRescueEventAlreadySeen(string eventId)
         {
-            if (Game1.player.eventsSeen.Contains(eventId))
+            var seen = Game1.player.eventsSeen;
+            if (seen.Contains(eventId))
                 return true;
 
-            if (eventId == "eventHarveyMineRescueDating"
-                && Game1.player.eventsSeen.Contains("eventHarveyMineRescue"))
-                return true;
+            // Утренние и legacy mine-варианты — одна история, один просмотр.
+            string[] majorRescueIds =
+            {
+                EventIds.MineRescueMorningDating,
+                EventIds.MineRescueMorning,
+                EventIds.MineRescueDating,
+                EventIds.MineRescue,
+            };
+
+            foreach (string id in majorRescueIds)
+            {
+                if (seen.Contains(id))
+                    return true;
+            }
 
             return false;
         }
@@ -851,7 +967,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 || key.StartsWith(eventId + "/", StringComparison.OrdinalIgnoreCase);
         }
 
-        private bool TryStartLocationEvent(string eventId, string locationName, Action<string> onFinished)
+        private bool TryStartLocationEvent(
+            string eventId,
+            string locationName,
+            Action<string> onFinished,
+            string? scriptPrefix = null)
         {
             try
             {
@@ -862,28 +982,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     return false;
                 }
 
-                var eventData = Game1.content.Load<System.Collections.Generic.Dictionary<string, string>>($"Data/Events/{locationName}");
-                if (eventData == null)
-                {
-                    _monitor.Log($"[PassOutEvent] ❌ Data/Events/{locationName} не найдены", LogLevel.Error);
-                    return false;
-                }
-
-                string? eventScript = null;
-                foreach (var kvp in eventData)
-                {
-                    if (EventKeyMatches(kvp.Key, eventId))
-                    {
-                        eventScript = kvp.Value;
-                        break;
-                    }
-                }
-
+                string? eventScript = LoadLocationEventScript(eventId, locationName);
                 if (string.IsNullOrWhiteSpace(eventScript))
-                {
-                    _monitor.Log($"[PassOutEvent] ❌ Событие '{eventId}' не найдено или script пуст в Data/Events/{locationName}", LogLevel.Error);
                     return false;
-                }
+
+                if (!string.IsNullOrEmpty(scriptPrefix))
+                    eventScript = scriptPrefix + eventScript;
 
                 if (!ReferenceEquals(Game1.currentLocation, location)
                     && !string.Equals(Game1.currentLocation?.NameOrUniqueName, locationName, StringComparison.OrdinalIgnoreCase))
@@ -916,6 +1020,28 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _monitor.Log($"[PassOutEvent] ❌ Ошибка при подготовке '{eventId}': {ex.Message}", LogLevel.Error);
                 return false;
             }
+        }
+
+        private string? LoadLocationEventScript(string eventId, string locationName)
+        {
+            var eventData = Game1.content.Load<System.Collections.Generic.Dictionary<string, string>>(
+                $"Data/Events/{locationName}");
+            if (eventData == null)
+            {
+                _monitor.Log($"[PassOutEvent] ❌ Data/Events/{locationName} не найдены", LogLevel.Error);
+                return null;
+            }
+
+            foreach (var kvp in eventData)
+            {
+                if (EventKeyMatches(kvp.Key, eventId))
+                    return kvp.Value;
+            }
+
+            _monitor.Log(
+                $"[PassOutEvent] ❌ Событие '{eventId}' не найдено в Data/Events/{locationName}",
+                LogLevel.Error);
+            return null;
         }
     }
 }

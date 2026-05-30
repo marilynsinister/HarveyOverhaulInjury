@@ -87,7 +87,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 [InjuryBuffs.Cold] = new[]
                 {
                     (PrescriptionIds.Rest, 2),
-                    (PrescriptionIds.KeepDry, 2),
                 },
                 ["buffBadlyHurt"] = new[]
                 {

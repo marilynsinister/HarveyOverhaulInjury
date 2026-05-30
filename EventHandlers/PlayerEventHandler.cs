@@ -7,6 +7,7 @@ using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
 using StardewValley.Locations;
+using StardewValley.Monsters;
 
 namespace HarveyOverhaul.InjuryCare.EventHandlers
 {
@@ -1428,16 +1429,19 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
+            bool fromMonster = IsNearHostileMonster();
+            int combatSkill = Game1.player.CombatLevel;
+
             // 2. ТЯЖЁЛЫЕ ТРАВМЫ (большой урон)
             // Fractured Bone (30+ урона, 10% шанс)
-            if (damage >= 30 && Helpers.GameUtils.Roll(0.10))
+            if (damage >= 30 && TryRollCombatInjury(0.10, combatSkill, fromMonster, damage, "FracturedBone"))
             {
                 _injuryManager.ApplyFracturedBoneSafe();
                 return;
             }
 
             // Concussion (20+ урона, 25% шанс)
-            if (damage >= 20 && Helpers.GameUtils.Roll(0.25))
+            if (damage >= 20 && TryRollCombatInjury(0.25, combatSkill, fromMonster, damage, "Concussion"))
             {
                 _injuryManager.ApplyConcussionSafe();
                 return;
@@ -1445,14 +1449,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             // 3. СРЕДНИЕ ТРАВМЫ
             // Bruised Ribs (15+ урона, 25% шанс)
-            if (damage >= 15 && Helpers.GameUtils.Roll(0.25))
+            if (damage >= 15 && TryRollCombatInjury(0.25, combatSkill, fromMonster, damage, "BruisedRibs"))
             {
                 _injuryManager.ApplyBruisedRibsSafe();
                 return;
             }
 
             // Deep Cuts (10+ урона, 30% шанс)
-            if (damage >= 10 && Helpers.GameUtils.Roll(0.30))
+            if (damage >= 10 && TryRollCombatInjury(0.30, combatSkill, fromMonster, damage, "DeepCuts"))
             {
                 _injuryManager.ApplyDeepCutsSafe("combat");
                 return;
@@ -1460,13 +1464,73 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             // 4. ЛЁГКИЕ ТРАВМЫ (последние!)
             // Hurt (5+ урона, 35% шанс)
-            if (damage >= 5 && Helpers.GameUtils.Roll(0.35))
+            if (damage >= 5 && TryRollCombatInjury(0.35, combatSkill, fromMonster, damage, "Hurt"))
             {
                 _injuryManager.ApplyHurtSafe();
                 return;
             }
 
             // Малый урон (< 5) - никакой травмы
+        }
+
+        /// <summary>
+        /// Бросок шанса боевой травмы. При уроне от мобов шанс снижается с ростом навыка боя.
+        /// </summary>
+        private bool TryRollCombatInjury(
+            double baseChance,
+            int combatSkill,
+            bool fromMonster,
+            int damage,
+            string injuryKey)
+        {
+            double chance = fromMonster
+                ? GetSkillAdjustedChance(baseChance, combatSkill)
+                : ClampChance(baseChance);
+
+            if (!Helpers.GameUtils.Roll(chance))
+            {
+                if (fromMonster)
+                {
+                    _monitor.Log(
+                        $"[CombatInjury] {injuryKey} roll failed: damage={damage}, combatSkill={combatSkill}, chance={chance:P1} (base={ClampChance(baseChance):P0})",
+                        LogLevel.Debug);
+                }
+
+                return false;
+            }
+
+            if (fromMonster)
+            {
+                _monitor.Log(
+                    $"[CombatInjury] {injuryKey} roll success: damage={damage}, combatSkill={combatSkill}, chance={chance:P1} (base={ClampChance(baseChance):P0})",
+                    LogLevel.Debug);
+            }
+
+            return true;
+        }
+
+        /// <summary>Есть ли живой враждебный моб рядом с игроком (урон, скорее всего, от боя).</summary>
+        private static bool IsNearHostileMonster(int tileRadius = 3)
+        {
+            var location = Game1.currentLocation;
+            if (location?.characters == null)
+                return false;
+
+            int reach = tileRadius * Game1.tileSize;
+            var playerBox = Game1.player.GetBoundingBox();
+            var area = new Microsoft.Xna.Framework.Rectangle(
+                playerBox.X - reach,
+                playerBox.Y - reach,
+                playerBox.Width + reach * 2,
+                playerBox.Height + reach * 2);
+
+            foreach (var character in location.characters)
+            {
+                if (character is Monster monster && monster.Health > 0 && area.Intersects(monster.GetBoundingBox()))
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>

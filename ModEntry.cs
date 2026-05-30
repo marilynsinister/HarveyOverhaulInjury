@@ -2519,7 +2519,8 @@ namespace HarveyOverhaul.InjuryCare
                 _prescriptionManager,
                 _checkupManager,
                 _rehabManager,
-                _selfCareManager
+                _selfCareManager,
+                _complicationManager
             );
 
             _timeEventHandler = new TimeEventHandler(
@@ -2531,7 +2532,8 @@ namespace HarveyOverhaul.InjuryCare
                 _hospitalizationManager,
                 _hospitalActivityManager,
                 _treatmentManager,
-                _injuryManager
+                _injuryManager,
+                _complicationManager
             );
 
             _passOutHandler = new PassOutHandler(
@@ -3287,6 +3289,15 @@ namespace HarveyOverhaul.InjuryCare
                 try
                 {
                     ClearModBuffGlowIfNeeded();
+
+                    int restored = _injuryManager.EnsureActiveTreatmentBuffs();
+                    if (restored > 0)
+                    {
+                        Monitor.Log(
+                            $"[BuffSync] После загрузки сейва восстановлено {restored} лечебных бафф(ов)",
+                            LogLevel.Info);
+                    }
+
                     _passOutHandler.ResumePendingMineRescueIfNeeded();
                     _passOutHandler.ResumePendingHospitalPassOutIfNeeded();
                     _passOutHandler.ResumePendingMinorMineRescueIfNeeded();

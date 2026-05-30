@@ -54,6 +54,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly CheckupManager _checkupManager;
         private readonly RehabManager _rehabManager;
         private readonly SelfCareManager _selfCareManager;
+        private readonly ComplicationManager _complicationManager;
 
         private PendingMedicalAction? _pendingMedicalAction;
         private bool _pendingSawDialogueBox;
@@ -102,7 +103,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             PrescriptionManager prescriptionManager,
             CheckupManager checkupManager,
             RehabManager rehabManager,
-            SelfCareManager selfCareManager)
+            SelfCareManager selfCareManager,
+            ComplicationManager complicationManager)
         {
             _monitor = monitor;
             _helper = helper;
@@ -118,6 +120,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _checkupManager = checkupManager;
             _rehabManager = rehabManager;
             _selfCareManager = selfCareManager;
+            _complicationManager = complicationManager;
         }
 
         /// <summary>
@@ -154,9 +157,20 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 _monitor.Log(
                     $"⚠️ Медицинское действие {pending.Type} ({pending.InjuryId ?? pending.TopicId}) " +
-                    $"не завершилось за {PendingMedicalTimeoutTicks} тиков — сброс pending.",
+                    $"не завершилось за {PendingMedicalTimeoutTicks} тиков — финальная попытка apply.",
                     LogLevel.Warn);
-                ClearPendingMedicalAction();
+
+                if (pending.DialogueWasShown
+                    && _pendingSawDialogueBox
+                    && CanApplyPendingMedicalAfterDialogue())
+                {
+                    TryApplyAndClearPendingMedicalAction(pending);
+                }
+                else
+                {
+                    ClearPendingMedicalAction();
+                }
+
                 return;
             }
 
@@ -169,12 +183,38 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (!pending.DialogueWasShown)
                 return;
 
+            // Диалог мог закрыться до первого тика или без DialogueBox — не блокируем механику.
+            if (!_pendingSawDialogueBox && elapsed >= 60)
+                _pendingSawDialogueBox = true;
+
             if (!_pendingSawDialogueBox)
                 return;
 
-            if (!Context.IsWorldReady || !Context.IsPlayerFree)
+            if (!CanApplyPendingMedicalAfterDialogue())
                 return;
 
+            TryApplyAndClearPendingMedicalAction(pending);
+        }
+
+        /// <summary>
+        /// После закрытия DialogueBox не требуем полный IsPlayerFree — игрок часто кратко «занят» анимацией.
+        /// </summary>
+        private static bool CanApplyPendingMedicalAfterDialogue()
+        {
+            if (!Context.IsWorldReady)
+                return false;
+
+            if (Game1.eventUp || Game1.CurrentEvent != null)
+                return false;
+
+            if (Game1.activeClickableMenu is DialogueBox)
+                return false;
+
+            return true;
+        }
+
+        private void TryApplyAndClearPendingMedicalAction(PendingMedicalAction pending)
+        {
             try
             {
                 bool applied = ApplyPendingMedicalAction(pending);
@@ -393,9 +433,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             var treatableStates = GetHarveyTreatableInjuryStates().ToList();
 
-            // A. CompleteRecovery
+            // A. CompleteRecovery (простые травмы: TotalPhases==0, IsLastPhase может быть false при CurrentPhase>0)
             var readyRecovery = treatableStates
-                .Where(d => d.TreatmentStarted && d.IsLastPhase && d.ReadyForRecovery)
+                .Where(d => d.TreatmentStarted && d.ReadyForRecovery
+                    && (d.IsLastPhase || TreatmentManager.IsSimpleTreatmentInjury(d.BuffId)))
                 .OrderByDescending(d => GetInjuryPriority(d.BuffId))
                 .FirstOrDefault();
 
@@ -503,28 +544,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 .Where(d => InjurySets.HarveyTreatable.Contains(d.BuffId));
         }
 
-        private List<string> GetActiveComplicationIds()
-        {
-            var active = _stateManager.GetAllActiveDebuffStates()
-                .Select(d => d.BuffId)
-                .Where(id => InjurySets.KnownComplicationBuffIds.Contains(id))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            var ordered = new List<string>();
-            foreach (string compId in InjurySets.ComplicationPriorityOrder)
-            {
-                if (active.Contains(compId))
-                    ordered.Add(compId);
-            }
-
-            foreach (string compId in active.OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
-            {
-                if (!ordered.Contains(compId, StringComparer.OrdinalIgnoreCase))
-                    ordered.Add(compId);
-            }
-
-            return ordered;
-        }
+        private List<string> GetActiveComplicationIds() =>
+            _complicationManager.GetActiveTreatableComplicationIds().ToList();
 
         /// <summary>
         /// Запустить медицинский диалог по resolved action. Механика — только после закрытия DialogueBox.
@@ -719,6 +740,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             pending.DialogueWasShown = true;
             _pendingSawDialogueBox = Game1.activeClickableMenu is DialogueBox;
+            if (!_pendingSawDialogueBox)
+            {
+                _monitor.Log(
+                    "[MedicalAction] DialogueBox не открыт после Speak — механика применится после закрытия/таймаута",
+                    LogLevel.Debug);
+            }
 
             _monitor.Log($"[MedicalAction] dialogue shown key/prefix={dialogueKey}", LogLevel.Info);
             return true;
@@ -806,6 +833,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
 
             dialogueKey = TopicIds.GetCuredTopic(injuryId);
+            string? exactCuredDialogue = _dialogueManager.TryLoadHarveyDialogue(dialogueKey);
+            if (!string.IsNullOrWhiteSpace(exactCuredDialogue))
+                return exactCuredDialogue;
+
             return _dialogueManager.PickRandomDialogueByPrefix(
                 dialogueKey,
                 "Осмотр окончен. Ты выздоровела, но я всё равно хочу, чтобы ты берегла себя.$h");
@@ -894,7 +925,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             bool needsHospitalization = ShouldRequireHospitalization(action.InjuryId, debuffState);
 
-            _treatmentManager.ApplyTreatmentForInjury(action.InjuryId);
+            if (!_treatmentManager.ApplyTreatmentForInjury(action.InjuryId))
+            {
+                LogStaleApply(action, $"не удалось начать лечение {action.InjuryId} (бафф не наложился)");
+                return false;
+            }
+
             _dialogueManager.ClearHarveyNeedsFirstTreatmentTopic("лечение начато после медицинского диалога");
             _stateManager.MarkHarveyConversation(action.InjuryId, true);
 
@@ -979,6 +1015,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
 
             _treatmentManager.AdvanceInjuryToNextPhase(injuryId);
+            _injuryManager.EnsureTreatmentBuffForInjury(injuryId);
             GrantMedicalFriendship(10);
             ShowHarveyEmote(HarveyHelper.GetRecoveryEmote());
             ProcessMedicalInteractionCompliance();
@@ -1032,19 +1069,31 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             string injuryName = topicId.Replace("topic", "").Replace("Cured", "");
             string buffId = "buff" + injuryName;
 
-            if (SimpleInjuryCures.Map.TryGetValue(buffId, out var cureBuff))
+            _dialogueManager.RemoveTopic(topicId);
+
+            var debuffState = _stateManager.GetDebuffState(buffId);
+            if (debuffState != null)
             {
-                _buffManager.RemoveBuff(cureBuff);
-                _monitor.Log($"Снят лечебный бафф: {cureBuff} (завершение {buffId})", LogLevel.Info);
+                if (!debuffState.ReadyForRecovery)
+                    _stateManager.SetReadyForRecovery(buffId, true);
+
+                _monitor.Log(
+                    $"[MedicalAction] SimpleCompletionTopic → CompleteRecovery (DebuffState для {buffId})",
+                    LogLevel.Info);
+
+                return ApplyPendingCompleteRecovery(new PendingMedicalAction
+                {
+                    Type = MedicalActionType.CompleteRecovery,
+                    InjuryId = buffId,
+                });
             }
 
-            _dialogueManager.RemoveTopic(topicId);
-            _buffManager.AddBuff(CureBuffs.Care, 480);
+            _treatmentManager.ApplyMechanicalPhasedRecovery(buffId);
             _rehabManager.TryStartRehabAfterRecovery(buffId);
             GrantMedicalFriendship(10);
             _stateManager.Save();
 
-            _monitor.Log($"[MedicalAction] applied type=SimpleCompletionTopic topic={topicId}", LogLevel.Info);
+            _monitor.Log($"[MedicalAction] applied type=SimpleCompletionTopic topic={topicId} (legacy)", LogLevel.Info);
             return true;
         }
 

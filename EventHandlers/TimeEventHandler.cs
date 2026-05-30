@@ -23,6 +23,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly HospitalActivityManager _hospitalActivityManager;
         private readonly TreatmentManager _treatmentManager;
         private readonly InjuryManager _injuryManager;
+        private readonly ComplicationManager _complicationManager;
 
         public TimeEventHandler(
             IMonitor monitor,
@@ -33,7 +34,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             HospitalizationManager hospitalizationManager,
             HospitalActivityManager hospitalActivityManager,
             TreatmentManager treatmentManager,
-            InjuryManager injuryManager)
+            InjuryManager injuryManager,
+            ComplicationManager complicationManager)
         {
             _monitor = monitor;
             _config = config;
@@ -44,6 +46,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _hospitalActivityManager = hospitalActivityManager;
             _treatmentManager = treatmentManager;
             _injuryManager = injuryManager;
+            _complicationManager = complicationManager;
         }
 
         /// <summary>
@@ -138,10 +141,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             Game1.player.changeFriendship(10, Game1.getCharacterFromName("Harvey"));
 
-            // Снять боль с 50% шансом
-            if (Game1.player.hasBuff(InjuryBuffs.PainFlare) && Helpers.GameUtils.Roll(0.5))
+            // Снять боль с 50% шансом — полностью убираем осложнение, не только бафф
+            if (_complicationManager.HasComplication(InjuryBuffs.PainFlare) && Helpers.GameUtils.Roll(0.5))
             {
-                _buffManager.RemoveBuff(InjuryBuffs.PainFlare);
+                _complicationManager.RemoveComplicationForQa(InjuryBuffs.PainFlare);
                 Game1.addHUDMessage(new HUDMessage("После ночного визита Харви боль утихла.", 2));
             }
 

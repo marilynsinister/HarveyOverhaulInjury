@@ -325,6 +325,11 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string EmergencyCare = "eventHarveyEmergencyCare";
         public const string Exhaustion = "eventHarveyExhaustion";
         public const string MinorMineRescue = "eventHarveyMinorMineRescue";
+        /// <summary>Утро после боевой смерти в шахте — cutscene у кровати (FarmHouse).</summary>
+        public const string MineRescueMorningDating = "eventHarveyMineRescueMorningDating";
+        /// <summary>Утренний rescue без dating-тона.</summary>
+        public const string MineRescueMorning = "eventHarveyMineRescueMorning";
+        /// <summary>Legacy: сцена в Mine (только debug / старые saves).</summary>
         public const string MineRescueDating = "eventHarveyMineRescueDating";
         public const string MineRescue = "eventHarveyMineRescue";
         public const string RescueOperation = "eventRescueOperation";
@@ -462,6 +467,11 @@ namespace HarveyOverhaul.InjuryCare.Core
             "buffSprainedAnkle",
             "buffBruisedRibs",
         };
+
+        /// <summary>Main-травма, для которой допустимо осложнение HarveyMod_PainFlare.</summary>
+        public static bool IsPainFlareEligibleMain(string? mainInjuryId) =>
+            !string.IsNullOrEmpty(mainInjuryId)
+            && (StormPainSensitive.Contains(mainInjuryId) || OverworkSensitive.Contains(mainInjuryId));
 
         /// <summary>Основные травмы — риск инфекции (DirtyWound/WetBandage → buffInfectedWound).</summary>
         public static readonly HashSet<string> InfectionSensitive = new(System.StringComparer.OrdinalIgnoreCase)

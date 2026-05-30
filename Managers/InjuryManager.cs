@@ -162,20 +162,21 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private void TryApplyPainFlareInsteadOfInjury(string attemptedInjuryId)
         {
-            if (_buffManager.HasBuff(InjuryBuffs.PainFlare)
-                || _stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.PainFlare))
+            string? currentMain = GetActiveInjury();
+            if (!InjurySets.IsPainFlareEligibleMain(currentMain))
             {
+                _monitor.Log(
+                    $"[MainInjury] PainFlare пропущен: main={currentMain ?? "none"} не pain-sensitive (попытка: {attemptedInjuryId})",
+                    LogLevel.Debug);
                 return;
             }
 
-            int today = GameUtils.Today();
-            _buffManager.AddBuff(InjuryBuffs.PainFlare, -2);
-            _stateManager.State.ActiveComplications[InjuryBuffs.PainFlare] = today;
-            _stateManager.CreateComplicationState(InjuryBuffs.PainFlare, today);
-            _dialogueManager.AddTopic(ConversationTopics.PainFlare, 2);
-            _monitor.Log(
-                $"[MainInjury] Вместо новой травмы добавлено обострение боли (попытка: {attemptedInjuryId})",
-                LogLevel.Info);
+            if (_complicationManager?.TryApplyPainFlareFromBlockedInjury(attemptedInjuryId) == true)
+            {
+                _monitor.Log(
+                    $"[MainInjury] Вместо новой травмы добавлено обострение боли (попытка: {attemptedInjuryId})",
+                    LogLevel.Info);
+            }
         }
 
         private void TryShowMainInjuryBlockedHud(string newInjuryId, bool isHeavierAttempt)
@@ -253,20 +254,144 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public void SyncActiveBuffsFromStateForQa()
         {
-            foreach (var (buffId, debuffState) in _stateManager.State.ActiveDebuffs)
+            EnsureActiveTreatmentBuffs();
+        }
+
+        /// <summary>
+        /// Восстановить ожидаемый лечебный/фазовый бафф для одной записи ActiveDebuffs.
+        /// </summary>
+        public int EnsureTreatmentBuffForInjury(string buffId)
+        {
+            if (!_stateManager.State.ActiveDebuffs.TryGetValue(buffId, out var debuffState))
+                return 0;
+
+            if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
+                return 0;
+
+            int restored = 0;
+
+            if (!debuffState.TreatmentStarted)
             {
-                if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
+                if (!_buffManager.HasBuff(buffId))
+                {
+                    _buffManager.AddBuff(buffId, -2);
+                    if (_buffManager.HasBuff(buffId))
+                        restored++;
+                    else
+                        LogBuffSyncFailure(buffId, buffId);
+                }
+
+                return restored;
+            }
+
+            if (TreatmentManager.IsSimpleTreatmentInjury(buffId))
+            {
+                string? cureBuffId = GetExpectedCureBuffId(buffId);
+                if (cureBuffId != null && !_buffManager.HasBuff(cureBuffId))
+                {
+                    _buffManager.AddBuff(cureBuffId, -2);
+                    if (_buffManager.HasBuff(cureBuffId))
+                        restored++;
+                    else
+                        LogBuffSyncFailure(buffId, cureBuffId);
+                }
+
+                if (_buffManager.HasBuff(buffId))
+                    _buffManager.RemoveBuff(buffId);
+
+                return restored;
+            }
+
+            if (!debuffState.IsPhasedInjury || debuffState.CurrentPhase <= 0)
+                return restored;
+
+            string expectedPhaseBuffId = GetPhaseBuffId(buffId, debuffState.CurrentPhase);
+            if (!string.IsNullOrEmpty(expectedPhaseBuffId) && !_buffManager.HasBuff(expectedPhaseBuffId))
+            {
+                _buffManager.AddBuff(expectedPhaseBuffId, -2);
+                if (_buffManager.HasBuff(expectedPhaseBuffId))
+                {
+                    restored++;
+                    _monitor.Log(
+                        $"[BuffSync] Восстановлен фазовый бафф {expectedPhaseBuffId} ({buffId}, фаза {debuffState.CurrentPhase})",
+                        LogLevel.Info);
+                }
+                else
+                    LogBuffSyncFailure(buffId, expectedPhaseBuffId);
+            }
+
+            if (_buffManager.HasBuff(buffId))
+                _buffManager.RemoveBuff(buffId);
+
+            for (int phase = 1; phase <= 3; phase++)
+            {
+                if (phase == debuffState.CurrentPhase)
                     continue;
 
-                if (!debuffState.TreatmentStarted && !_buffManager.HasBuff(buffId))
-                    _buffManager.AddBuff(buffId, -2);
+                string stalePhaseBuffId = GetPhaseBuffId(buffId, phase);
+                if (!string.IsNullOrEmpty(stalePhaseBuffId) && _buffManager.HasBuff(stalePhaseBuffId))
+                    _buffManager.RemoveBuff(stalePhaseBuffId);
             }
 
-            foreach (string compId in _stateManager.State.ActiveComplications.Keys)
+            return restored;
+        }
+
+        /// <summary>
+        /// Есть ли на игроке бафф, соответствующий текущему этапу лечения травмы.
+        /// </summary>
+        public bool HasExpectedTreatmentBuff(string buffId)
+        {
+            if (!_stateManager.State.ActiveDebuffs.TryGetValue(buffId, out var debuffState))
+                return false;
+
+            if (!debuffState.TreatmentStarted)
+                return _buffManager.HasBuff(buffId);
+
+            if (TreatmentManager.IsSimpleTreatmentInjury(buffId))
+                return IsCureBuffActive(buffId);
+
+            if (!debuffState.IsPhasedInjury || debuffState.CurrentPhase <= 0)
+                return false;
+
+            string expectedPhaseBuffId = GetPhaseBuffId(buffId, debuffState.CurrentPhase);
+            return !string.IsNullOrEmpty(expectedPhaseBuffId) && _buffManager.HasBuff(expectedPhaseBuffId);
+        }
+
+        private void LogBuffSyncFailure(string injuryId, string buffId)
+        {
+            string exists = _buffManager.BuffExists(buffId) ? "exists in Data/Buffs" : "MISSING in Data/Buffs";
+            _monitor.Log(
+                $"[BuffSync] Не удалось наложить {buffId} для {injuryId} ({exists})",
+                LogLevel.Error);
+        }
+
+        /// <summary>
+        /// Восстановить ожидаемые лечебные/фазовые баффы по DebuffState (после сна, reload, сбоя DialogueBox).
+        /// </summary>
+        public int EnsureActiveTreatmentBuffs()
+        {
+            int restored = 0;
+
+            foreach (var (buffId, _) in _stateManager.State.ActiveDebuffs)
+                restored += EnsureTreatmentBuffForInjury(buffId);
+
+            foreach (string compId in _stateManager.State.ActiveComplications.Keys.ToList())
             {
+                if (string.Equals(compId, InjuryBuffs.PainFlare, StringComparison.OrdinalIgnoreCase)
+                    && !InjurySets.IsPainFlareEligibleMain(_stateManager.GetMainInjuryId()))
+                {
+                    _complicationManager?.RemoveComplicationForQa(compId);
+                    continue;
+                }
+
                 if (!_buffManager.HasBuff(compId))
+                {
                     _buffManager.AddBuff(compId, -2);
+                    restored++;
+                }
             }
+
+            return restored;
         }
 
         public string? GetExpectedCureBuffId(string injuryId)
@@ -671,8 +796,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private void CheckAndAddComplication(InjuryCollection collection, string buffId, string name)
         {
-            if (_buffManager.HasBuff(buffId))
-                collection.Complications.Add(buffId);
+            if (!_stateManager.State.ActiveComplications.ContainsKey(buffId))
+                return;
+
+            if (string.Equals(buffId, InjuryBuffs.PainFlare, StringComparison.OrdinalIgnoreCase)
+                && !InjurySets.IsPainFlareEligibleMain(collection.MainInjury ?? GetActiveInjury()))
+                return;
+
+            if (!_buffManager.HasBuff(buffId) && !_stateManager.HasDebuffState(buffId))
+                return;
+
+            collection.Complications.Add(buffId);
         }
 
         /// <summary>
@@ -728,6 +862,25 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             _buffManager.RemoveAllBuffs(buffsToRemove);
             _monitor.Log($"Удалены все фазовые баффы для {injuryId}", LogLevel.Debug);
+        }
+
+        /// <summary>
+        /// Снять все лечебные баффы травмы (фазовые + простые cure-бaffы).
+        /// Вызывается только после финального осмотра у Харви.
+        /// </summary>
+        public void RemoveAllTreatmentBuffs(string injuryId)
+        {
+            RemoveAllPhaseBuffs(injuryId);
+
+            if (!TreatmentManager.IsSimpleTreatmentInjury(injuryId))
+                return;
+
+            string? cureBuffId = GetExpectedCureBuffId(injuryId);
+            if (cureBuffId != null)
+                _buffManager.RemoveBuff(cureBuffId);
+
+            if (string.Equals(injuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
+                _buffManager.RemoveBuff(CureBuffs.BadlyHurtOutpatientCare);
         }
 
         // ============================================================================
@@ -870,8 +1023,37 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyBadlyHurtFromMinePassOut()
         {
             _monitor.Log("[MineRescue] Принудительно применяем buffBadlyHurt после смерти в шахте", LogLevel.Warn);
-            if (!TryApplyMainInjury("buffBadlyHurt", ApplyBadlyHurtCore))
+
+            string? currentMain = GetCurrentMainInjuryId();
+            if (!string.IsNullOrEmpty(currentMain))
+            {
+                if (string.Equals(currentMain, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
+                {
+                    _monitor.Log("[MineRescue] buffBadlyHurt уже активен после смерти в шахте", LogLevel.Debug);
+                    return;
+                }
+
+                if (GetInjuryPriorityPublic(currentMain) > GetInjuryPriorityPublic("buffBadlyHurt"))
+                {
+                    _monitor.Log(
+                        $"[MineRescue] buffBadlyHurt не применён: текущая травма {currentMain} тяжелее",
+                        LogLevel.Debug);
+                    return;
+                }
+            }
+
+            // Смерть в шахте эскалирует даже buffHurt на лечении (forceReplace обходит TreatmentStarted).
+            bool needsForceReplace = !string.IsNullOrEmpty(currentMain);
+            if (!TryApplyMainInjury(
+                    "buffBadlyHurt",
+                    ApplyBadlyHurtCore,
+                    allowUpgrade: true,
+                    forceReplace: needsForceReplace,
+                    suppressBlockedFeedback: true))
+            {
+                _monitor.Log("[MineRescue] Не удалось применить buffBadlyHurt после смерти в шахте", LogLevel.Warn);
                 return;
+            }
 
             _dialogueManager.TryAddHarveyNeedsFirstTreatmentTopic("buffBadlyHurt");
         }

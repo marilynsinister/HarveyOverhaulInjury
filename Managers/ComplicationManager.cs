@@ -168,6 +168,71 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// PainFlare валиден только при main ∈ StormPainSensitive ∪ OverworkSensitive.
+        /// </summary>
+        public bool IsPainFlareComplicationValid()
+        {
+            if (!_stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.PainFlare))
+                return false;
+
+            return InjurySets.IsPainFlareEligibleMain(GetActiveMainInjuryId());
+        }
+
+        /// <summary>
+        /// Активные осложнения, которые можно лечить у Харви (ActiveComplications + валидность).
+        /// </summary>
+        public IReadOnlyList<string> GetActiveTreatableComplicationIds()
+        {
+            var active = new HashSet<string>(
+                _stateManager.State.ActiveComplications.Keys,
+                StringComparer.OrdinalIgnoreCase);
+
+            var ordered = new List<string>();
+            foreach (string compId in InjurySets.ComplicationPriorityOrder)
+            {
+                if (active.Contains(compId) && IsTreatableComplication(compId))
+                    ordered.Add(compId);
+            }
+
+            foreach (string compId in active.OrderBy(id => id, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!ordered.Contains(compId, StringComparer.OrdinalIgnoreCase) && IsTreatableComplication(compId))
+                    ordered.Add(compId);
+            }
+
+            return ordered;
+        }
+
+        private bool IsTreatableComplication(string compId)
+        {
+            if (!_stateManager.State.ActiveComplications.ContainsKey(compId))
+                return false;
+
+            if (string.Equals(compId, InjuryBuffs.WetBandage, StringComparison.OrdinalIgnoreCase))
+                return IsWetBandageComplicationValid();
+
+            if (string.Equals(compId, InjuryBuffs.PainFlare, StringComparison.OrdinalIgnoreCase))
+                return IsPainFlareComplicationValid();
+
+            return _buffManager.HasBuff(compId) || _stateManager.HasDebuffState(compId);
+        }
+
+        /// <summary>
+        /// Обострение боли вместо более тяжёлой main-травмы (простуда + удар в шахте и т.п. — без PainFlare).
+        /// </summary>
+        public bool TryApplyPainFlareFromBlockedInjury(string attemptedInjuryId)
+        {
+            if (!InjurySets.IsPainFlareEligibleMain(GetActiveMainInjuryId()))
+                return false;
+
+            return TryApplyComplication(
+                InjuryBuffs.PainFlare,
+                requiredMainInjurySet: null,
+                topicDays: 2,
+                new HUDMessage("Удар или нагрузка обострили боль от травмы.", HUDMessage.health_type));
+        }
+
+        /// <summary>
         /// Debug/repair: удалить невалидные и stale осложнения из текущего сейва.
         /// </summary>
         public void CleanupInvalidComplications()
@@ -407,6 +472,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
                 reason = inActiveComplications
                     ? $"invalid for main={GetActiveMainInjuryId() ?? "none"} (no bandage/treatment or not WetBandageSensitive)"
+                    : "stale (not in ActiveComplications)";
+                return true;
+            }
+
+            if (string.Equals(compId, InjuryBuffs.PainFlare, StringComparison.OrdinalIgnoreCase))
+            {
+                if (inActiveComplications && IsPainFlareComplicationValid())
+                    return false;
+
+                reason = inActiveComplications
+                    ? $"invalid for main={GetActiveMainInjuryId() ?? "none"} (not pain-sensitive)"
                     : "stale (not in ActiveComplications)";
                 return true;
             }

@@ -101,6 +101,17 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         // 1. Восстанавливаем баффы из снапшота конца прошлого дня
                         RestoreBuffsFromSnapshot();
 
+                        // 1a. Синхронизация фазовых/лечебных баффов по DebuffState (Stardew снимает баффы на ночь)
+                        int resynced = _injuryManager.EnsureActiveTreatmentBuffs();
+                        if (resynced > 0)
+                        {
+                            _monitor.Log(
+                                $"[BuffSync] Восстановлено {resynced} лечебных бафф(ов) по ActiveDebuffs",
+                                LogLevel.Info);
+                        }
+
+                        _complicationManager.CleanupInvalidComplications();
+
                         // 1b. Сброс некорректного ReadyForNextPhase у простого лечения (TotalPhases == 0)
                         _stateManager.SanitizeNonPhasedReadyFlags();
 
@@ -166,7 +177,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (!Context.IsWorldReady)
                 return "Error: load a save first.";
 
-            _injuryManager.SyncActiveBuffsFromStateForQa();
             SanitizeOrphanMineForbiddenBuff();
 
             if (_stateManager.State.SavedActiveBuffs.Count == 0)
@@ -178,6 +188,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
 
             RestoreBuffsFromSnapshot();
+            _injuryManager.EnsureActiveTreatmentBuffs();
             _stateManager.SanitizeNonPhasedReadyFlags();
 
             ApplyMineForbiddenIfWarningWasYesterday();
@@ -253,6 +264,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             int today = GetToday();
             string? mainInjuryId = _stateManager.GetMainInjuryId();
+
+            _injuryManager.EnsureActiveTreatmentBuffs();
             
             foreach (var kvp in _stateManager.State.ActiveDebuffs)
             {
@@ -290,8 +303,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                             _checkupManager.OnPhaseCheckupDue(injuryId, debuffState, nextPhase, today);
                             _stateManager.SetReadyForNextPhase(injuryId, true);
                             _monitor.Log($"📍 Установлен флаг готовности к смене фазы: {injuryId} (фаза {debuffState.CurrentPhase} → {nextPhase})", LogLevel.Info);
-                            
-                            ShowPhaseTransitionReminder(injuryId, nextPhase);
+
+                            if (_injuryManager.HasExpectedTreatmentBuff(injuryId))
+                                ShowPhaseTransitionReminder(injuryId, nextPhase);
+                            else
+                                _monitor.Log(
+                                    $"⚠️ {injuryId}: ReadyForNextPhase выставлен, но бафф фазы {debuffState.CurrentPhase} отсутствует",
+                                    LogLevel.Warn);
                         }
                     }
                     // Если последняя фаза завершена - готовность к выздоровлению
@@ -302,9 +320,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         {
                             _checkupManager.OnRecoveryCheckupDue(injuryId, debuffState, today);
                             _stateManager.SetReadyForRecovery(injuryId, true);
+                            _dialogueManager.RemoveTopic(TopicIds.GetCuredTopic(injuryId));
                             _monitor.Log($"🎉 Установлен флаг готовности к выздоровлению: {injuryId}", LogLevel.Info);
-                            
-                            ShowRecoveryReminder(injuryId);
+
+                            if (_injuryManager.HasExpectedTreatmentBuff(injuryId))
+                                ShowRecoveryReminder(injuryId);
+                            else
+                                _monitor.Log(
+                                    $"⚠️ {injuryId}: ReadyForRecovery выставлен, но ожидаемый бафф отсутствует",
+                                    LogLevel.Warn);
                         }
                     }
                 }
@@ -314,15 +338,18 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private void ShowPhaseTransitionReminder(string injuryId, int nextPhase)
         {
             string injuryName = _injuryManager.GetInjuryName(injuryId);
+            var debuffState = _stateManager.GetDebuffState(injuryId);
+            int totalPhases = debuffState?.TotalPhases ?? 3;
             string phaseName = nextPhase switch
             {
+                2 when totalPhases <= 2 => "восстановления",
                 2 => "заживления",
                 3 => "восстановления",
                 _ => "следующей стадии"
             };
             
             Game1.addHUDMessage(new HUDMessage(
-                $"Твоя травма готова к стадии {phaseName}. Посети Харви для продолжения лечения!",
+                $"Лечение готово к стадии {phaseName}. Посети Харви для продолжения.",
                 HUDMessage.health_type));
             
             _monitor.Log($"💡 Напоминание: {injuryName} готова к фазе {nextPhase}", LogLevel.Info);
@@ -581,6 +608,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return false;
             }
 
+            if (string.Equals(buffId, InjuryBuffs.PainFlare, StringComparison.OrdinalIgnoreCase)
+                && !_complicationManager.IsPainFlareComplicationValid())
+            {
+                skipReason = "main not pain-sensitive";
+                return false;
+            }
+
             return true;
         }
 
@@ -715,32 +749,30 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 if (ds.IsPhasedInjury || !ds.TreatmentStarted)
                     continue;
 
-                if (!SimpleInjuryCures.Map.TryGetValue(buffId, out var cureBuff)
-                    || !_buffManager.HasBuff(cureBuff))
-                    continue;
-
                 int daysInTreatment = today - ds.PhaseStartDay;
                 if (daysInTreatment < ds.Phase1Duration)
                     continue;
 
-                _monitor.Log($"Нефазовое лечение завершено: {buffId} (прошло {daysInTreatment} из {ds.Phase1Duration} дней)", LogLevel.Info);
+                if (ds.ReadyForRecovery)
+                    continue;
 
-                _buffManager.RemoveBuff(cureBuff);
+                _monitor.Log(
+                    $"Нефазовое лечение готово к финальному осмотру: {buffId} (прошло {daysInTreatment} из {ds.Phase1Duration} дней)",
+                    LogLevel.Info);
 
-                if (string.Equals(buffId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
-                    _buffManager.RemoveBuff(CureBuffs.BadlyHurtOutpatientCare);
+                _checkupManager.OnRecoveryCheckupDue(buffId, ds, today);
+                _stateManager.SetReadyForRecovery(buffId, true);
 
-                _stateManager.CompleteMainInjury(buffId);
+                // Старый автозавершение вешал topic*Cured — убираем, чтобы не дублировать финальный диалог
+                _dialogueManager.RemoveTopic(TopicIds.GetCuredTopic(buffId));
 
-                // Удаляем состояние травмы
-                _stateManager.RemoveDebuffState(buffId);
-                _injuryManager.NotifyInjuryRecovered(buffId);
-
-                // Добавляем топик завершения для диалога
-                string curedTopic = TopicIds.GetCuredTopic(buffId);
-                _dialogueManager.AddTopic(curedTopic, 7);
-
-                Game1.addHUDMessage(new HUDMessage("Лечение завершено! Обратись к Харви для финального осмотра.", HUDMessage.health_type));
+                _injuryManager.EnsureTreatmentBuffForInjury(buffId);
+                if (_injuryManager.HasExpectedTreatmentBuff(buffId))
+                    ShowRecoveryReminder(buffId);
+                else
+                    _monitor.Log(
+                        $"⚠️ {buffId}: ReadyForRecovery выставлен, но лечебный бафф отсутствует",
+                        LogLevel.Warn);
             }
         }
 
