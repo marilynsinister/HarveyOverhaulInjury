@@ -164,6 +164,7 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
                 CurrentPhase++;
                 PhaseStartDay = currentDay;
                 ReadyForNextPhase = false;
+                ReadyForRecovery = false;
             }
         }
         

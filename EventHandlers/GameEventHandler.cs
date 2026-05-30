@@ -562,6 +562,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             skipReason = null;
 
+            if (_injuryManager.ShouldSkipSnapshotRestoreForBuff(buffId, out string? treatmentReason))
+            {
+                skipReason = treatmentReason;
+                return false;
+            }
+
             if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
                 return ShouldRestoreComplicationBuff(buffId, out skipReason);
 

@@ -701,6 +701,21 @@ namespace HarveyOverhaul.InjuryCare
                 sb.AppendLine($"  {ds.BuffId}: {phaseInfo}{flags}");
             }
 
+            sb.AppendLine("=== Buff sync (DebuffState → expected buff) ===");
+            foreach (var ds in all.Where(d => InjurySets.HarveyTreatable.Contains(d.BuffId)))
+            {
+                InjuryTreatmentDebugInfo info = _injuryManager.BuildInjuryTreatmentDebugInfo(ds.BuffId, mainId);
+                sb.AppendLine($"  [{ds.BuffId}] MainInjury={YesNo(info.IsMainInjury)} TreatmentStarted={YesNo(info.TreatmentStarted)}");
+                sb.AppendLine(
+                    $"    Phase={info.CurrentPhase}/{info.TotalPhases} ReadyNext={YesNo(info.ReadyForNextPhase)} ReadyRecovery={YesNo(info.ReadyForRecovery)}");
+                sb.AppendLine(
+                    $"    expectedBuff={info.ExpectedBuffId ?? "(none)"} active={YesNo(info.ExpectedBuffActive)}");
+                sb.AppendLine(
+                    $"    base={YesNo(info.BaseBuffActive)} cure={YesNo(info.CureBuffActive)} stalePhases=[{string.Join(", ", info.StalePhaseBuffs)}]");
+                sb.AppendLine(
+                    $"    topics=[{(info.ActiveTopics.Count == 0 ? "(none)" : string.Join(", ", info.ActiveTopics))}]");
+            }
+
             return sb.ToString().TrimEnd();
         }
 

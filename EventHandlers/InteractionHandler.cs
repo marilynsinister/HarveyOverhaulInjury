@@ -82,6 +82,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (_hospitalizationManager.IsHospitalized)
                 return "ALLOWED: hospitalized — medical pipeline idle";
 
+            _injuryManager.EnsureActiveTreatmentBuffs();
             var resolved = TryResolveMedicalAction(_injuryManager.CollectAllInjuries());
             if (resolved != null)
                 return $"BLOCKED: InjuryCare medical action ({FormatMedicalActionLabel(resolved)})";
@@ -278,6 +279,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
 
             _stateManager.SanitizeNonPhasedReadyFlags();
+            _injuryManager.EnsureActiveTreatmentBuffs();
 
             var injuries = _injuryManager.CollectAllInjuries();
             var resolved = TryResolveMedicalAction(injuries);
@@ -346,6 +348,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (_hospitalizationManager.IsHospitalized)
                 return "none (hospitalized — pipeline idle)";
 
+            _injuryManager.EnsureActiveTreatmentBuffs();
             var resolved = TryResolveMedicalAction(_injuryManager.CollectAllInjuries());
             if (resolved == null)
                 return "none (standard dialogue allowed)";
@@ -368,6 +371,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return "BLOCKED: player hospitalized (pipeline idle); use ignore_hospital or injury_hospital_discharge";
 
             _stateManager.SanitizeNonPhasedReadyFlags();
+            _injuryManager.EnsureActiveTreatmentBuffs();
 
             var resolved = TryResolveMedicalAction(_injuryManager.CollectAllInjuries());
             if (resolved == null)
@@ -1014,14 +1018,26 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return false;
             }
 
+            int oldPhase = debuffState.CurrentPhase;
+            string oldBuff = _injuryManager.GetPhaseBuffId(injuryId, oldPhase);
+
             _treatmentManager.AdvanceInjuryToNextPhase(injuryId);
             _injuryManager.EnsureTreatmentBuffForInjury(injuryId);
+
+            var updatedState = _stateManager.GetDebuffState(injuryId);
+            int newPhase = updatedState?.CurrentPhase ?? oldPhase;
+            string newBuff = updatedState != null
+                ? _injuryManager.GetPhaseBuffId(injuryId, newPhase)
+                : "(unknown)";
+
             GrantMedicalFriendship(10);
             ShowHarveyEmote(HarveyHelper.GetRecoveryEmote());
             ProcessMedicalInteractionCompliance();
             _stateManager.Save();
 
-            _monitor.Log($"[MedicalAction] applied type=AdvancePhase injury={injuryId}", LogLevel.Info);
+            _monitor.Log(
+                $"[MedicalAction] applied type=AdvancePhase injury={injuryId} oldBuff={oldBuff} newBuff={newBuff} phase={oldPhase}->{newPhase}",
+                LogLevel.Info);
             return true;
         }
 
@@ -1158,9 +1174,33 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             };
 
             return completionTopics
-                .Where(_dialogueManager.HasTopic)
+                .Where(topicId =>
+                {
+                    if (!_dialogueManager.HasTopic(topicId))
+                        return false;
+
+                    string? buffId = DeriveBuffIdFromCuredTopic(topicId);
+                    if (buffId != null && _stateManager.HasDebuffState(buffId))
+                        return false;
+
+                    return true;
+                })
                 .OrderByDescending(GetCompletionTopicPriority)
                 .FirstOrDefault();
+        }
+
+        private static string? DeriveBuffIdFromCuredTopic(string topicId)
+        {
+            if (topicId == ConversationTopics.ColdCured)
+                return InjuryBuffs.Cold;
+            if (topicId == ConversationTopics.SurgicalWoundCured)
+                return "buffSurgicalWound";
+
+            if (topicId.StartsWith("topic", StringComparison.OrdinalIgnoreCase)
+                && topicId.EndsWith("Cured", StringComparison.OrdinalIgnoreCase))
+                return "buff" + topicId.Substring(5, topicId.Length - 5 - 5);
+
+            return null;
         }
 
         private int GetCompletionTopicPriority(string topicId)

@@ -24,6 +24,24 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public bool TreatmentStarted { get; init; }
     }
 
+    /// <summary>Диагностика синхронизации лечебных баффов для injury_phase_list.</summary>
+    public sealed class InjuryTreatmentDebugInfo
+    {
+        public string BuffId { get; init; } = "";
+        public bool IsMainInjury { get; init; }
+        public bool TreatmentStarted { get; init; }
+        public int CurrentPhase { get; init; }
+        public int TotalPhases { get; init; }
+        public bool ReadyForNextPhase { get; init; }
+        public bool ReadyForRecovery { get; init; }
+        public string? ExpectedBuffId { get; init; }
+        public bool ExpectedBuffActive { get; init; }
+        public bool BaseBuffActive { get; init; }
+        public bool CureBuffActive { get; init; }
+        public IReadOnlyList<string> StalePhaseBuffs { get; init; } = Array.Empty<string>();
+        public IReadOnlyList<string> ActiveTopics { get; init; } = Array.Empty<string>();
+    }
+
     /// <summary>
     /// Управление травмами игрока
     /// </summary>
@@ -323,7 +341,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (_buffManager.HasBuff(buffId))
                 _buffManager.RemoveBuff(buffId);
 
-            for (int phase = 1; phase <= 3; phase++)
+            int maxPhase = Math.Max(debuffState.TotalPhases, 3);
+            for (int phase = 1; phase <= maxPhase; phase++)
             {
                 if (phase == debuffState.CurrentPhase)
                     continue;
@@ -334,6 +353,194 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
 
             return restored;
+        }
+
+        /// <summary>
+        /// Лечебные баффы восстанавливаются из ActiveDebuffs, а не из SavedActiveBuffs.
+        /// </summary>
+        public bool ShouldSkipSnapshotRestoreForBuff(string buffId, out string? reason)
+        {
+            reason = null;
+
+            if (InjurySets.HarveyTreatable.Contains(buffId)
+                && _stateManager.HasDebuffState(buffId))
+            {
+                var debuffState = _stateManager.GetDebuffState(buffId)!;
+                if (debuffState.TreatmentStarted)
+                {
+                    reason = "base buff stale after TreatmentStarted";
+                    return true;
+                }
+            }
+
+            foreach (var (injuryId, cureBuffId) in TreatmentManager.CureByInjury)
+            {
+                if (!string.Equals(buffId, cureBuffId, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!_stateManager.HasDebuffState(injuryId))
+                {
+                    reason = "orphan cure buff without DebuffState";
+                    return true;
+                }
+
+                reason = "cure buff synced from DebuffState";
+                return true;
+            }
+
+            foreach (string injuryId in TreatmentManager.PhasedInjuries)
+            {
+                for (int phase = 1; phase <= 3; phase++)
+                {
+                    string phaseBuffId = GetPhaseBuffId(injuryId, phase);
+                    if (string.IsNullOrEmpty(phaseBuffId)
+                        || !string.Equals(buffId, phaseBuffId, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (!_stateManager.HasDebuffState(injuryId))
+                    {
+                        reason = "orphan phase buff without DebuffState";
+                        return true;
+                    }
+
+                    var debuffState = _stateManager.GetDebuffState(injuryId)!;
+                    if (!debuffState.TreatmentStarted)
+                    {
+                        reason = "phase buff before TreatmentStarted";
+                        return true;
+                    }
+
+                    if (debuffState.CurrentPhase != phase)
+                    {
+                        reason = $"stale phase buff (state={debuffState.CurrentPhase}, saved={phase})";
+                        return true;
+                    }
+
+                    reason = "phase buff synced from DebuffState";
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Удалить устаревшие записи лечебных баффов из SavedActiveBuffs по DebuffState.
+        /// </summary>
+        public bool SanitizeSavedActiveBuffsFromDebuffState()
+        {
+            bool changed = false;
+            var saved = _stateManager.State.SavedActiveBuffs;
+
+            foreach (string buffId in saved.ToList())
+            {
+                if (!ShouldSkipSnapshotRestoreForBuff(buffId, out _))
+                    continue;
+
+                if (saved.RemoveAll(id => string.Equals(id, buffId, StringComparison.OrdinalIgnoreCase)) > 0)
+                {
+                    changed = true;
+                    _monitor.Log($"[BuffSync] removed stale SavedActiveBuffs entry: {buffId}", LogLevel.Debug);
+                }
+            }
+
+            return changed;
+        }
+
+        /// <summary>
+        /// Ожидаемый лечебный бафф по DebuffState (base / cure / current phase).
+        /// </summary>
+        public string? GetExpectedTreatmentBuffId(string buffId)
+        {
+            if (!_stateManager.State.ActiveDebuffs.TryGetValue(buffId, out var debuffState))
+                return null;
+
+            if (!debuffState.TreatmentStarted)
+                return buffId;
+
+            if (TreatmentManager.IsSimpleTreatmentInjury(buffId))
+                return GetExpectedCureBuffId(buffId);
+
+            if (debuffState.IsPhasedInjury && debuffState.CurrentPhase > 0)
+                return GetPhaseBuffId(buffId, debuffState.CurrentPhase);
+
+            return null;
+        }
+
+        /// <summary>
+        /// Активные устаревшие фазовые баффы травмы (не CurrentPhase).
+        /// </summary>
+        public List<string> GetStalePhaseBuffIds(string buffId)
+        {
+            var stale = new List<string>();
+            if (!_stateManager.State.ActiveDebuffs.TryGetValue(buffId, out var debuffState))
+                return stale;
+
+            if (!debuffState.IsPhasedInjury || debuffState.CurrentPhase <= 0)
+                return stale;
+
+            int maxPhase = Math.Max(debuffState.TotalPhases, 3);
+            for (int phase = 1; phase <= maxPhase; phase++)
+            {
+                if (phase == debuffState.CurrentPhase)
+                    continue;
+
+                string phaseBuffId = GetPhaseBuffId(buffId, phase);
+                if (!string.IsNullOrEmpty(phaseBuffId) && _buffManager.HasBuff(phaseBuffId))
+                    stale.Add(phaseBuffId);
+            }
+
+            return stale;
+        }
+
+        /// <summary>
+        /// Топики injury/treatment/phase/cured, активные у игрока для этой травмы.
+        /// </summary>
+        public List<string> GetActiveInjuryTopics(string buffId)
+        {
+            var topics = new List<string>();
+            string[] candidates =
+            {
+                TopicIds.GetInjuryTopic(buffId),
+                TopicIds.GetTreatmentTopic(buffId),
+                TopicIds.GetCuredTopic(buffId),
+                TopicIds.GetPhaseTopicId(buffId, 1),
+                TopicIds.GetPhaseTopicId(buffId, 2),
+                TopicIds.GetPhaseTopicId(buffId, 3),
+            };
+
+            foreach (string topicId in candidates)
+            {
+                if (_dialogueManager.HasTopic(topicId))
+                    topics.Add(topicId);
+            }
+
+            return topics;
+        }
+
+        public InjuryTreatmentDebugInfo BuildInjuryTreatmentDebugInfo(string buffId, string? mainInjuryId)
+        {
+            var debuffState = _stateManager.GetDebuffState(buffId);
+            string? expectedBuffId = GetExpectedTreatmentBuffId(buffId);
+            bool expectedActive = !string.IsNullOrEmpty(expectedBuffId) && _buffManager.HasBuff(expectedBuffId);
+
+            return new InjuryTreatmentDebugInfo
+            {
+                BuffId = buffId,
+                IsMainInjury = !string.IsNullOrEmpty(mainInjuryId)
+                    && string.Equals(buffId, mainInjuryId, StringComparison.OrdinalIgnoreCase),
+                TreatmentStarted = debuffState?.TreatmentStarted ?? false,
+                CurrentPhase = debuffState?.CurrentPhase ?? 0,
+                TotalPhases = debuffState?.TotalPhases ?? 0,
+                ReadyForNextPhase = debuffState?.ReadyForNextPhase ?? false,
+                ReadyForRecovery = debuffState?.ReadyForRecovery ?? false,
+                ExpectedBuffId = expectedBuffId,
+                ExpectedBuffActive = expectedActive,
+                BaseBuffActive = _buffManager.HasBuff(buffId),
+                CureBuffActive = IsCureBuffActive(buffId),
+                StalePhaseBuffs = GetStalePhaseBuffIds(buffId),
+                ActiveTopics = GetActiveInjuryTopics(buffId),
+            };
         }
 
         /// <summary>
@@ -370,6 +577,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public int EnsureActiveTreatmentBuffs()
         {
+            bool stateDirty = SanitizeSavedActiveBuffsFromDebuffState();
             int restored = 0;
 
             foreach (var (buffId, _) in _stateManager.State.ActiveDebuffs)
@@ -381,6 +589,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     && !InjurySets.IsPainFlareEligibleMain(_stateManager.GetMainInjuryId()))
                 {
                     _complicationManager?.RemoveComplicationForQa(compId);
+                    stateDirty = true;
                     continue;
                 }
 
@@ -390,6 +599,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     restored++;
                 }
             }
+
+            if (stateDirty)
+                _stateManager.Save();
 
             return restored;
         }

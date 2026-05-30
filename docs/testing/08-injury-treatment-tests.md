@@ -43,7 +43,8 @@
 | HOI-PHASE-REG-002 | phase_ready у нефазовой травмы | [ ] | |
 | HOI-PHASE-REG-003 | Повторный клик после выздоровления | [ ] | |
 | HOI-PHASE-REG-004 | Потерянный phase buff при DebuffState | [ ] | |
-| HOI-PHASE-REG-005 | DebuffState есть, buff отсутствует | [ ] | |
+| HOI-PHASE-REG-005 | DebuffState есть, buff отсутствует | [ ] |
+| HOI-BUFF-SYNC-A…F | state-first buff sync + medical pipeline | [ ] | |
 
 ---
 
@@ -868,6 +869,76 @@ injury_phase_list
 ### Статус
 
 - [ ] Сценарий пройден
+
+---
+
+## HOI-BUFF-SYNC — state-first синхронизация баффов и medical pipeline
+
+> **Цель:** DebuffState — единственный источник правды для phase/cure/base баффов.  
+> **Assert:** `injury_phase_list` → секция `Buff sync`; SMAPI `[MedicalAction] queued/applied` без дублей.
+
+| ID | Сценарий | Статус |
+|----|----------|:------:|
+| HOI-BUFF-SYNC-A | buffDeepCuts → лечение → sleep → Acute восстановлен | [ ] |
+| HOI-BUFF-SYNC-B | phase ready → клик → один диалог → Healing активен, Acute снят | [ ] |
+| HOI-BUFF-SYNC-C | sleep после перехода → Healing восстановлен утром | [ ] |
+| HOI-BUFF-SYNC-D | last phase recovery → один финал → все buffs сняты, HarveyCare ×1 | [ ] |
+| HOI-BUFF-SYNC-E | buffHurt → лечение → sleep → ReadyForRecovery → финал один раз | [ ] |
+| HOI-BUFF-SYNC-F | быстрые клики на ready phase/recovery → apply один раз | [ ] |
+
+### Общая подготовка
+
+```text
+injury_reset
+teleport_player Hospital
+set_time 10am
+set_npc_relationship Harvey 3
+```
+
+### HOI-BUFF-SYNC-A — фазовый buff после сна
+
+1. `injury_debuff_add buffDeepCuts`
+2. `injury_harvey_click` → StartTreatment (или клик вручную + закрыть диалог)
+3. `injury_phase_list` → `expectedBuff=HarveyMod_DeepCuts_Acute active=yes`, `TreatmentStarted=yes`
+4. `advance_day` (StardewMCP) или сон вручную
+5. `injury_run_daily_checks` **или** дождаться DayStarted
+6. **Assert:** `injury_phase_list` → `expectedBuff=HarveyMod_DeepCuts_Acute active=yes`, `stalePhases=[]`
+
+### HOI-BUFF-SYNC-B — переход фазы (один диалог)
+
+1. Продолжение A или setup: `buffDeepCuts` phase 1 в лечении
+2. `injury_phase_ready buffDeepCuts 1` + при необходимости `injury_test_age_injury buffDeepCuts` (см. debug setup)
+3. **Вручную:** один клик по Харви → закрыть DialogueBox
+4. **Assert SMAPI:** ровно один `[MedicalAction] queued type=AdvancePhase injury=buffDeepCuts phase=1->2` и один `applied ... oldBuff=HarveyMod_DeepCuts_Acute newBuff=HarveyMod_DeepCuts_Healing`
+5. `injury_phase_list` → `Phase=2/3`, `expectedBuff=HarveyMod_DeepCuts_Healing active=yes`, `base=no`, `stalePhases=[]`
+
+### HOI-BUFF-SYNC-C — Healing после сна
+
+1. Продолжение B (phase 2 активна)
+2. Сон / `advance_day` + `injury_run_daily_checks`
+3. **Assert:** `expectedBuff=HarveyMod_DeepCuts_Healing active=yes`
+
+### HOI-BUFF-SYNC-D — финальный осмотр без повтора
+
+1. Довести `buffDeepCuts` до phase 3, `injury_phase_recovery buffDeepCuts 1`
+2. Один клик по Харви (или `injury_harvey_click` после ручного диалога)
+3. **Assert:** `injury_phase_list` → нет `buffDeepCuts` в ActiveDebuffs; `topics` без `topicDeepCutsCured`
+4. `injury_buff_dump` → нет phase/base/cure баффов DeepCuts; `buffHarveyCare` **один**
+5. Повторный клик / `injury_harvey_click` → `NO_ACTION`; нет второго `[MedicalAction] applied type=CompleteRecovery`
+
+### HOI-BUFF-SYNC-E — простая травма (ReadyForRecovery path)
+
+1. `injury_reset` → `injury_debuff_add buffHurt` → `injury_harvey_click`
+2. Ускорить срок: `injury_test_age_injury buffHurt` или сон N дней
+3. `injury_run_daily_checks` → `ReadyRecovery=yes`, **нет** `topicHurtCured` в topics
+4. Один клик / `injury_harvey_click` → `CompleteRecovery`, cure/base сняты, `buffHarveyCare` ×1
+
+### HOI-BUFF-SYNC-F — защита от двойного клика
+
+1. Setup: phase ready (`injury_phase_ready`) **или** recovery ready (`injury_phase_recovery`)
+2. Быстро кликнуть Харви 2–3 раза до появления DialogueBox
+3. **Assert SMAPI:** один `queued`, один `applied`; есть `[MedicalAction] клик по Харви подавлен: pending` для повторных кликов
+4. Повторить для recovery-ready
 
 ---
 

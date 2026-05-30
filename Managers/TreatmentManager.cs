@@ -183,6 +183,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             string oldPhaseBuffId = _injuryManager.GetPhaseBuffId(injuryId, oldPhase);
             string newPhaseBuffId = _injuryManager.GetPhaseBuffId(injuryId, newPhase);
+            _monitor.Log($"🔄 Баффы фазы {injuryId}: {oldPhaseBuffId} → {newPhaseBuffId}", LogLevel.Info);
 
             _buffManager.AddBuff(newPhaseBuffId, -2);
             if (!_buffManager.HasBuff(newPhaseBuffId))
@@ -223,6 +224,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (updatedState.ReadyForNextPhase)
                 _stateManager.SetReadyForNextPhase(injuryId, false);
+
+            if (updatedState.ReadyForRecovery)
+                _stateManager.SetReadyForRecovery(injuryId, false);
 
             string oldPhaseTopicId = _injuryManager.GetPhaseTopicId(injuryId, oldPhase);
             _dialogueManager.RemoveTopic(oldPhaseTopicId);
