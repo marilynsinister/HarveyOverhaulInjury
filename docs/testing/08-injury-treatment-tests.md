@@ -640,6 +640,67 @@ HOI-PHASE-011
 
 2 фазы (2+2 дн.): `HarveyMod_Cold_Acute` → `HarveyMod_Cold_Recovery` → `buffHarveyCare`; cured bridge `topicColdCured` (CP).
 
+### Подготовка (StardewMCP)
+
+Общая подготовка; Harvey рядом / клиника.
+
+### Команды SMAPI / Injury MCP
+
+```
+injury_reset
+injury_debuff_add buffCold
+# клик по Харви (StartTreatment)
+injury_phase_list
+injury_phase_ready buffCold 1
+# клик по Харви (AdvancePhase 1→2)
+injury_phase_list
+injury_state_dump
+injury_buff_dump
+injury_phase_recovery buffCold 1
+# клик по Харви (CompleteRecovery)
+injury_phase_list
+injury_buff_dump
+```
+
+### Шаги
+
+1. `injury_reset` → `injury_debuff_add buffCold` → **клик Harvey**.
+2. **Assert:** `HarveyMod_Cold_Acute` активен; `buffCold` снят; `CurrentPhase=1/2`; `TreatmentStarted=true`.
+3. `injury_phase_ready buffCold 1` → **клик Harvey**.
+4. **Assert после перехода 1→2:**
+   - реплика про спад жара (`PhaseTransition_Cold_2` или эквивалент);
+   - `HarveyMod_Cold_Acute` снят;
+   - `HarveyMod_Cold_Recovery` активен;
+   - `CurrentPhase=2/2`;
+   - `TreatmentStarted=true`;
+   - `ReadyForNextPhase=false`;
+   - `ReadyForRecovery=false`;
+   - debug HUD: stage **Recovery**, не Healing;
+   - debug HUD: phase buff **не missing**; ID **не** содержит `Reovery` / `Healing`.
+5. `injury_phase_recovery buffCold 1` → **клик Harvey**.
+6. **Assert:** лечение завершено; `HarveyMod_Cold_Recovery` снят; `DebuffState buffCold` удалён; `buffHarveyCare` один раз.
+
+#### HOI-PHASE-011a — BuffSync на фазе 2 (без цикла add/remove)
+
+Регрессия: двухфазные травмы не должны терять фазовый бафф из‑за stale-cleanup phase 3.
+
+```
+injury_reset
+injury_debuff_add buffCold
+# клик по Харви (StartTreatment)
+injury_phase_ready buffCold 1
+# клик по Харви (AdvancePhase 1→2)
+# F10 → compact/full debug HUD на 5–10 сек
+injury_buff_dump
+```
+
+**Ожидание:** `HarveyMod_Cold_Recovery` остаётся активным; в логе Injury Logic **нет** повторяющегося цикла `RemoveBuff: HarveyMod_Cold_Recovery` → `AddBuff: HarveyMod_Cold_Recovery` каждый кадр/секунду.
+
+### Pass criteria
+
+- **PASS:** переход 1→2 не завершает лечение; phase 2 = Recovery buff + Recovery stage в HUD; recovery только после `injury_phase_recovery`.
+- **FAIL:** `valid=no` на main injury; missing phase buff; `Healing` в HUD на фазе 2/2; premature `buffHarveyCare`.
+
 ### Статус
 
 - [ ] Сценарий пройден

@@ -117,6 +117,9 @@ namespace HarveyOverhaul.InjuryCare.Core
 
         /// <summary>Острая фаза простуды (фазовый бафф).</summary>
         public const string ColdAcute = "HarveyMod_Cold_Acute";
+
+        /// <summary>Фаза восстановления простуды (фазовый бафф).</summary>
+        public const string ColdRecovery = "HarveyMod_Cold_Recovery";
     }
 
     /// <summary>Баффы самопомощи (слабее лечения у Харви).</summary>
@@ -238,16 +241,30 @@ namespace HarveyOverhaul.InjuryCare.Core
         public static string GetComplicationTopic(string complicationBuffId) =>
             complicationBuffId.Replace("HarveyMod_", "topicHarvey_");
 
-        public static string GetPhaseTopicId(string injuryId, int phase)
+        /// <summary>
+        /// Имя стадии фазы для topic ID, HUD и логов.
+        /// </summary>
+        public static string GetPhaseStageName(int phase, int totalPhases)
         {
-            string injuryName = injuryId.Replace("buff", "");
-            string stageName = phase switch
+            if (phase == 1)
+                return "Acute";
+            if (totalPhases <= 2 && phase == 2)
+                return "Recovery";
+            return phase switch
             {
-                1 => "Acute",
                 2 => "Healing",
                 3 => "Recovery",
                 _ => "Unknown"
             };
+        }
+
+        public static string GetPhaseTopicId(string injuryId, int phase, int totalPhases = 0)
+        {
+            if (totalPhases <= 0)
+                totalPhases = InjurySets.InferDefaultTotalPhases(injuryId);
+
+            string injuryName = injuryId.Replace("buff", "");
+            string stageName = GetPhaseStageName(phase, totalPhases);
             return $"topic{injuryName}Phase{stageName}";
         }
     }
@@ -273,8 +290,12 @@ namespace HarveyOverhaul.InjuryCare.Core
                 ids.Add(TopicIds.GetInjuryTopic(buffId));
                 ids.Add(TopicIds.GetTreatmentTopic(buffId));
                 ids.Add(TopicIds.GetCuredTopic(buffId));
-                for (int phase = 1; phase <= 3; phase++)
-                    ids.Add(TopicIds.GetPhaseTopicId(buffId, phase));
+                int totalPhases = InjurySets.InferDefaultTotalPhases(buffId);
+                for (int phase = 1; phase <= totalPhases; phase++)
+                    ids.Add(TopicIds.GetPhaseTopicId(buffId, phase, totalPhases));
+                // Legacy: старые сейвы могли получить PhaseHealing на 2-й стадии двухфазовых травм.
+                if (totalPhases == 2)
+                    ids.Add($"topic{buffId.Replace("buff", "")}PhaseHealing");
             }
 
             foreach (string compId in InjurySets.KnownComplicationBuffIds)
@@ -572,6 +593,20 @@ namespace HarveyOverhaul.InjuryCare.Core
             "buffSurgicalWound",
             InjuryBuffs.Cold,
         };
+
+        /// <summary>Фазовые травмы с двумя стадиями лечения (Acute → Recovery).</summary>
+        public static readonly HashSet<string> TwoPhaseInjuries = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "buffSprainedAnkle",
+            "buffBruisedRibs",
+            "buffBurnWounds",
+            "buffInfectedWound",
+            "buffBackStrain",
+            InjuryBuffs.Cold,
+        };
+
+        public static int InferDefaultTotalPhases(string injuryId) =>
+            TwoPhaseInjuries.Contains(injuryId) ? 2 : 3;
 
         /// <summary>Осложнения InjuryCare (DebuffState + TreatComplications), не чужие баффы.</summary>
         public static readonly HashSet<string> KnownComplicationBuffIds = new(System.StringComparer.OrdinalIgnoreCase)

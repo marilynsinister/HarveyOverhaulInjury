@@ -279,15 +279,29 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 string treatmentId = TopicIds.GetTreatmentTopic(trauma.BuffId);
                 missing += LogDialoguePresence(monitor, dialogueKeys, dialogueAssetPath, trauma.BuffId, "Treatment", treatmentId);
 
+                int totalPhases = trauma.P3 > 0 ? 3 : (trauma.P2 > 0 ? 2 : 0);
+                if (totalPhases <= 0)
+                    continue;
+
                 missing += LogDialoguePresence(
                     monitor, dialogueKeys, dialogueAssetPath, trauma.BuffId, "PhaseAcute",
-                    TopicIds.GetPhaseTopicId(trauma.BuffId, 1));
-                missing += LogDialoguePresence(
-                    monitor, dialogueKeys, dialogueAssetPath, trauma.BuffId, "PhaseHealing",
-                    TopicIds.GetPhaseTopicId(trauma.BuffId, 2));
-                missing += LogDialoguePresence(
-                    monitor, dialogueKeys, dialogueAssetPath, trauma.BuffId, "PhaseRecovery",
-                    TopicIds.GetPhaseTopicId(trauma.BuffId, 3));
+                    TopicIds.GetPhaseTopicId(trauma.BuffId, 1, totalPhases));
+
+                if (totalPhases <= 2)
+                {
+                    missing += LogDialoguePresence(
+                        monitor, dialogueKeys, dialogueAssetPath, trauma.BuffId, "PhaseRecovery",
+                        TopicIds.GetPhaseTopicId(trauma.BuffId, 2, totalPhases));
+                }
+                else
+                {
+                    missing += LogDialoguePresence(
+                        monitor, dialogueKeys, dialogueAssetPath, trauma.BuffId, "PhaseHealing",
+                        TopicIds.GetPhaseTopicId(trauma.BuffId, 2, totalPhases));
+                    missing += LogDialoguePresence(
+                        monitor, dialogueKeys, dialogueAssetPath, trauma.BuffId, "PhaseRecovery",
+                        TopicIds.GetPhaseTopicId(trauma.BuffId, 3, totalPhases));
+                }
             }
 
             if (missing == 0)

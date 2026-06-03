@@ -121,6 +121,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         // 3. Снятие дебаффа «Харви запретил шахту» после N дней
                         ExpireMineForbiddenIfDue();
 
+                        // 3a. AddBuff(-2) только на текущий день — восстановить, пока daysLeft > 0
+                        RestoreMineForbiddenBuffIfDue();
+
                         // 4. Запуск события спасения из шахты — ПОСЛЕ восстановления баффов,
                         //    чтобы HasAnyBuff(Severe) корректно видел все активные травмы
                         _passOutHandler?.TriggerMineRescueEvents();
@@ -193,6 +196,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             ApplyMineForbiddenIfWarningWasYesterday();
             ExpireMineForbiddenIfDue();
+            RestoreMineForbiddenBuffIfDue();
             _passOutHandler?.TriggerMineRescueEvents();
 
             bool infectionEscalated = _complicationManager.CheckTreatmentCompletion();
@@ -339,12 +343,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             string injuryName = _injuryManager.GetInjuryName(injuryId);
             var debuffState = _stateManager.GetDebuffState(injuryId);
-            int totalPhases = debuffState?.TotalPhases ?? 3;
-            string phaseName = nextPhase switch
+            int totalPhases = debuffState?.TotalPhases ?? InjurySets.InferDefaultTotalPhases(injuryId);
+            string phaseName = TopicIds.GetPhaseStageName(nextPhase, totalPhases) switch
             {
-                2 when totalPhases <= 2 => "восстановления",
-                2 => "заживления",
-                3 => "восстановления",
+                "Recovery" => "восстановления",
+                "Healing" => "заживления",
+                "Acute" => "острой фазы",
                 _ => "следующей стадии"
             };
             
@@ -492,7 +496,30 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _stateManager.State.MineWarningDay = -1;
             _stateManager.State.MineForbiddenAppliedDay = today;
             _buffManager.AddBuff(InjuryBuffs.MineForbidden, -2);
-            _monitor.Log($"[Шахта] Наложен дебафф «Харви запретил шахту» на {_config.MineForbiddenDurationDays} дн. (день {today})", LogLevel.Info);
+            int daysLeft = MineForbiddenHelper.GetMineForbiddenDaysLeft(_stateManager.State, _config, today);
+            Game1.addHUDMessage(new HUDMessage(
+                MineForbiddenHelper.FormatAppliedHud(_config, today, _stateManager.State),
+                HUDMessage.health_type));
+            _monitor.Log(
+                $"[Шахта] Наложен дебафф «Харви запретил шахту» на {MineForbiddenHelper.GetMineForbiddenDurationDays(_config)} дн., осталось {daysLeft} (день {today})",
+                LogLevel.Info);
+        }
+
+        /// <summary>Восстановить MineForbidden утром, пока срок по state не истёк (бафф -2 не переживает несколько дней).</summary>
+        private void RestoreMineForbiddenBuffIfDue()
+        {
+            int today = GetToday();
+            int daysLeft = MineForbiddenHelper.GetMineForbiddenDaysLeft(_stateManager.State, _config, today);
+            if (daysLeft <= 0)
+                return;
+
+            if (_buffManager.HasBuff(InjuryBuffs.MineForbidden))
+                return;
+
+            _buffManager.AddBuff(InjuryBuffs.MineForbidden, -2);
+            _monitor.Log(
+                $"[Шахта] Восстановлен дебафф «Харви запретил шахту» (осталось {daysLeft} дн.)",
+                LogLevel.Debug);
         }
 
         /// <summary>

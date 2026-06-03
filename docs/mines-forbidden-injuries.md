@@ -29,8 +29,10 @@
 
 | Что происходит | Условие в коде |
 |----------------|----------------|
-| Строгое предупреждение в шахте | При входе в **MineShaft** или **VolcanoDungeon** вызывается **HandleMinesLogic()**; если есть хотя бы один дебафф из **Severe** и сегодня ещё не показывали предупреждение (`_lastMineWarningDay != today`) → HUD «У тебя серьёзные раны — ты не должна идти в шахту!», в state записывается **MineWarningDay** = текущий день. |
-| Письмо и дебафф на следующий день | В **DayEnding**: если **MineWarningDay == сегодня** и **SendLetters == true** → `addMailForTomorrow(mailHarveyMineForbidden)`. В **DayStarted**: если **MineWarningDay == вчера** → накладывается **HarveyMod_MineForbidden**, **MineForbiddenAppliedDay** = сегодня. |
+| Строгое предупреждение в шахте | **HandleMinesLogic()** при **MainInjury ∈ Severe** (`IsMainInjurySerious()`): первый вход за день → HUD error + **MineWarningDay** = today + **LastMineSevereWarningDay** = today; повторный вход в тот же день → warp наружу (без **MineForbidden** до следующего утра). |
+| Письмо и дебафф на следующий день | **DayEnding**: **MineWarningDay == сегодня** и **SendLetters** → `mailHarveyMineForbidden` на завтра. **DayStarted**: **MineWarningDay == вчера** → **HarveyMod_MineForbidden** + **MineForbiddenAppliedDay** + HUD со сроком. |
+| Мягкое предупреждение (buffDeepCuts и др.) | Не Severe: HUD 1×/день (`_lastMineSoftHudDay`), **без** MineWarningDay / письма / запрета; **DirtyWound** — отдельно по экспозиции в шахте. |
+| CP `eventHarveyMineInterception` | Только при активном **HarveyMod_MineForbidden** (локация `Mine`, не buffDeepCuts). |
 
 Подробнее — в разделах «Дебафф HarveyMod_MineForbidden» и «Как проверить ограничения на вход в шахту».
 
@@ -128,18 +130,20 @@
 flowchart TD
     subgraph sg1["Вход в HandleMinesLogic"]
         A["Игрок вошёл в MineShaft или VolcanoDungeon"]
+        A --> MF{"HarveyMod_MineForbidden?"}
+        MF -->|Да| MFB["HUD со сроком + warp / cutscene 1×/день"]
+        MF -->|Нет| B
     end
 
     subgraph sg2["Предупреждение раз в день"]
         B{"Есть травма или осложнение?"}
         B -->|Нет| Z["Конец предупреждений"]
-        B -->|Да| C{"Предупреждение уже сегодня?"}
+        B -->|Да| E{"MainInjury Severe?"}
+        E -->|Да| F["1-й раз: HUD + MineWarningDay"]
+        F --> F2["2-й раз: warp наружу"]
+        E -->|Нет| C{"Мягкий HUD уже сегодня?"}
         C -->|Да| Z
-        C -->|Нет| D["Запомнить день"]
-        D --> E{"Есть Severe?"}
-        E -->|Да| F["HUD: не идти в шахту"]
-        E -->|Нет| G["HUD: осторожно загрязнение"]
-        F --> Z
+        C -->|Нет| G["HUD: осторожно загрязнение"]
         G --> Z
     end
 

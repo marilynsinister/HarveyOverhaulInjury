@@ -33,6 +33,10 @@
 | HOI-MINE-003 | Повторный вход — warning не чаще раза в день | [ ] | |
 | HOI-MINE-004 | MineForbidden истекает по `MineForbiddenDurationDays` | [ ] | |
 | HOI-MINE-005 | MineForbidden + CP interception event | [ ] | |
+| HOI-MINE-010 | buffDeepCuts + Mine — мягкий HUD, без выноса | [ ] | |
+| HOI-MINE-011 | buffDeepCuts + DirtyWound + смена этажа | [ ] | |
+| HOI-MINE-012 | buffBadlyHurt — строгий путь (письмо + запрет) | [ ] | |
+| HOI-MINE-013 | MineForbidden — HUD со сроком при входе | [ ] | |
 | HOI-PASSOUT-001 | HP 0–10 + dating → buffBadlyHurt | [ ] | |
 | HOI-PASSOUT-002 | Mine death rescue pipeline | [ ] | |
 | HOI-PASSOUT-003 | topicMineInjuryRescue → forced hospital | [ ] | |
@@ -113,6 +117,20 @@ injury_phase_list
 | `injury_*`, QA setup/dump, `injury_debug_mine_rescue`, `injury_mine_forbidden_clear` | **SMAPI console** или **Injury MCP** (`user-harvey-injury`) |
 | `debug ebi <eventId>` | **SMAPI / игровая debug-консоль** (не StardewMCP, не Injury MCP) |
 | Клик Harvey, просмотр cutscene, почтовый ящик UI | **вручную**, если не указано иное |
+
+---
+
+# Правила поведения шахты (сводка)
+
+| Уровень | Травмы / условие | При входе в MineShaft / Volcano | MineWarningDay | Письмо / запрет | Вынос / cutscene |
+|---------|------------------|--------------------------------|-----------------|-----------------|------------------|
+| **Мягкий** | Любая не-Severe (`buffDeepCuts`, `buffHurt`, LimitedActivity, осложнения без Severe main) | HUD 1×/день: *«Будь осторожна…»* или LimitedActivity-текст | **не ставится** | **нет** | **нет**; DirtyWound по экспозиции (`DirtyInMines`) |
+| **Severe** | `InjurySets.Severe` как MainInjury | 1-й вход: строгий HUD + `MineWarningDay=today`; 2-й вход в тот же день: warp | **да** | На след. день: `mailHarveyMineForbidden` + `HarveyMod_MineForbidden` | C# warp; **не** CP event до запрета |
+| **Запрет** | `HarveyMod_MineForbidden` | HUD *«Запрет… Осталось: X дн.»* + warp; cutscene `eventHarveyMineInterception` 1×/день (C# или CP) | — | уже было | **да** |
+
+**CP `triggerHarveyMineWarning`:** только `HarveyMod_MineForbidden` + локация `Mine` + `!HarveyMineIntercept` + `!topicMineRescuePending`. **Не** срабатывает на `buffDeepCuts` без запрета.
+
+**Не путать:** `eventHarveyMinorMineRescue` — отдельный pass-out/rescue pipeline; **не** вызывается автоматически при обычном входе в шахту с лёгкой травмой.
 
 ---
 
@@ -205,7 +223,7 @@ HOI-MINE-002
 
 ### Цель
 
-`buffHurt` (не ∈ `InjurySets.Severe`) даёт **мягкий** HUD; **не** выставляются `MineWarningDay`, письмо и `HarveyMod_MineForbidden`.
+`buffHurt` или **`buffDeepCuts`** (не ∈ `InjurySets.Severe`) даёт **мягкий** HUD; **не** выставляются `MineWarningDay`, письмо и `HarveyMod_MineForbidden`. Расширенный прогон DeepCuts: **HOI-MINE-010** / **HOI-MINE-011**.
 
 ### Подготовка (StardewMCP)
 
@@ -299,7 +317,7 @@ injury_debuff_add buffBadlyHurt
 
 ### Ожидаемый результат
 
-- Light: `_lastMineWarningDay` — один HUD за день
+- Light: `_lastMineSoftHudDay` — один HUD за день
 - Severe: один warning HUD за день; повтор — warp/exit, не спам `MineWarningDay`
 
 ### Критерий PASS/FAIL
@@ -438,6 +456,150 @@ injury_state_dump
 | PASS | FAIL |
 |------|------|
 | Нет black screen > ~3 с; нет NRE в log | Зависание fade; NRE в `PassOut`/`MineForbidden`/CP script |
+
+### Статус
+
+- [ ] Сценарий пройден
+
+---
+
+## HOI-MINE-010 — buffDeepCuts + Mine (мягкий путь)
+
+### ID
+
+HOI-MINE-010
+
+### Цель
+
+`buffDeepCuts` (не Severe): мягкий HUD, можно спускаться на другие этажи; **нет** `MineWarningDay`, письма, `HarveyMod_MineForbidden`, `eventHarveyMineInterception`.
+
+### Команды SMAPI / Injury MCP
+
+```
+injury_reset
+injury_debuff_add buffDeepCuts
+```
+
+### Шаги
+
+| # | Кто | Действие |
+|---|-----|----------|
+| 1 | **StardewMCP** | `warp_to_mine_floor` `10` → мягкий HUD |
+| 2 | **StardewMCP** | `warp_to_mine_floor` `15` (другой этаж) |
+| 3 | **вручную** | Игрок **остаётся** в шахте; **нет** cutscene interception / warp «наверх» |
+| 4 | **SMAPI** | `injury_state_dump` → `MineWarningDay=-1`, `MineForbiddenAppliedDay=-1` |
+| 5 | **SMAPI** | `injury_buff_dump` — **нет** `HarveyMod_MineForbidden` |
+
+### Критерий PASS/FAIL
+
+| PASS | FAIL |
+|------|------|
+| Только мягкий HUD 1×/день; свободное перемещение по этажам | Severe HUD, MineForbidden, CP interception, принудительный warp |
+
+### Статус
+
+- [ ] Сценарий пройден
+
+---
+
+## HOI-MINE-011 — buffDeepCuts + DirtyWound + смена этажа
+
+### ID
+
+HOI-MINE-011
+
+### Цель
+
+При `buffDeepCuts` + осложнении `HarveyMod_DirtyWound` переход между этажами **не** выкидывает из шахты (в отличие от Severe / MineForbidden).
+
+### Команды SMAPI / Injury MCP
+
+```
+injury_reset
+injury_debuff_add buffDeepCuts
+injury_complication_add HarveyMod_DirtyWound
+```
+
+(или дождаться DirtyWound от экспозиции в шахте — см. [09-complication-tests.md](09-complication-tests.md))
+
+### Шаги
+
+| # | Кто | Действие |
+|---|-----|----------|
+| 1 | **StardewMCP** | `warp_to_mine_floor` `10` |
+| 2 | **StardewMCP** | `warp_to_mine_floor` `25` |
+| 3 | **вручную** | Нет warp на Farm / Hospital / Mine entrance cutscene |
+| 4 | **SMAPI** | `MineWarningDay=-1`, нет `HarveyMod_MineForbidden` |
+
+### Критерий PASS/FAIL
+
+| PASS | FAIL |
+|------|------|
+| Остаётся в MineShaft после смены этажа | `eventHarveyMineInterception` или Severe warp |
+
+### Статус
+
+- [ ] Сценарий пройден
+
+---
+
+## HOI-MINE-012 — buffBadlyHurt: строгое предупреждение → письмо + запрет
+
+### ID
+
+HOI-MINE-012
+
+### Цель
+
+Явная регрессия Severe-пути: `buffBadlyHurt` → строгий HUD → сон → `mailHarveyMineForbidden` + `HarveyMod_MineForbidden` на `MineForbiddenDurationDays`.
+
+Дублирует HOI-MINE-001, но фиксирует правило №2 из сводки.
+
+### Команды / шаги
+
+См. **HOI-MINE-001** (те же команды и assert).
+
+### Дополнительный assert
+
+| Поле | Ожидание |
+|------|----------|
+| `MineWarningDay` | = день строгого HUD, затем −1 после apply |
+| Утренний HUD | *«Харви запретил шахту на N дн. Осталось: N дн.»* |
+
+### Статус
+
+- [ ] Сценарий пройден (можно отметить вместе с HOI-MINE-001)
+
+---
+
+## HOI-MINE-013 — HarveyMod_MineForbidden: блок + текст срока
+
+### ID
+
+HOI-MINE-013
+
+### Цель
+
+При активном запрете вход в шахту показывает **оставшиеся дни** и блокирует (HUD + warp или cutscene 1×/день).
+
+### Подготовка
+
+Цепочка как HOI-MINE-001 → `advance_day` → `HarveyMod_MineForbidden` активен.
+
+### Шаги
+
+| # | Кто | Действие |
+|---|-----|----------|
+| 1 | **StardewMCP** | `warp_to_mine_floor` `10` |
+| 2 | **вручную** | HUD: *«Запрет Харви на шахту ещё действует. Осталось: X дн.»* (см. также HOI-MINE-005 / CP interception) |
+| 3 | **SMAPI** | F10 compact: `daysLeft` совпадает с `MineForbiddenDurationDays` − прошедшие дни |
+| 4 | **вручную** | Игрок выведен из подземелья (warp) |
+
+### Критерий PASS/FAIL
+
+| PASS | FAIL |
+|------|------|
+| Текст с **X** днями; блок входа | Только общий текст без срока; вход без блока |
 
 ### Статус
 

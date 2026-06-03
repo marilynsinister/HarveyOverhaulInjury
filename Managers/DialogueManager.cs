@@ -22,6 +22,155 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private const string ProximityDialogueAssetPath = "Data/HarveyOverhaul/HarveyProximityInjuryDialogue";
         public const string ProximityDialogueFallback = "Покажись мне в клинике.";
 
+        /// <summary>CP: TreatmentStart_{InjuryName}_* (первый старт лечения по клику).</summary>
+        public const string FirstTreatmentStartFallback =
+            "Стой. Дай посмотреть... Я обработаю травму и назначу лечение. Сегодня без геройства, хорошо?$u";
+
+        /// <summary>CP: PhaseTransition_{InjuryName}_{NextPhase}* (смена фазы, не первичный диагноз).</summary>
+        public const string PhaseTransitionFallback =
+            "Хорошо, заживление идёт как нужно. Переведём лечение на следующий этап.$u";
+
+        /// <summary>CP: RecoveryComplete_{InjuryName}_* (полное выздоровление, не старт лечения).</summary>
+        public const string RecoveryCompleteFallback =
+            "Вот теперь я доволен. Лечение завершено, но пару дней всё равно береги себя.$h";
+
+        /// <summary>CP: ComplicationTreatment_{Name}_* (клик — лечение осложнения без диагноза основной травмы).</summary>
+        public const string ComplicationTreatmentFallback =
+            "Так, это осложнение. Я обработаю всё заново, но дальше ты строго соблюдаешь уход.$a";
+
+        /// <summary>Префикс ключей диалога первого лечения: buffDeepCuts → TreatmentStart_DeepCuts_</summary>
+        public static string GetTreatmentStartDialoguePrefix(string buffId)
+        {
+            string injuryName = buffId.Replace("buff", "", StringComparison.OrdinalIgnoreCase);
+            return $"TreatmentStart_{injuryName}_";
+        }
+
+        /// <summary>Префикс смены фазы: buffDeepCuts, 2 → PhaseTransition_DeepCuts_2</summary>
+        public static string GetPhaseTransitionDialoguePrefix(string buffId, int nextPhase)
+        {
+            string injuryName = buffId.Replace("buff", "", StringComparison.OrdinalIgnoreCase);
+            return $"PhaseTransition_{injuryName}_{nextPhase}";
+        }
+
+        /// <summary>
+        /// Клик при ReadyForNextPhase: только PhaseTransition_* (не Treat_* / TreatmentStart_*).
+        /// </summary>
+        public string PickPhaseTransitionDialogue(string buffId, int nextPhase)
+        {
+            string prefix = GetPhaseTransitionDialoguePrefix(buffId, nextPhase);
+            string? line = TryPickHarveyDialogueByPrefix(prefix);
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                _monitor.Log($"[PhaseTransition] {buffId} → фаза {nextPhase}, prefix={prefix}", LogLevel.Debug);
+                return line;
+            }
+
+            _monitor.Log(
+                $"[PhaseTransition] реплики не найдены ({prefix}), fallback",
+                LogLevel.Warn);
+            return PhaseTransitionFallback;
+        }
+
+        /// <summary>Префикс финального выздоровления: buffDeepCuts → RecoveryComplete_DeepCuts_</summary>
+        public static string GetRecoveryCompleteDialoguePrefix(string buffId)
+        {
+            string injuryName = buffId.Replace("buff", "", StringComparison.OrdinalIgnoreCase);
+            return $"RecoveryComplete_{injuryName}_";
+        }
+
+        /// <summary>Legacy CP: Recovery_Complete_{InjuryName}</summary>
+        public static string GetLegacyRecoveryCompleteDialoguePrefix(string buffId)
+        {
+            string injuryName = buffId.Replace("buff", "", StringComparison.OrdinalIgnoreCase);
+            return $"Recovery_Complete_{injuryName}";
+        }
+
+        /// <summary>
+        /// Клик при ReadyForRecovery: только RecoveryComplete_* / Recovery_Complete_* (не Treat_* / topic*).
+        /// </summary>
+        public string PickRecoveryCompleteDialogue(string buffId)
+        {
+            string canonical = GetRecoveryCompleteDialoguePrefix(buffId);
+            string? line = TryPickHarveyDialogueByPrefix(canonical);
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                _monitor.Log($"[RecoveryComplete] {buffId}, prefix={canonical}", LogLevel.Debug);
+                return line;
+            }
+
+            string legacy = GetLegacyRecoveryCompleteDialoguePrefix(buffId);
+            line = TryPickHarveyDialogueByPrefix(legacy);
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                _monitor.Log($"[RecoveryComplete] {buffId}, legacy prefix={legacy}", LogLevel.Debug);
+                return line;
+            }
+
+            _monitor.Log(
+                $"[RecoveryComplete] реплики не найдены ({canonical} / {legacy}), fallback",
+                LogLevel.Warn);
+            return RecoveryCompleteFallback;
+        }
+
+        /// <summary>HarveyMod_WetBandage → ComplicationTreatment_WetBandage_</summary>
+        public static string GetComplicationTreatmentDialoguePrefix(string complicationBuffId)
+        {
+            string name = complicationBuffId.Replace("HarveyMod_", "", StringComparison.OrdinalIgnoreCase);
+            return $"ComplicationTreatment_{name}_";
+        }
+
+        /// <summary>Клик TreatComplications: только осложнение (не Treat_* / TreatmentStart_*).</summary>
+        public string PickComplicationTreatmentDialogue(string complicationBuffId)
+        {
+            string prefix = GetComplicationTreatmentDialoguePrefix(complicationBuffId);
+            string? line = TryPickHarveyDialogueByPrefix(prefix);
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                _monitor.Log($"[ComplicationTreatment] {complicationBuffId}, prefix={prefix}", LogLevel.Debug);
+                return line;
+            }
+
+            string legacy = $"Proximity_{complicationBuffId.Replace("HarveyMod_", "", StringComparison.OrdinalIgnoreCase)}";
+            line = TryPickHarveyDialogueByPrefix(legacy);
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                _monitor.Log($"[ComplicationTreatment] {complicationBuffId}, legacy prefix={legacy}", LogLevel.Debug);
+                return line;
+            }
+
+            _monitor.Log(
+                $"[ComplicationTreatment] реплики не найдены ({prefix}), fallback",
+                LogLevel.Warn);
+            return ComplicationTreatmentFallback;
+        }
+
+        /// <summary>Случайная строка из полного Characters/Dialogue/Harvey по префиксу ключа.</summary>
+        private string? TryPickHarveyDialogueByPrefix(string prefix)
+        {
+            try
+            {
+                var dict = Game1.content.Load<Dictionary<string, string>>("Characters/Dialogue/Harvey");
+                if (dict == null || dict.Count == 0)
+                    return null;
+
+                var matching = dict
+                    .Where(kvp => kvp.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                        && !string.IsNullOrWhiteSpace(kvp.Value))
+                    .Select(kvp => kvp.Value)
+                    .ToList();
+
+                if (matching.Count == 0)
+                    return null;
+
+                return matching[Game1.random.Next(matching.Count)];
+            }
+            catch (Exception ex)
+            {
+                _monitor.Log($"Ошибка подбора диалога по префиксу '{prefix}': {ex}", LogLevel.Warn);
+                return null;
+            }
+        }
+
         public DialogueManager(IMonitor monitor)
         {
             _monitor = monitor;
@@ -291,6 +440,22 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// Снять topic нелеченной травмы (topicDeepCuts, topicCold, …). Фазовые, topicTreatment* и осложнения не трогает.
+        /// </summary>
+        public void ClearUntreatedInjuryTopic(string buffId, string reason)
+        {
+            if (string.IsNullOrEmpty(buffId))
+                return;
+
+            string topicId = TopicIds.GetInjuryTopic(buffId);
+            if (!HasTopic(topicId))
+                return;
+
+            RemoveTopic(topicId);
+            _monitor.Log($"[Topic] снят нелеченный топик {topicId} ({buffId}): {reason}", LogLevel.Info);
+        }
+
+        /// <summary>
         /// Проверить наличие топика
         /// </summary>
         public bool HasTopic(string topic)
@@ -419,6 +584,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// Первый старт лечения по клику: TreatmentStart_{InjuryName}_* из Characters/Dialogue/Harvey.
+        /// </summary>
+        public string PickFirstTreatmentStartDialogue(string buffId)
+        {
+            string prefix = GetTreatmentStartDialoguePrefix(buffId);
+            string line = PickRandomDialogueByPrefix(prefix, FirstTreatmentStartFallback);
+            _monitor.Log(
+                $"[TreatmentStart] buff={buffId} prefix={prefix} selected={(line == FirstTreatmentStartFallback ? "fallback" : "cp")}",
+                LogLevel.Debug);
+            return line;
+        }
+
+        /// <summary>
         /// Выбрать диалог лечения с учётом того, был ли уже разговор
         /// </summary>
         public string PickTreatmentDialogue(string injuryId, bool wasDiscussed, string defaultText = "…")
@@ -487,11 +665,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 var dialogues = Game1.content.Load<Dictionary<string, string>>("Characters/Dialogue/Harvey");
                 _monitor.Log($"✅ Загружено {dialogues?.Count ?? 0} диалогов Харви через Content Patcher", LogLevel.Debug);
                 
-                // Фильтруем только диалоги лечения (с префиксами Treat_, Support_, Recovery_Complete_, PhaseTransition_, topic)
+                // Фильтруем только диалоги лечения (Treat_, TreatmentStart_, RecoveryComplete_, Recovery_Complete_, …)
                 var treatmentDialogues = dialogues?
                     .Where(kvp => kvp.Key.StartsWith("Treat_", StringComparison.OrdinalIgnoreCase) ||
+                                  kvp.Key.StartsWith("TreatmentStart_", StringComparison.OrdinalIgnoreCase) ||
                                   kvp.Key.StartsWith("Support_", StringComparison.OrdinalIgnoreCase) ||
+                                  kvp.Key.StartsWith("RecoveryComplete_", StringComparison.OrdinalIgnoreCase) ||
                                   kvp.Key.StartsWith("Recovery_Complete_", StringComparison.OrdinalIgnoreCase) ||
+                                  kvp.Key.StartsWith("ComplicationTreatment_", StringComparison.OrdinalIgnoreCase) ||
                                   kvp.Key.StartsWith("PhaseTransition_", StringComparison.OrdinalIgnoreCase) ||
                                   kvp.Key.StartsWith("topic", StringComparison.OrdinalIgnoreCase))
                     .ToDictionary(kvp => kvp.Key, kvp => kvp.Value) ?? new Dictionary<string, string>();

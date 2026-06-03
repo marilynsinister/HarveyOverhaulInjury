@@ -2639,16 +2639,13 @@ namespace HarveyOverhaul.InjuryCare
             return buffId.Replace("buff", "topic");
         }
 
-        private string GetPhaseName(int phase) => phase switch
-        {
-            1 => "Acute",
-            2 => "Healing",
-            3 => "Recovery",
-            _ => "Unknown",
-        };
+        private string GetPhaseName(string buffId, int phase, int totalPhases) =>
+            _injuryManager.GetPhaseStageName(buffId, phase, totalPhases);
 
-        private string GetExpectedPhaseTopic(string buffId, int phase) =>
-            _injuryManager.GetPhaseTopicId(buffId, phase);
+        private string GetExpectedPhaseTopic(string buffId, int phase, int totalPhases = 0) =>
+            TopicIds.GetPhaseTopicId(buffId, phase, totalPhases > 0
+                ? totalPhases
+                : (_stateManager.GetDebuffState(buffId)?.TotalPhases ?? InjurySets.InferDefaultTotalPhases(buffId)));
 
         private string GetExpectedPhaseBuff(string buffId, int phase) =>
             phase > 0 ? _injuryManager.GetPhaseBuffId(buffId, phase) : "";
@@ -2689,7 +2686,7 @@ namespace HarveyOverhaul.InjuryCare
             if (!d.TreatmentStarted)
                 return "untreated";
             if (d.IsPhasedInjury && d.CurrentPhase > 0)
-                return $"treatment phase {d.CurrentPhase}/{d.TotalPhases} {GetPhaseName(d.CurrentPhase)}";
+                return $"treatment phase {d.CurrentPhase}/{d.TotalPhases} {GetPhaseName(d.BuffId, d.CurrentPhase, d.TotalPhases)}";
             return "simple-treatment";
         }
 
@@ -2738,7 +2735,7 @@ namespace HarveyOverhaul.InjuryCare
 
             if (d.TreatmentStarted && d.IsPhasedInjury && d.CurrentPhase > 0)
             {
-                string phaseTopic = GetExpectedPhaseTopic(d.BuffId, d.CurrentPhase);
+                string phaseTopic = GetExpectedPhaseTopic(d.BuffId, d.CurrentPhase, d.TotalPhases);
                 if (!HasTopic(phaseTopic))
                     issues.Add("PHASE_TOPIC_MISSING");
             }
@@ -2766,9 +2763,10 @@ namespace HarveyOverhaul.InjuryCare
             if (HasTopic(trauma.TopicId))
                 return true;
 
+            int matrixTotalPhases = trauma.P3 > 0 ? 3 : (trauma.P2 > 0 ? 2 : 0);
             for (int phase = 1; phase <= 3; phase++)
             {
-                if (HasTopic(GetExpectedPhaseTopic(trauma.BuffId, phase)))
+                if (HasTopic(GetExpectedPhaseTopic(trauma.BuffId, phase, matrixTotalPhases)))
                     return true;
             }
 
@@ -2799,13 +2797,14 @@ namespace HarveyOverhaul.InjuryCare
                     continue;
 
                 int[] phaseDurations = { trauma.P1, trauma.P2, trauma.P3 };
+                int totalPhases = phaseDurations[2] > 0 ? 3 : (phaseDurations[1] > 0 ? 2 : 0);
                 for (int phase = 1; phase <= 3; phase++)
                 {
                     if (phaseDurations[phase - 1] <= 0)
                         continue;
 
                     string phaseBuff = GetExpectedPhaseBuff(trauma.BuffId, phase);
-                    string phaseTopic = GetExpectedPhaseTopic(trauma.BuffId, phase);
+                    string phaseTopic = GetExpectedPhaseTopic(trauma.BuffId, phase, totalPhases);
                     sb.AppendLine(
                         $"  P{phase} {phaseBuff} buff {YesNo(_buffManager.HasBuff(phaseBuff))} topic {phaseTopic} {TopicLeft(phaseTopic)}");
                 }
@@ -2855,7 +2854,7 @@ namespace HarveyOverhaul.InjuryCare
 
                 string baseTopic = GetBaseTopicForBuff(buffId);
                 string phaseTopicExpected = d.CurrentPhase > 0
-                    ? GetExpectedPhaseTopic(buffId, d.CurrentPhase)
+                    ? GetExpectedPhaseTopic(buffId, d.CurrentPhase, d.TotalPhases)
                     : "";
                 if (!string.IsNullOrEmpty(phaseTopicExpected))
                 {
@@ -3081,8 +3080,7 @@ namespace HarveyOverhaul.InjuryCare
         {
             sb.AppendLine($"Pending: {_interactionHandler.GetPendingMedicalActionSummary() ?? "none"}");
             sb.AppendLine($"Last click: {_interactionHandler.LastClickDebug ?? "-"}");
-            sb.AppendLine($"Decision now: {_interactionHandler.BuildDebugTreatmentDecision()}");
-            sb.AppendLine($"Standard dialogue: {_interactionHandler.GetStandardDialogueGateReason()}");
+            sb.AppendLine("(Decision/gate: use SMAPI `debug medical` — HUD is read-only)");
         }
 
         private void AppendComplicationsBlock(StringBuilder sb, InjuryState state, int today)
@@ -3148,7 +3146,11 @@ namespace HarveyOverhaul.InjuryCare
             sb.AppendLine($"NeedsMineRescueEvent: {YesNo(state.NeedsMineRescueEvent)}  WasPassedOut: {YesNo(state.WasPassedOut)}");
             sb.AppendLine($"WasExhausted: {YesNo(state.WasExhausted)}  WasUpTooLate: {YesNo(state.WasUpTooLate)}");
             sb.AppendLine($"LastPassedOutHealth: {state.LastPassedOutHealth}  LastPassedOutLocation: {(string.IsNullOrEmpty(state.LastPassedOutLocation) ? "-" : state.LastPassedOutLocation)}");
-            sb.AppendLine($"MineWarningDay: {state.MineWarningDay}  LastMineSevereWarningDay: {state.LastMineSevereWarningDay}  LastMineSevereForcedExitDay: {state.LastMineSevereForcedExitDay}  MineForbiddenAppliedDay: {state.MineForbiddenAppliedDay}  LastMineForbiddenInterceptionDay: {state.LastMineForbiddenInterceptionDay}");
+            int today = (int)Game1.stats.DaysPlayed;
+            int mineForbiddenLeft = MineForbiddenHelper.GetMineForbiddenDaysLeft(state, _config, today);
+            bool mineForbiddenActive = _buffManager.HasBuff(InjuryBuffs.MineForbidden);
+            sb.AppendLine($"MineWarningDay: {state.MineWarningDay}  LastMineSevereWarningDay: {state.LastMineSevereWarningDay}  LastMineSevereForcedExitDay: {state.LastMineSevereForcedExitDay}");
+            sb.AppendLine($"MineForbiddenAppliedDay: {state.MineForbiddenAppliedDay}  MineForbiddenDaysLeft: {mineForbiddenLeft}  HarveyMod_MineForbidden: {YesNo(mineForbiddenActive)}  LastMineForbiddenInterceptionDay: {state.LastMineForbiddenInterceptionDay}");
             sb.AppendLine($"LastHealth: {state.LastHealth}  Rain: {state.TimeUnderRainTicks}t/{state.TotalTimeUnderRainToday}t");
 
             var saved = state.SavedActiveBuffs ?? new List<string>();
@@ -3194,6 +3196,10 @@ namespace HarveyOverhaul.InjuryCare
             {
                 sb.AppendLine("Rehab: (none)");
             }
+
+            int today = (int)Game1.stats.DaysPlayed;
+            sb.AppendLine(
+                $"Mine: warningDay={state.MineWarningDay}  forbiddenApplied={state.MineForbiddenAppliedDay}  daysLeft={MineForbiddenHelper.GetMineForbiddenDaysLeft(state, _config, today)}  buff={YesNo(_buffManager.HasBuff(InjuryBuffs.MineForbidden))}");
         }
 
         private void BuildFullDebugHud(StringBuilder sb, InjuryState state, int today)

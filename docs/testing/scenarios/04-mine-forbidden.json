@@ -541,6 +541,102 @@
           "description": "Снять MineForbidden debuff если остался"
         }
       ]
+    },
+    {
+      "id": "HOI-MINE-010",
+      "title": "buffDeepCuts — мягкий HUD, без выноса",
+      "priority": "P1",
+      "mechanics": [
+        "soft_mine_warning"
+      ],
+      "preconditions": [
+        "NeedsMineRescueEvent=False после injury_reset"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "args": {
+            "floor": 15
+          }
+        },
+        {
+          "type": "observe",
+          "command": "injury_state_dump",
+          "description": "MineWarningDay=-1, MineForbiddenAppliedDay=-1"
+        }
+      ],
+      "passCriteria": [
+        "Мягкий HUD 1×/день",
+        "Нет HarveyMod_MineForbidden",
+        "Нет принудительного warp при смене этажа"
+      ]
+    },
+    {
+      "id": "HOI-MINE-011",
+      "title": "buffDeepCuts + DirtyWound — смена этажа без выноса",
+      "priority": "P1",
+      "mechanics": [
+        "soft_mine_warning",
+        "DirtyWound"
+      ],
+      "steps": [
+        {
+          "type": "smapi_command",
+          "command": "injury_reset"
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_debuff_add",
+          "args": {
+            "buff_id": "buffDeepCuts"
+          }
+        },
+        {
+          "type": "smapi_command",
+          "command": "injury_complication_add",
+          "args": {
+            "complication_id": "HarveyMod_DirtyWound"
+          },
+          "description": "Если команда есть в сборке"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "args": {
+            "floor": 10
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "warp_to_mine_floor",
+          "args": {
+            "floor": 25
+          }
+        }
+      ],
+      "passCriteria": [
+        "Игрок остаётся в шахте",
+        "Нет eventHarveyMineInterception от buffDeepCuts alone"
+      ]
     }
   ]
 }

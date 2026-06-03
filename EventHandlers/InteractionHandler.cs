@@ -490,9 +490,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 };
             }
 
-            // D. TreatComplications — по DebuffState осложнений InjuryCare
+            // D. TreatComplications — только если нет нелеченной травмы (C) и лечение основной уже идёт
             var activeComplications = GetActiveComplicationIds();
-            if (activeComplications.Count > 0)
+            bool anyUntreatedTreatable = treatableStates.Any(d => !d.TreatmentStarted);
+            if (activeComplications.Count > 0 && !anyUntreatedTreatable)
             {
                 return new PendingMedicalAction
                 {
@@ -719,8 +720,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             string dialogueKey;
             string dialogueText = type switch
             {
-                MedicalActionType.StartTreatment or MedicalActionType.TreatComplications
+                MedicalActionType.StartTreatment
                     => BuildTreatmentDialogueText(pending, out dialogueKey),
+                MedicalActionType.TreatComplications
+                    => BuildComplicationTreatmentDialogueText(pending, out dialogueKey),
                 MedicalActionType.AdvancePhase
                     => BuildAdvancePhaseDialogue(injuryId!, out dialogueKey),
                 MedicalActionType.CompleteRecovery
@@ -730,12 +733,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
             };
 
-            if (type is MedicalActionType.StartTreatment or MedicalActionType.TreatComplications)
-            {
-                var injuries = BuildInjuryContextForDialogue(pending);
-                _treatmentManager.TreatWithReaction(harvey, injuries);
-            }
-            else
+            if (type is MedicalActionType.AdvancePhase or MedicalActionType.CompleteRecovery
+                or MedicalActionType.SimpleCompletionTopic)
             {
                 ShowMedicalEmote(harvey, type);
             }
@@ -774,23 +773,39 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private string BuildTreatmentDialogueText(PendingMedicalAction pending, out string dialogueKey)
         {
             var injuries = BuildInjuryContextForDialogue(pending);
-            string dialogue = _treatmentManager.BuildCombinedDialogue(injuries, markTreatmentDiscussed: false);
+            string dialogue = pending.Type == MedicalActionType.StartTreatment
+                ? _treatmentManager.BuildFirstStartTreatmentDialogue(injuries)
+                : _treatmentManager.BuildCombinedDialogue(injuries, markTreatmentDiscussed: false);
 
             if (string.IsNullOrWhiteSpace(dialogue))
             {
-                dialogue = pending.Type == MedicalActionType.TreatComplications
-                    ? "Я вижу осложнение — сейчас осмотрю рану и обработаю повязку.$a"
-                    : "Сейчас займусь лечением.$u";
+                dialogue = pending.Type switch
+                {
+                    MedicalActionType.TreatComplications =>
+                        "Я вижу осложнение — сейчас осмотрю рану и обработаю повязку.$a",
+                    MedicalActionType.StartTreatment => DialogueManager.FirstTreatmentStartFallback,
+                    _ => "Сейчас займусь лечением.$u"
+                };
             }
 
             if (pending.InjuryId != null)
             {
                 string injuryName = pending.InjuryId.Replace("buff", "");
-                bool wasDiscussed = _stateManager.GetDebuffState(pending.InjuryId)?.HarveyConversationHappened == true;
-                string treatPrefix = wasDiscussed ? $"Treat_{injuryName}_After" : $"Treat_{injuryName}_Before";
-                dialogueKey = pending.Complications.Count > 0
-                    ? $"{treatPrefix}+Proximity_*"
-                    : treatPrefix;
+                if (pending.Type == MedicalActionType.StartTreatment)
+                {
+                    string startPrefix = DialogueManager.GetTreatmentStartDialoguePrefix(pending.InjuryId);
+                    dialogueKey = pending.Complications.Count > 0
+                        ? $"{startPrefix}+Proximity_*"
+                        : $"{startPrefix}*";
+                }
+                else
+                {
+                    bool useBefore = !(_stateManager.GetDebuffState(pending.InjuryId)?.HarveyConversationHappened ?? false);
+                    string treatPrefix = useBefore ? $"Treat_{injuryName}_Before" : $"Treat_{injuryName}_After";
+                    dialogueKey = pending.Complications.Count > 0
+                        ? $"{treatPrefix}+Proximity_*"
+                        : treatPrefix;
+                }
             }
             else
             {
@@ -802,48 +817,39 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             return dialogue;
         }
 
+        private string BuildComplicationTreatmentDialogueText(PendingMedicalAction pending, out string dialogueKey)
+        {
+            var complications = pending.Complications;
+            string dialogue = _treatmentManager.BuildComplicationTreatmentDialogue(complications);
+
+            if (string.IsNullOrWhiteSpace(dialogue))
+                dialogue = DialogueManager.ComplicationTreatmentFallback;
+
+            var prefixes = complications
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(DialogueManager.GetComplicationTreatmentDialoguePrefix)
+                .ToList();
+            dialogueKey = prefixes.Count > 0
+                ? string.Join("+", prefixes) + "*"
+                : "ComplicationTreatment_*";
+
+            return dialogue;
+        }
+
         private string BuildAdvancePhaseDialogue(string injuryId, out string dialogueKey)
         {
             var debuffState = _stateManager.GetDebuffState(injuryId);
             int currentPhase = debuffState?.CurrentPhase ?? 0;
             int nextPhase = currentPhase + 1;
-            string injuryName = injuryId.Replace("buff", "");
-            dialogueKey = $"PhaseTransition_{injuryName}_{nextPhase}";
+            dialogueKey = $"{DialogueManager.GetPhaseTransitionDialoguePrefix(injuryId, nextPhase)}*";
 
-            return _dialogueManager.PickRandomDialogueByPrefix(
-                dialogueKey,
-                "Я осмотрел тебя. Восстановление идёт достаточно хорошо, чтобы перейти к следующему этапу лечения.$u");
+            return _dialogueManager.PickPhaseTransitionDialogue(injuryId, nextPhase);
         }
 
         private string BuildCompleteRecoveryDialogue(string injuryId, out string dialogueKey)
         {
-            string injuryName = injuryId.Replace("buff", "");
-            string recoveryPrefix = $"Recovery_Complete_{injuryName}";
-
-            string? exactRecovery = _dialogueManager.TryLoadHarveyDialogue(recoveryPrefix);
-            if (!string.IsNullOrWhiteSpace(exactRecovery))
-            {
-                dialogueKey = recoveryPrefix;
-                return exactRecovery;
-            }
-
-            string fromRecoveryPrefix = _dialogueManager.PickRandomDialogueByPrefix(
-                recoveryPrefix,
-                string.Empty);
-            if (!string.IsNullOrWhiteSpace(fromRecoveryPrefix))
-            {
-                dialogueKey = recoveryPrefix;
-                return fromRecoveryPrefix;
-            }
-
-            dialogueKey = TopicIds.GetCuredTopic(injuryId);
-            string? exactCuredDialogue = _dialogueManager.TryLoadHarveyDialogue(dialogueKey);
-            if (!string.IsNullOrWhiteSpace(exactCuredDialogue))
-                return exactCuredDialogue;
-
-            return _dialogueManager.PickRandomDialogueByPrefix(
-                dialogueKey,
-                "Осмотр окончен. Ты выздоровела, но я всё равно хочу, чтобы ты берегла себя.$h");
+            dialogueKey = $"{DialogueManager.GetRecoveryCompleteDialoguePrefix(injuryId)}*";
+            return _dialogueManager.PickRecoveryCompleteDialogue(injuryId);
         }
 
         private string BuildSimpleCompletionDialogueText(string topicId, out string dialogueKey)
@@ -890,7 +896,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             var debuffState = _stateManager.GetDebuffState(pending.InjuryId!);
             int currentPhase = debuffState?.CurrentPhase ?? 0;
-            return $"[MedicalAction] queued type=AdvancePhase injury={pending.InjuryId} phase={currentPhase}->{currentPhase + 1}";
+            int totalPhases = debuffState?.TotalPhases ?? InjurySets.InferDefaultTotalPhases(pending.InjuryId!);
+            int nextPhase = currentPhase + 1;
+            string stage = TopicIds.GetPhaseStageName(nextPhase, totalPhases);
+            return $"[MedicalAction] queued type=AdvancePhase injury={pending.InjuryId} phase={currentPhase}->{nextPhase} stage={stage}";
         }
 
         private bool ApplyPendingMedicalAction(PendingMedicalAction action)

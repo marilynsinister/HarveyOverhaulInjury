@@ -185,6 +185,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
             string newPhaseBuffId = _injuryManager.GetPhaseBuffId(injuryId, newPhase);
             _monitor.Log($"🔄 Баффы фазы {injuryId}: {oldPhaseBuffId} → {newPhaseBuffId}", LogLevel.Info);
 
+            if (!_buffManager.BuffExists(newPhaseBuffId))
+            {
+                _monitor.Log(
+                    $"[PhaseBuffMissing] injury={injuryId} phase={newPhase} expected={newPhaseBuffId} BuffExists=false",
+                    LogLevel.Error);
+                return;
+            }
+
             _buffManager.AddBuff(newPhaseBuffId, -2);
             if (!_buffManager.HasBuff(newPhaseBuffId))
             {
@@ -238,10 +246,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _injuryManager.EnsureTreatmentBuffForInjury(injuryId);
             if (_injuryManager.HasExpectedTreatmentBuff(injuryId))
             {
-                string phaseName = GetPhaseDisplayName(
-                    injuryId,
+                string phaseName = TopicIds.GetPhaseStageName(
                     actualNewPhase,
-                    updatedState.TotalPhases);
+                    updatedState.TotalPhases) switch
+                {
+                    "Acute" => "Острая фаза",
+                    "Healing" => "Заживление",
+                    "Recovery" => "Восстановление",
+                    _ => $"Фаза {actualNewPhase}"
+                };
                 StardewValley.Game1.addHUDMessage(new StardewValley.HUDMessage(
                     $"Переход к фазе: {phaseName}",
                     StardewValley.HUDMessage.health_type));
@@ -266,7 +279,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.RemoveDebuffState(injuryId);
             _injuryManager.NotifyInjuryRecovered(injuryId);
 
-            _dialogueManager.RemoveTopic(TopicIds.GetInjuryTopic(injuryId));
+            _dialogueManager.ClearUntreatedInjuryTopic(injuryId, "механическое выздоровление");
             _dialogueManager.RemoveTopic(TopicIds.GetTreatmentTopic(injuryId));
             _dialogueManager.RemoveTopic(TopicIds.GetCuredTopic(injuryId));
             for (int phase = 1; phase <= 3; phase++)
@@ -300,16 +313,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public static string GetPhaseDisplayName(string injuryId, int phase, int totalPhases = -1)
         {
             if (totalPhases < 0)
-                totalPhases = phase >= 3 ? 3 : 2;
+                totalPhases = InjurySets.InferDefaultTotalPhases(injuryId);
 
-            if (totalPhases <= 2 && phase == 2)
-                return "Восстановление";
-
-            return phase switch
+            return TopicIds.GetPhaseStageName(phase, totalPhases) switch
             {
-                1 => "Острая фаза",
-                2 => "Заживление",
-                3 => "Восстановление",
+                "Acute" => "Острая фаза",
+                "Healing" => "Заживление",
+                "Recovery" => "Восстановление",
                 _ => $"Фаза {phase}"
             };
         }
@@ -320,9 +330,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public bool ApplyTreatmentForInjury(string injuryId)
         {
             _monitor.Log($"Применяем лечение для {injuryId}", LogLevel.Info);
-
-            // Удаляем топик «нелеченной» травмы — он для диалогов, больше не нужен
-            _dialogueManager.RemoveTopic(TopicIds.GetInjuryTopic(injuryId));
 
             bool treatmentStarted = false;
 
@@ -341,6 +348,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (treatmentStarted)
             {
+                _dialogueManager.ClearUntreatedInjuryTopic(injuryId, "лечение начато");
                 _injuryManager.EnsureTreatmentBuffForInjury(injuryId);
                 _prescriptionManager.AssignPrescriptionsForInjury(injuryId);
                 _complianceManager.ApplyTreatmentComplianceTopics();
@@ -349,6 +357,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             return treatmentStarted;
         }
+
+        /// <summary>Снять topic нелеченной травмы для всех HarveyTreatable (фазовые и простые).</summary>
+        public void ClearUntreatedInjuryTopic(string injuryId, string reason) =>
+            _dialogueManager.ClearUntreatedInjuryTopic(injuryId, reason);
 
         private bool StartSimpleTreatment(string injuryId)
         {
@@ -420,6 +432,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _monitor.Log($"❌ Удалён базовый бафф: {injuryId}", LogLevel.Debug);
 
             string phase1BuffId = _injuryManager.GetPhaseBuffId(injuryId, 1);
+            if (!_buffManager.BuffExists(phase1BuffId))
+            {
+                _monitor.Log(
+                    $"[PhaseBuffMissing] injury={injuryId} phase=1 expected={phase1BuffId} BuffExists=false",
+                    LogLevel.Error);
+                return false;
+            }
+
             _buffManager.AddBuff(phase1BuffId, -2);
             if (!_buffManager.HasBuff(phase1BuffId))
             {
@@ -678,17 +698,46 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// Один DialogueBox при первом клике «начать лечение»: TreatmentStart_{Injury}_* (+ осложнения через $b).
+        /// </summary>
+        public string BuildFirstStartTreatmentDialogue(InjuryCollection injuries) =>
+            BuildCombinedDialogue(injuries, markTreatmentDiscussed: false, firstTreatmentStart: true);
+
+        /// <summary>
+        /// Клик TreatComplications при уже идущем лечении: только ComplicationTreatment_* (без диагноза основной травмы).
+        /// </summary>
+        public string BuildComplicationTreatmentDialogue(IReadOnlyList<string> complicationBuffIds)
+        {
+            var parts = new List<string>();
+            foreach (string compId in complicationBuffIds)
+            {
+                if (string.IsNullOrWhiteSpace(compId))
+                    continue;
+                parts.Add(_dialogueManager.PickComplicationTreatmentDialogue(compId));
+            }
+
+            if (parts.Count == 0)
+                return DialogueManager.ComplicationTreatmentFallback;
+
+            return string.Join("$b", parts);
+        }
+
+        /// <summary>
         /// Построить диалог лечения из топиков
         /// </summary>
         /// <param name="markTreatmentDiscussed">Если false — только выбор текста, без записи в state.</param>
-        public string BuildCombinedDialogue(InjuryCollection injuries, bool markTreatmentDiscussed = true)
+        /// <param name="firstTreatmentStart">Префикс TreatmentStart_{InjuryName}_* (первый старт по клику).</param>
+        public string BuildCombinedDialogue(
+            InjuryCollection injuries,
+            bool markTreatmentDiscussed = true,
+            bool firstTreatmentStart = false)
         {
             var parts = new List<string>();
 
             // Основная травма
             if (injuries.MainInjury != null)
             {
-                string mainText = GetTreatmentDialogue(injuries.MainInjury, markTreatmentDiscussed);
+                string mainText = GetTreatmentDialogue(injuries.MainInjury, markTreatmentDiscussed, firstTreatmentStart);
                 parts.Add(mainText);
             }
 
@@ -721,11 +770,23 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
         }
 
-        private string GetTreatmentDialogue(string injuryId, bool markTreatmentDiscussed = true)
+        private string GetTreatmentDialogue(
+            string injuryId,
+            bool markTreatmentDiscussed = true,
+            bool firstTreatmentStart = false)
         {
             // Убираем префикс "buff" для получения чистого названия травмы
             string cleanInjuryId = injuryId.Replace("buff", "");
             
+            if (firstTreatmentStart)
+            {
+                string firstStartLine = _dialogueManager.PickFirstTreatmentStartDialogue(injuryId);
+                _monitor.Log($"Получен диалог первого лечения: {firstStartLine}", LogLevel.Debug);
+                if (markTreatmentDiscussed)
+                    _stateManager.MarkHarveyConversation(injuryId, true);
+                return firstStartLine;
+            }
+
             // Проверяем, был ли уже разговор о лечении этой травмы
             bool wasDiscussed = _stateManager.GetDebuffState(injuryId)?.HarveyConversationHappened == true;
             

@@ -47,7 +47,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private bool _proximityReactionShown = false;
         private const int ProximityReactionCooldownMinutes = 120;
         private string _lastLocationName = "";
-        private int _lastMineWarningDay = -1;
+        /// <summary>День последнего мягкого HUD в шахте (не MineWarningDay — тот только для Severe).</summary>
+        private int _lastMineSoftHudDay = -1;
         private bool _eventWasActive;
         private bool _stormComfortEventRunning;
         private bool _firstTreatmentEventRunning;
@@ -317,6 +318,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
         }
 
+        /// <summary>
+        /// Логика шахты/вулкана при входе (OnWarped → MineShaft / VolcanoDungeon):
+        /// 1) HarveyMod_MineForbidden — блок + HUD со сроком (cutscene 1×/день);
+        /// 2) Severe — строгое предупреждение + MineWarningDay, повторный вход — выход (без MineForbidden в тот же день);
+        /// 3) прочие травмы (buffDeepCuts и т.д.) — только мягкий HUD 1×/день, DirtyWound по экспозиции, без выноса.
+        /// </summary>
         private void HandleMinesLogic()
         {
             if (Game1.CurrentEvent != null || Game1.eventUp)
@@ -338,42 +345,36 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _rehabManager.CheckRehabViolationOnMine();
 
             bool hasSevereInjury = _injuryManager.IsMainInjurySerious();
-            bool hasLimitedActivity = _buffManager.HasAnyBuff(InjurySets.LimitedActivity.ToArray());
-            bool hasAnyInjury    = hasSevereInjury
-                || hasLimitedActivity
-                || _stateManager.GetAllActiveDebuffStates().Count > 0
-                || _stateManager.State.ActiveComplications.Count > 0;
-
             if (hasSevereInjury)
             {
-                if (!TryHandleSevereMineEntry(today))
-                    return;
-            }
-            else if (hasAnyInjury && _lastMineWarningDay != today)
-            {
-                _lastMineWarningDay = today;
-
-                if (hasLimitedActivity)
-                {
-                    Game1.addHUDMessage(new HUDMessage(
-                        "Харви: С такой травмой шахта — плохая идея. Хотя бы не перегружайся.",
-                        HUDMessage.health_type));
-                    _monitor.Log("ℹ️ [Шахта] Вход с ограничением активности — предупреждение Харви", LogLevel.Debug);
-                }
-                else
-                {
-                    // Прочие травмы (напр. открытые раны DirtyInMines) — напоминание о загрязнении
-                    Game1.addHUDMessage(new HUDMessage(
-                        "Харви: Будь осторожна в шахте — твои раны могут загрязниться.",
-                        HUDMessage.health_type));
-                    _monitor.Log("ℹ️ [Шахта] Вход с ранами — напоминание Харви", LogLevel.Debug);
-                }
+                TryHandleSevereMineEntry(today);
+                return;
             }
 
-            if (!hasSevereInjury && hasAnyInjury && _passOutHandler != null)
+            bool hasLimitedActivity = _buffManager.HasAnyBuff(InjurySets.LimitedActivity.ToArray());
+            bool hasNonSevereInjury = hasLimitedActivity
+                || _stateManager.GetAllActiveDebuffStates().Count > 0
+                || _stateManager.State.ActiveComplications.Count > 0
+                || !string.IsNullOrEmpty(_injuryManager.GetActiveInjury());
+
+            if (!hasNonSevereInjury || _lastMineSoftHudDay == today)
+                return;
+
+            _lastMineSoftHudDay = today;
+
+            if (hasLimitedActivity)
             {
-                if (_passOutHandler.TryTriggerMinorMineRescue())
-                    _monitor.Log("[MinorMineRescue] Cutscene запущена — опасное состояние без Severe", LogLevel.Info);
+                Game1.addHUDMessage(new HUDMessage(
+                    "Харви: С такой травмой шахта — плохая идея. Хотя бы не перегружайся.",
+                    HUDMessage.health_type));
+                _monitor.Log("ℹ️ [Шахта] Вход с ограничением активности — мягкое предупреждение", LogLevel.Debug);
+            }
+            else
+            {
+                Game1.addHUDMessage(new HUDMessage(
+                    "Харви: Будь осторожна в шахте — твои раны могут загрязниться.",
+                    HUDMessage.health_type));
+                _monitor.Log("ℹ️ [Шахта] Вход с ранами (не Severe) — мягкое предупреждение, MineWarningDay не ставится", LogLevel.Debug);
             }
         }
 
@@ -456,33 +457,17 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private int GetMineForbiddenDaysLeft(int today)
         {
-            int appliedDay = _stateManager.State.MineForbiddenAppliedDay;
-            int duration = Math.Max(1, _config.MineForbiddenDurationDays);
-
-            if (appliedDay < 0)
-                return duration;
-
-            return Math.Max(1, appliedDay + duration - today);
+            return MineForbiddenHelper.GetMineForbiddenDaysLeft(_stateManager.State, _config, today);
         }
 
         private string GetMineForbiddenMessage(int today)
         {
-            int daysLeft = GetMineForbiddenDaysLeft(today);
-
-            if (daysLeft == 1)
-                return "Харви запретил шахту до окончания лечения. Остался 1 день.";
-
-            return $"Харви запретил шахту до окончания лечения. Осталось: {daysLeft} дн.";
+            return MineForbiddenHelper.FormatActiveMineHud(GetMineForbiddenDaysLeft(today));
         }
 
         private string GetVolcanoForbiddenMessage(int today)
         {
-            int daysLeft = GetMineForbiddenDaysLeft(today);
-
-            if (daysLeft == 1)
-                return "Харви запретил тебе ходить в опасные подземелья до окончания лечения. Остался 1 день.";
-
-            return $"Харви запретил тебе ходить в опасные подземелья до окончания лечения. Осталось: {daysLeft} дн.";
+            return MineForbiddenHelper.FormatActiveVolcanoHud(GetMineForbiddenDaysLeft(today));
         }
 
         private void ShowMineForbiddenHudAndWarpOut(int today, GameLocation location)
@@ -1397,7 +1382,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     );
                 }
 
-                ProcessDamageBasedInjuries(damage);
+                _monitor.Log(
+                    $"[DamageInjury] Health drop: old={lastHealth}, current={currentHealth}, damage={damage}, {FormatInjuryDiagnosticContext()}",
+                    LogLevel.Debug);
+
+                ProcessDamageBasedInjuries(damage, lastHealth, currentHealth);
             }
         }
 
@@ -1420,22 +1409,33 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// Обработать травмы на основе полученного урона
         /// ПРИОРИТЕТ: От серьёзных к лёгким!
         /// </summary>
-        private void ProcessDamageBasedInjuries(int damage)
+        private void ProcessDamageBasedInjuries(int damage, int oldHealth, int newHealth)
         {
+            bool fromMonster = IsNearHostileMonster();
+            int combatSkill = Game1.player.CombatLevel;
+            string ctx = FormatInjuryDiagnosticContext();
+
+            _monitor.Log(
+                $"[DamageInjury] Evaluate damage={damage}, health {oldHealth}->{newHealth}, fromMonster={fromMonster}, combatSkill={combatSkill}, {ctx}",
+                LogLevel.Debug);
+
             // 1. КРИТИЧЕСКОЕ ЗДОРОВЬЕ (всегда приоритет!)
             if (Game1.player.health <= 10)
             {
+                _monitor.Log(
+                    $"[DamageInjury] APPLY buffBadlyHurt: health<=10 after damage, {ctx}",
+                    LogLevel.Warn);
                 _injuryManager.ApplyBadlyHurtSafe();
                 return;
             }
-
-            bool fromMonster = IsNearHostileMonster();
-            int combatSkill = Game1.player.CombatLevel;
 
             // 2. ТЯЖЁЛЫЕ ТРАВМЫ (большой урон)
             // Fractured Bone (30+ урона, 10% шанс)
             if (damage >= 30 && TryRollCombatInjury(0.10, combatSkill, fromMonster, damage, "FracturedBone"))
             {
+                _monitor.Log(
+                    $"[DamageInjury] APPLY buffFracturedBone: damage>={damage}>=30, roll ok, {ctx}",
+                    LogLevel.Warn);
                 _injuryManager.ApplyFracturedBoneSafe();
                 return;
             }
@@ -1443,6 +1443,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             // Concussion (20+ урона, 25% шанс)
             if (damage >= 20 && TryRollCombatInjury(0.25, combatSkill, fromMonster, damage, "Concussion"))
             {
+                _monitor.Log(
+                    $"[DamageInjury] APPLY buffConcussion: damage>={damage}>=20, roll ok, {ctx}",
+                    LogLevel.Warn);
                 _injuryManager.ApplyConcussionSafe();
                 return;
             }
@@ -1451,26 +1454,44 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             // Bruised Ribs (15+ урона, 25% шанс)
             if (damage >= 15 && TryRollCombatInjury(0.25, combatSkill, fromMonster, damage, "BruisedRibs"))
             {
+                _monitor.Log(
+                    $"[DamageInjury] APPLY buffBruisedRibs: damage>={damage}>=15, roll ok, {ctx}",
+                    LogLevel.Warn);
                 _injuryManager.ApplyBruisedRibsSafe();
                 return;
             }
 
             // Deep Cuts (10+ урона, 30% шанс)
-            if (damage >= 10 && TryRollCombatInjury(0.30, combatSkill, fromMonster, damage, "DeepCuts"))
+            if (damage >= 10)
             {
-                _injuryManager.ApplyDeepCutsSafe("combat");
-                return;
+                if (TryRollCombatInjury(0.30, combatSkill, fromMonster, damage, "DeepCuts"))
+                {
+                    _monitor.Log(
+                        $"[DamageInjury] APPLY buffDeepCuts (combat): damage>={damage}>=10, roll ok, fromMonster={fromMonster}, {ctx}",
+                        LogLevel.Warn);
+                    _injuryManager.ApplyDeepCutsSafe("combat");
+                    return;
+                }
+
+                _monitor.Log(
+                    $"[DamageInjury] SKIP buffDeepCuts (combat): damage>={damage}>=10, roll failed, fromMonster={fromMonster}, {ctx}",
+                    LogLevel.Debug);
             }
 
             // 4. ЛЁГКИЕ ТРАВМЫ (последние!)
             // Hurt (5+ урона, 35% шанс)
             if (damage >= 5 && TryRollCombatInjury(0.35, combatSkill, fromMonster, damage, "Hurt"))
             {
+                _monitor.Log(
+                    $"[DamageInjury] APPLY buffHurt: damage>={damage}>=5, roll ok, {ctx}",
+                    LogLevel.Info);
                 _injuryManager.ApplyHurtSafe();
                 return;
             }
 
-            // Малый урон (< 5) - никакой травмы
+            _monitor.Log(
+                $"[DamageInjury] No injury: damage={damage} (thresholds/rolls not met), fromMonster={fromMonster}, {ctx}",
+                LogLevel.Trace);
         }
 
         /// <summary>
@@ -1489,22 +1510,16 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (!Helpers.GameUtils.Roll(chance))
             {
-                if (fromMonster)
-                {
-                    _monitor.Log(
-                        $"[CombatInjury] {injuryKey} roll failed: damage={damage}, combatSkill={combatSkill}, chance={chance:P1} (base={ClampChance(baseChance):P0})",
-                        LogLevel.Debug);
-                }
+                _monitor.Log(
+                    $"[CombatInjury] {injuryKey} roll failed: damage={damage}, combatSkill={combatSkill}, fromMonster={fromMonster}, chance={chance:P1} (base={ClampChance(baseChance):P0})",
+                    LogLevel.Debug);
 
                 return false;
             }
 
-            if (fromMonster)
-            {
-                _monitor.Log(
-                    $"[CombatInjury] {injuryKey} roll success: damage={damage}, combatSkill={combatSkill}, chance={chance:P1} (base={ClampChance(baseChance):P0})",
-                    LogLevel.Debug);
-            }
+            _monitor.Log(
+                $"[CombatInjury] {injuryKey} roll success: damage={damage}, combatSkill={combatSkill}, fromMonster={fromMonster}, chance={chance:P1} (base={ClampChance(baseChance):P0})",
+                LogLevel.Debug);
 
             return true;
         }
@@ -1542,6 +1557,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (location == null) return;
 
             bool nearExplosion = false;
+            int bombSpritesFound = 0;
+            int bombSpritesIntersecting = 0;
             var playerBox = Game1.player.GetBoundingBox();
             var explosionArea = new Microsoft.Xna.Framework.Rectangle(
                 playerBox.X - Game1.tileSize * 3,
@@ -1554,36 +1571,65 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 foreach (var sprite in location.temporarySprites)
                 {
-                    if (sprite.bombRadius > 0)
-                    {
-                        var spriteBox = new Microsoft.Xna.Framework.Rectangle(
-                            (int)sprite.position.X,
-                            (int)sprite.position.Y,
-                            Game1.tileSize * 2,
-                            Game1.tileSize * 2
-                        );
+                    if (sprite.bombRadius <= 0) continue;
 
-                        if (explosionArea.Intersects(spriteBox))
-                        {
-                            nearExplosion = true;
-                            break;
-                        }
+                    bombSpritesFound++;
+                    var spriteBox = new Microsoft.Xna.Framework.Rectangle(
+                        (int)sprite.position.X,
+                        (int)sprite.position.Y,
+                        Game1.tileSize * 2,
+                        Game1.tileSize * 2
+                    );
+                    bool intersects = explosionArea.Intersects(spriteBox);
+                    float dx = sprite.position.X - playerBox.Center.X;
+                    float dy = sprite.position.Y - playerBox.Center.Y;
+                    float distTiles = (float)Math.Sqrt(dx * dx + dy * dy) / Game1.tileSize;
+
+                    _monitor.Log(
+                        $"[ExplosionInjury] bomb sprite: radius={sprite.bombRadius}, distTiles={distTiles:F1}, " +
+                        $"intersects={intersects}, playerBox=({playerBox.X},{playerBox.Y},{playerBox.Width}x{playerBox.Height}), " +
+                        $"spritePos=({sprite.position.X:F0},{sprite.position.Y:F0})",
+                        LogLevel.Trace);
+
+                    if (intersects)
+                    {
+                        bombSpritesIntersecting++;
+                        nearExplosion = true;
                     }
                 }
             }
 
-            if (nearExplosion && Helpers.GameUtils.Roll(0.50))
+            if (bombSpritesFound > 0 || nearExplosion)
             {
-                _monitor.Log("Игрок рядом со взрывом - применяем травму", LogLevel.Warn);
-                
-                if (Helpers.GameUtils.Roll(0.60))
-                {
-                    _injuryManager.ApplyShrapnelWoundsSafe();
-                }
-                else
-                {
-                    _injuryManager.ApplyBurnWoundsSafe();
-                }
+                _monitor.Log(
+                    $"[ExplosionInjury] Scan: bombsWithRadius={bombSpritesFound}, intersecting={bombSpritesIntersecting}, " +
+                    $"nearExplosion={nearExplosion}, {FormatInjuryDiagnosticContext()}",
+                    LogLevel.Debug);
+            }
+
+            if (!nearExplosion) return;
+
+            if (!Helpers.GameUtils.Roll(0.50))
+            {
+                _monitor.Log(
+                    $"[ExplosionInjury] Near explosion but 50% gate roll failed, {FormatInjuryDiagnosticContext()}",
+                    LogLevel.Debug);
+                return;
+            }
+
+            if (Helpers.GameUtils.Roll(0.60))
+            {
+                _monitor.Log(
+                    $"[ExplosionInjury] APPLY buffShrapnelWounds: near explosion, 50%+60% rolls ok, {FormatInjuryDiagnosticContext()}",
+                    LogLevel.Warn);
+                _injuryManager.ApplyShrapnelWoundsSafe();
+            }
+            else
+            {
+                _monitor.Log(
+                    $"[ExplosionInjury] APPLY buffBurnWounds: near explosion, 50% ok / 60% failed, {FormatInjuryDiagnosticContext()}",
+                    LogLevel.Warn);
+                _injuryManager.ApplyBurnWoundsSafe();
             }
         }
 
@@ -1756,6 +1802,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     _config.DeepCutsToolUsesThreshold,
                     Math.Min(_config.TornMusclesToolUsesThreshold, _config.BackStrainToolUsesThreshold));
 
+                LogFarmingInjuryPotential("OverworkComplication", stamina);
+
                 if (_complicationManager.TryRollOverworkComplication(
                         stamina,
                         totalUses,
@@ -1768,22 +1816,76 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
-            if (stamina <= deepCutsStaminaThreshold && TryRollDeepCuts(stamina))
+            if (stamina <= deepCutsStaminaThreshold)
             {
-                _lastFarmingInjuryRollTime = currentMinutes;
-                return;
+                LogFarmingInjuryPotential("DeepCuts", stamina);
+                if (TryRollDeepCuts(stamina))
+                {
+                    _lastFarmingInjuryRollTime = currentMinutes;
+                    return;
+                }
             }
 
-            if (stamina <= tornMusclesStaminaThreshold && TryRollTornMuscles(stamina))
+            if (stamina <= tornMusclesStaminaThreshold)
             {
-                _lastFarmingInjuryRollTime = currentMinutes;
-                return;
+                LogFarmingInjuryPotential("TornMuscles", stamina);
+                if (TryRollTornMuscles(stamina))
+                {
+                    _lastFarmingInjuryRollTime = currentMinutes;
+                    return;
+                }
             }
 
             if (TryRollBackStrain(stamina))
             {
                 _lastFarmingInjuryRollTime = currentMinutes;
             }
+        }
+
+        private void LogFarmingInjuryPotential(string rollTarget, float stamina)
+        {
+            string toolName = GetCurrentToolKey();
+            var currentTool = Game1.player?.CurrentTool;
+            string toolDetail = currentTool != null
+                ? (currentTool.BaseName ?? currentTool.Name ?? "?")
+                : "none";
+            int hoeCan = GetToolUseCounter("Hoe") + GetToolUseCounter("WateringCan");
+            int axePick = GetToolUseCounter("Axe") + GetToolUseCounter("Pickaxe");
+            int scytheAxe = GetToolUseCounter("Scythe") + GetToolUseCounter("Axe");
+
+            _monitor.Log(
+                $"[FarmingInjury] Potential {rollTarget}: tool={toolName}({toolDetail}), stamina={stamina:F0}, " +
+                $"isHoeOrCan={hoeCan > 0} (uses={hoeCan}), isAxeOrPick={axePick > 0} (uses={axePick}), " +
+                $"isScytheOrAxe={scytheAxe > 0} (uses={scytheAxe}), {FormatInjuryDiagnosticContext()}",
+                LogLevel.Debug);
+        }
+
+        private static int? TryGetMineLevel(GameLocation? location)
+        {
+            if (location is MineShaft shaft)
+                return shaft.mineLevel;
+            return null;
+        }
+
+        private string FormatInjuryDiagnosticContext()
+        {
+            var loc = Game1.currentLocation;
+            string locName = loc?.NameOrUniqueName ?? "?";
+            int? mineLevel = TryGetMineLevel(loc);
+            string minePart = mineLevel.HasValue ? $", mineLevel={mineLevel.Value}" : "";
+            string tool = GetCurrentToolKey();
+            var currentTool = Game1.player?.CurrentTool;
+            string toolDetail = currentTool != null
+                ? (currentTool.BaseName ?? currentTool.Name ?? "?")
+                : "none";
+            bool hasMenu = Game1.activeClickableMenu != null;
+            bool eventUp = Game1.eventUp;
+            bool usingTool = Game1.player?.UsingTool == true;
+
+            return
+                $"loc={locName}{minePart}, health={Game1.player?.health}/{Game1.player?.maxHealth}, " +
+                $"tool={tool}({toolDetail}), stamina={Game1.player?.Stamina:F0}, " +
+                $"menu={hasMenu}, eventUp={eventUp}, usingTool={usingTool}";
         }
 
         private bool TryRollDeepCuts(float stamina)
@@ -1815,6 +1917,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return false;
             }
 
+            _monitor.Log(
+                $"[FarmingInjury] DeepCuts roll success → ApplyDeepCutsSafe(source=farming), {FormatInjuryDiagnosticContext()}",
+                LogLevel.Warn);
             _injuryManager.ApplyDeepCutsSafe("farming");
             return true;
         }

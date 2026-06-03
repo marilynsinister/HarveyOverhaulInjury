@@ -324,15 +324,22 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return restored;
 
             string expectedPhaseBuffId = GetPhaseBuffId(buffId, debuffState.CurrentPhase);
-            if (!string.IsNullOrEmpty(expectedPhaseBuffId) && !_buffManager.HasBuff(expectedPhaseBuffId))
+            bool expectedActive = !string.IsNullOrEmpty(expectedPhaseBuffId)
+                && _buffManager.HasBuff(expectedPhaseBuffId);
+
+            if (!string.IsNullOrEmpty(expectedPhaseBuffId) && !expectedActive)
             {
+                if (!_buffManager.BuffExists(expectedPhaseBuffId))
+                    LogPhaseBuffMissing(buffId, debuffState.CurrentPhase, expectedPhaseBuffId);
+
                 _buffManager.AddBuff(expectedPhaseBuffId, -2);
                 if (_buffManager.HasBuff(expectedPhaseBuffId))
                 {
                     restored++;
+                    expectedActive = true;
                     _monitor.Log(
                         $"[BuffSync] Восстановлен фазовый бафф {expectedPhaseBuffId} ({buffId}, фаза {debuffState.CurrentPhase})",
-                        LogLevel.Info);
+                        LogLevel.Debug);
                 }
                 else
                     LogBuffSyncFailure(buffId, expectedPhaseBuffId);
@@ -341,15 +348,22 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (_buffManager.HasBuff(buffId))
                 _buffManager.RemoveBuff(buffId);
 
-            int maxPhase = Math.Max(debuffState.TotalPhases, 3);
-            for (int phase = 1; phase <= maxPhase; phase++)
+            if (expectedActive)
             {
-                if (phase == debuffState.CurrentPhase)
-                    continue;
+                int maxPhase = debuffState.TotalPhases;
+                for (int phase = 1; phase <= maxPhase; phase++)
+                {
+                    if (phase == debuffState.CurrentPhase)
+                        continue;
 
-                string stalePhaseBuffId = GetPhaseBuffId(buffId, phase);
-                if (!string.IsNullOrEmpty(stalePhaseBuffId) && _buffManager.HasBuff(stalePhaseBuffId))
-                    _buffManager.RemoveBuff(stalePhaseBuffId);
+                    string stalePhaseBuffId = GetPhaseBuffId(buffId, phase);
+                    if (string.IsNullOrEmpty(stalePhaseBuffId))
+                        continue;
+                    if (string.Equals(stalePhaseBuffId, expectedPhaseBuffId, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (_buffManager.HasBuff(stalePhaseBuffId))
+                        _buffManager.RemoveBuff(stalePhaseBuffId);
+                }
             }
 
             return restored;
@@ -479,14 +493,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!debuffState.IsPhasedInjury || debuffState.CurrentPhase <= 0)
                 return stale;
 
-            int maxPhase = Math.Max(debuffState.TotalPhases, 3);
+            int maxPhase = debuffState.TotalPhases;
             for (int phase = 1; phase <= maxPhase; phase++)
             {
                 if (phase == debuffState.CurrentPhase)
                     continue;
 
                 string phaseBuffId = GetPhaseBuffId(buffId, phase);
-                if (!string.IsNullOrEmpty(phaseBuffId) && _buffManager.HasBuff(phaseBuffId))
+                if (string.IsNullOrEmpty(phaseBuffId))
+                    continue;
+                if (_buffManager.HasBuff(phaseBuffId))
                     stale.Add(phaseBuffId);
             }
 
@@ -499,15 +515,23 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public List<string> GetActiveInjuryTopics(string buffId)
         {
             var topics = new List<string>();
+            var debuffState = _stateManager.GetDebuffState(buffId);
+            int totalPhases = debuffState?.TotalPhases ?? InjurySets.InferDefaultTotalPhases(buffId);
             string[] candidates =
             {
                 TopicIds.GetInjuryTopic(buffId),
                 TopicIds.GetTreatmentTopic(buffId),
                 TopicIds.GetCuredTopic(buffId),
-                TopicIds.GetPhaseTopicId(buffId, 1),
-                TopicIds.GetPhaseTopicId(buffId, 2),
-                TopicIds.GetPhaseTopicId(buffId, 3),
+                GetPhaseTopicId(buffId, 1),
+                GetPhaseTopicId(buffId, 2),
+                GetPhaseTopicId(buffId, 3),
             };
+
+            if (totalPhases == 2)
+            {
+                string injuryName = buffId.Replace("buff", "");
+                candidates = candidates.Concat(new[] { $"topic{injuryName}PhaseHealing" }).ToArray();
+            }
 
             foreach (string topicId in candidates)
             {
@@ -572,6 +596,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 LogLevel.Error);
         }
 
+        private void LogPhaseBuffMissing(string injuryId, int phase, string expectedPhaseBuffId)
+        {
+            _monitor.Log(
+                $"[PhaseBuffMissing] injury={injuryId} phase={phase} expected={expectedPhaseBuffId} BuffExists=false",
+                LogLevel.Error);
+        }
+
         /// <summary>
         /// Восстановить ожидаемые лечебные/фазовые баффы по DebuffState (после сна, reload, сбоя DialogueBox).
         /// </summary>
@@ -580,8 +611,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
             bool stateDirty = SanitizeSavedActiveBuffsFromDebuffState();
             int restored = 0;
 
-            foreach (var (buffId, _) in _stateManager.State.ActiveDebuffs)
+            foreach (var (buffId, debuffState) in _stateManager.State.ActiveDebuffs)
+            {
                 restored += EnsureTreatmentBuffForInjury(buffId);
+                if (debuffState.TreatmentStarted && InjurySets.HarveyTreatable.Contains(buffId))
+                    _dialogueManager.ClearUntreatedInjuryTopic(buffId, "синхронизация: лечение уже идёт");
+            }
 
             foreach (string compId in _stateManager.State.ActiveComplications.Keys.ToList())
             {
@@ -778,7 +813,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private void RemoveMainInjuryTopics(string injuryId)
         {
-            _dialogueManager.RemoveTopic(TopicIds.GetInjuryTopic(injuryId));
+            _dialogueManager.ClearUntreatedInjuryTopic(injuryId, "снятие основной травмы");
             _dialogueManager.RemoveTopic(TopicIds.GetTreatmentTopic(injuryId));
             for (int phase = 1; phase <= 3; phase++)
                 _dialogueManager.RemoveTopic(GetPhaseTopicId(injuryId, phase));
@@ -934,37 +969,31 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 {
                     [1] = "HarveyMod_SprainedAnkle_Acute",
                     [2] = "HarveyMod_SprainedAnkle_Recovery",
-                    [3] = "HarveyMod_SprainedAnkle_Recovery" // 2 фазы
                 },
                 ["buffBruisedRibs"] = new Dictionary<int, string>
                 {
                     [1] = "HarveyMod_BruisedRibs_Acute",
                     [2] = "HarveyMod_BruisedRibs_Healing",
-                    [3] = "HarveyMod_BruisedRibs_Healing" // 2 фазы
                 },
                 ["buffBurnWounds"] = new Dictionary<int, string>
                 {
                     [1] = "HarveyMod_BurnWounds_Acute",
                     [2] = "HarveyMod_BurnWounds_Healing",
-                    [3] = "HarveyMod_BurnWounds_Healing" // 2 фазы
                 },
                 ["buffInfectedWound"] = new Dictionary<int, string>
                 {
                     [1] = "HarveyMod_InfectedWound_Acute",
                     [2] = "HarveyMod_InfectedWound_Treatment",
-                    [3] = "HarveyMod_InfectedWound_Treatment" // 2 фазы
                 },
                 ["buffBackStrain"] = new Dictionary<int, string>
                 {
                     [1] = "HarveyMod_BackStrain_Acute",
                     [2] = "HarveyMod_BackStrain_Recovery",
-                    [3] = "HarveyMod_BackStrain_Recovery" // 2 фазы
                 },
                 ["buffCold"] = new Dictionary<int, string>
                 {
-                    [1] = "HarveyMod_Cold_Acute",        // Острая фаза: температура, слабость
-                    [2] = "HarveyMod_Cold_Recovery",     // Восстановление: остаточный кашель
-                    [3] = "HarveyMod_Cold_Recovery"      // 2 фазы
+                    [1] = InjuryBuffs.ColdAcute,
+                    [2] = InjuryBuffs.ColdRecovery,
                 },
                 ["buffBadlyHurt"] = new Dictionary<int, string>
                 {
@@ -1055,22 +1084,50 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
-        /// Получить название топика для фазы
+        /// Получить название топика для фазы (учитывает TotalPhases из DebuffState).
         /// </summary>
-        public string GetPhaseTopicId(string injuryId, int phase) => TopicIds.GetPhaseTopicId(injuryId, phase);
+        public string GetPhaseTopicId(string injuryId, int phase)
+        {
+            var debuffState = _stateManager.GetDebuffState(injuryId);
+            int totalPhases = debuffState?.TotalPhases ?? InjurySets.InferDefaultTotalPhases(injuryId);
+            return TopicIds.GetPhaseTopicId(injuryId, phase, totalPhases);
+        }
+
+        /// <summary>
+        /// Имя стадии фазы для HUD, логов и topic ID.
+        /// </summary>
+        public string GetPhaseStageName(string injuryId, int phase, int totalPhases = 0)
+        {
+            if (totalPhases <= 0)
+            {
+                var debuffState = _stateManager.GetDebuffState(injuryId);
+                totalPhases = debuffState?.TotalPhases ?? InjurySets.InferDefaultTotalPhases(injuryId);
+            }
+
+            return TopicIds.GetPhaseStageName(phase, totalPhases);
+        }
 
         /// <summary>
         /// Удалить все фазовые баффы травмы
         /// </summary>
         public void RemoveAllPhaseBuffs(string injuryId)
         {
-            var buffsToRemove = new List<string>
+            int maxPhase = _stateManager.State.ActiveDebuffs.TryGetValue(injuryId, out var debuffState)
+                && debuffState.TotalPhases > 0
+                ? debuffState.TotalPhases
+                : InjurySets.InferDefaultTotalPhases(injuryId);
+
+            var buffsToRemove = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                GetPhaseBuffId(injuryId, 1),
-                GetPhaseBuffId(injuryId, 2),
-                GetPhaseBuffId(injuryId, 3),
-                injuryId
+                injuryId,
             };
+
+            for (int phase = 1; phase <= maxPhase; phase++)
+            {
+                string phaseBuffId = GetPhaseBuffId(injuryId, phase);
+                if (!string.IsNullOrEmpty(phaseBuffId))
+                    buffsToRemove.Add(phaseBuffId);
+            }
 
             _buffManager.RemoveAllBuffs(buffsToRemove);
             _monitor.Log($"Удалены все фазовые баффы для {injuryId}", LogLevel.Debug);
@@ -1335,8 +1392,36 @@ namespace HarveyOverhaul.InjuryCare.Managers
             ApplyInjurySafe("buffBackStrain", ApplyBackStrainCore, Triggers.BackStrain);
         }
 
+        private static string GetDeepCutsDiagnosticTool()
+        {
+            var tool = Game1.player?.CurrentTool;
+            if (tool == null) return "none";
+            return tool.BaseName ?? tool.Name ?? "?";
+        }
+
+        private static int? TryGetMineLevelForLog()
+        {
+            if (Game1.currentLocation is MineShaft shaft)
+                return shaft.mineLevel;
+            return null;
+        }
+
+        private void LogDeepCutsContext(string entryPoint, string source, LogLevel level)
+        {
+            var loc = Game1.currentLocation;
+            string locName = loc?.NameOrUniqueName ?? "?";
+            int? mine = TryGetMineLevelForLog();
+            string minePart = mine.HasValue ? $", mineLevel={mine.Value}" : "";
+            _monitor.Log(
+                $"[DeepCuts] {entryPoint}: source={source}, loc={locName}{minePart}, " +
+                $"health={Game1.player?.health}/{Game1.player?.maxHealth}, stamina={Game1.player?.Stamina:F0}, tool={GetDeepCutsDiagnosticTool()}",
+                level);
+        }
+
         private void ApplyDeepCutsCore()
         {
+            LogDeepCutsContext("buff applied", "core", LogLevel.Info);
+
             // Применяем базовый бафф травмы (до лечения)
             _buffManager.AddBuff("buffDeepCuts", -2);
             _dialogueManager.AddTopic(ConversationTopics.DeepCuts, 7);
@@ -1349,11 +1434,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         public void ApplyDeepCuts(string source = "generic")
         {
+            LogDeepCutsContext("ApplyDeepCuts entry", source, LogLevel.Trace);
             TryApplyMainInjury("buffDeepCuts", ApplyDeepCutsCore);
         }
 
         public void ApplyDeepCutsSafe(string source = "generic")
         {
+            LogDeepCutsContext("ApplyDeepCutsSafe entry", source, LogLevel.Trace);
             string trigger = source == "combat" 
                 ? Triggers.DeepCutsCombat 
                 : Triggers.DeepCutsFarming;
