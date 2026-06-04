@@ -247,6 +247,11 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         public bool HospitalDischargeReadyShown { get; set; } = false;
 
         /// <summary>
+        /// Последняя игровая минута HUD-напоминания о сроке госпитализации. -1 = ещё не показывали.
+        /// </summary>
+        public int HospitalLastStatusHudMinute { get; set; } = -1;
+
+        /// <summary>
         /// Proximity-предупреждение перед принудительной госпитализацией (уже показано).
         /// </summary>
         public bool PendingForcedHospitalizationWarning { get; set; } = false;

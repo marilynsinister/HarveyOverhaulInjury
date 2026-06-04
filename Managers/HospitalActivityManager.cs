@@ -16,8 +16,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly ModConfig _config;
         private readonly DialogueManager _dialogueManager;
         
-        private int _lastActivityTime = -1;
+        private int _activityMinutesAccumulated;
+        private int _lastActivityClockMinutes = -1;
         private int _activityCounter = 0;
+        private const int MaxActivityClockDeltaMinutes = 120;
         private readonly List<string> _availableActivities = new();
 
         public HospitalActivityManager(IMonitor monitor, ModConfig config, DialogueManager dialogueManager)
@@ -51,7 +53,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>
         /// Обновить активности во время госпитализации
         /// </summary>
-        public void UpdateHospitalActivities(HospitalizationManager hospitalization)
+        public void UpdateHospitalActivities(HospitalizationManager hospitalization, int newTimeOfDay)
         {
             if (!hospitalization.IsHospitalized) return;
             if (hospitalization.HasPendingReturnToHospital) return;
@@ -60,13 +62,24 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (_activityCounter >= _config.MaxHospitalActivitiesPerStay) return;
 
             int intervalMinutes = Math.Max(1, _config.HospitalActivityIntervalMinutes);
-            int currentTime = Game1.timeOfDay;
+            int currentMinutes = ToClockMinutes(newTimeOfDay);
 
-            if (_lastActivityTime == -1 || GetElapsedMinutesSince(currentTime, _lastActivityTime) >= intervalMinutes)
+            if (_lastActivityClockMinutes >= 0)
             {
-                _lastActivityTime = currentTime;
-                TriggerRandomActivity();
+                int delta = currentMinutes - _lastActivityClockMinutes;
+                if (delta > 0 && delta <= MaxActivityClockDeltaMinutes)
+                    _activityMinutesAccumulated += delta;
+                else if (delta <= 0)
+                    _monitor.Log("Hospital activity time rollback ignored", LogLevel.Debug);
             }
+
+            _lastActivityClockMinutes = currentMinutes;
+
+            if (_activityMinutesAccumulated < intervalMinutes)
+                return;
+
+            _activityMinutesAccumulated = 0;
+            TriggerRandomActivity();
         }
 
         /// <summary>
@@ -181,7 +194,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public void Reset()
         {
-            _lastActivityTime = -1;
+            _activityMinutesAccumulated = 0;
+            _lastActivityClockMinutes = -1;
             _activityCounter = 0;
             _monitor.Log("🏥 Сброс активностей госпитализации", LogLevel.Debug);
         }
@@ -191,14 +205,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
             int hours = timeOfDay / 100;
             int minutes = timeOfDay % 100;
             return hours * 60 + minutes;
-        }
-
-        private static int GetElapsedMinutesSince(int currentTimeOfDay, int previousTimeOfDay)
-        {
-            int elapsed = ToClockMinutes(currentTimeOfDay) - ToClockMinutes(previousTimeOfDay);
-            if (elapsed < 0)
-                elapsed += 24 * 60;
-            return elapsed;
         }
     }
 }

@@ -146,6 +146,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             var result = new List<string>();
             foreach (var id in applied.Keys)
             {
+                if (string.Equals(id, ReminderBuffs.DoctorVisitNeeded, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 if (_allBuffs.ContainsKey(id))
                     result.Add(id);
             }

@@ -111,6 +111,9 @@ namespace HarveyOverhaul.InjuryCare.Testing
             sb.AppendLine($"DaysWithSevere={state.DaysWithSevere}");
             sb.AppendLine($"PendingHospitalPassOutEventId={Fmt(state.PendingHospitalPassOutEventId)}");
             sb.AppendLine($"CanDischarge={hospitalizationManager.CanDischarge()}");
+            sb.AppendLine($"HospitalElapsedMinutes={hospitalizationManager.HospitalElapsedMinutes}");
+            sb.AppendLine($"DischargeAllowed={hospitalizationManager.DischargeAllowed}");
+            sb.AppendLine($"LastHospitalClockMinutes={hospitalizationManager.LastHospitalClockMinutes}");
             return sb.ToString().TrimEnd();
         }
 

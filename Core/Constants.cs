@@ -41,6 +41,20 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string Rehab = "buffHarveyRehab";
     }
 
+    /// <summary>UI-баффы состояния (не дебаффы наказания).</summary>
+    public static class StatusBuffs
+    {
+        /// <summary>Индикатор принудительной госпитализации под наблюдением Харви.</summary>
+        public const string Hospitalized = "HarveyMod_Hospitalized";
+    }
+
+    /// <summary>UI-напоминания (не травмы, не в ActiveDebuffs / SavedActiveBuffs).</summary>
+    public static class ReminderBuffs
+    {
+        /// <summary>Нужен визит к Харви: смена фазы, выздоровление, осложнения или выписка.</summary>
+        public const string DoctorVisitNeeded = "HarveyMod_DoctorVisitNeeded";
+    }
+
     /// <summary>ID предписаний Харви (временные правила лечения).</summary>
     public static class PrescriptionIds
     {

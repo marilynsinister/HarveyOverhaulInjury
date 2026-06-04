@@ -19,16 +19,30 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly BuffManager _buffManager;
         private HospitalActivityManager? _activityManager;
         private TreatmentManager? _treatmentManager;
+        private DoctorVisitReminderManager? _doctorVisitReminderManager;
         private bool _pendingReturnToHospital;
         private bool _pendingBlockedExitReaction;
         private bool _returnWarpInFlight;
         private int _returnWarpStartedTick = -1;
         private const int ReturnWarpTimeoutTicks = 180;
+        private const int HospitalizedBuffMinDurationMinutes = 1;
+        private const int MaxHospitalClockDeltaMinutes = 120;
+
+        private bool _hospitalHoldActive;
+        private string? _currentHospitalCaseInjury;
+        private int _hospitalElapsedMinutes;
+        private int _lastHospitalClockMinutes = -1;
+        private bool _dischargeAllowed;
 
         /// <summary>
         /// Ожидается отложенный возврат в палату после заблокированного выхода.
         /// </summary>
         public bool HasPendingReturnToHospital => _pendingReturnToHospital;
+
+        public int HospitalElapsedMinutes => _hospitalElapsedMinutes;
+        public bool DischargeAllowed => _dischargeAllowed;
+        public int LastHospitalClockMinutes => _lastHospitalClockMinutes;
+        public int MinHospitalStayMinutes => GetMinStayMinutes();
 
         public HospitalizationManager(
             IMonitor monitor,
@@ -58,6 +72,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void SetTreatmentManager(TreatmentManager treatmentManager)
         {
             _treatmentManager = treatmentManager;
+        }
+
+        public void SetDoctorVisitReminderManager(DoctorVisitReminderManager doctorVisitReminderManager)
+        {
+            _doctorVisitReminderManager = doctorVisitReminderManager;
         }
 
         /// <summary>
@@ -154,7 +173,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
             state.HospitalMinStayMinutes = CalculateHospitalStayMinutes(injuryId, reason);
             state.HospitalDischargeReadyShown = false;
             state.PendingForcedHospitalizationWarning = false;
+            state.HospitalLastStatusHudMinute = -1;
             _stateManager.Save();
+
+            _hospitalHoldActive = true;
+            _currentHospitalCaseInjury = injuryId;
+            _hospitalElapsedMinutes = 0;
+            _lastHospitalClockMinutes = GameUtils.CurrentTimeInMinutes();
+            _dischargeAllowed = false;
+
+            ApplyHospitalizedBuff(Game1.timeOfDay);
 
             // Телепортируем в больницу
             WarpToHospitalBed();
@@ -218,30 +246,128 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// Синхронизировать UI-бафф госпитализации при смене игрового времени / после загрузки сейва.
+        /// </summary>
+        public void SyncHospitalizedBuffOnTimeChanged(int timeOfDay, bool showHudReminder = true)
+        {
+            if (!IsHospitalized)
+            {
+                ResetHospitalStayCounters();
+                SanitizeOrphanHospitalizedBuff();
+                return;
+            }
+
+            int remaining = GetRemainingMinutes();
+            RefreshHospitalizedBuffDuration(remaining);
+
+            if (showHudReminder
+                && HospitalizationHelper.ShouldShowStatusHud(timeOfDay, _stateManager.State.HospitalLastStatusHudMinute))
+            {
+                ShowHospitalizedStatusHud(timeOfDay, remaining);
+            }
+        }
+
+        /// <summary>Убрать orphan HarveyMod_Hospitalized, если госпитализация не активна.</summary>
+        public void SanitizeOrphanHospitalizedBuff()
+        {
+            if (IsHospitalized)
+                return;
+
+            RemoveHospitalizedBuffFromPlayerAndSaved();
+        }
+
+        /// <summary>Восстановить UI-бафф после сна / перезагрузки по флагу IsHospitalized.</summary>
+        public void RestoreHospitalizedBuffIfActive()
+        {
+            if (!IsHospitalized)
+                return;
+
+            RestoreHospitalStayCounters();
+            SyncHospitalizedBuffOnTimeChanged(Game1.timeOfDay, showHudReminder: false);
+        }
+
+        /// <summary>
+        /// Накопить игровые минуты госпитализации по сменам timeOfDay (HHMM), устойчиво к откату времени.
+        /// </summary>
+        public void UpdateHospitalStayProgress(int newTimeOfDay)
+        {
+            if (!_hospitalHoldActive || _dischargeAllowed)
+                return;
+
+            int currentMinutes = ToClockMinutes(newTimeOfDay);
+
+            if (_lastHospitalClockMinutes < 0)
+            {
+                _lastHospitalClockMinutes = currentMinutes;
+                return;
+            }
+
+            int delta = currentMinutes - _lastHospitalClockMinutes;
+
+            if (delta > 0 && delta <= MaxHospitalClockDeltaMinutes)
+                _hospitalElapsedMinutes += delta;
+            else if (delta <= 0)
+                _monitor.Log("Hospital time rollback ignored", LogLevel.Debug);
+            else
+                _monitor.Log($"Hospital time jump ignored (delta={delta} min)", LogLevel.Debug);
+
+            _lastHospitalClockMinutes = currentMinutes;
+
+            if (_hospitalElapsedMinutes < GetMinStayMinutes())
+                return;
+
+            _dischargeAllowed = true;
+            _monitor.Log("Минимальный срок госпитализации прошёл, можно выписаться", LogLevel.Debug);
+        }
+
+        private void ApplyHospitalizedBuff(int timeOfDay)
+        {
+            int remaining = GetRemainingMinutes();
+            RefreshHospitalizedBuffDuration(remaining);
+            ShowHospitalizedStatusHud(timeOfDay, remaining);
+            _monitor.Log(
+                $"[Hospital] applied {StatusBuffs.Hospitalized}, remaining={remaining} min",
+                LogLevel.Debug);
+        }
+
+        private void RefreshHospitalizedBuffDuration(int remainingMinutes)
+        {
+            int durationArg = remainingMinutes <= 0
+                ? -2
+                : Math.Max(HospitalizedBuffMinDurationMinutes, remainingMinutes);
+
+            if (_buffManager.HasBuff(StatusBuffs.Hospitalized))
+                _buffManager.RemoveBuff(StatusBuffs.Hospitalized);
+
+            _buffManager.AddBuff(StatusBuffs.Hospitalized, durationArg);
+        }
+
+        private void ShowHospitalizedStatusHud(int timeOfDay, int remainingMinutes)
+        {
+            Game1.addHUDMessage(new HUDMessage(
+                HospitalizationHelper.FormatRemainingHud(remainingMinutes),
+                HUDMessage.health_type));
+
+            _stateManager.State.HospitalLastStatusHudMinute =
+                HospitalizationHelper.ToClockMinutes(timeOfDay);
+        }
+
+        private void RemoveHospitalizedBuffFromPlayerAndSaved()
+        {
+            _buffManager.RemoveBuff(StatusBuffs.Hospitalized);
+            _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
+                string.Equals(id, StatusBuffs.Hospitalized, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
         /// Проверить, можно ли выписать пациента
         /// </summary>
         public bool CanDischarge()
         {
-            if (!IsHospitalized) return true;
+            if (!_hospitalHoldActive)
+                return true;
 
-            var state = _stateManager.State;
-            int admissionMinutes = state.HospitalAdmissionMinutes;
-            if (admissionMinutes < 0 && state.HospitalAdmissionTime >= 0)
-                admissionMinutes = ToClockMinutes(state.HospitalAdmissionTime);
-
-            if (admissionMinutes < 0)
-                return false;
-
-            int now = ToClockMinutes(Game1.timeOfDay);
-            int elapsed = now - admissionMinutes;
-            if (elapsed < 0)
-                elapsed += 24 * 60;
-
-            int minStay = state.HospitalMinStayMinutes > 0
-                ? state.HospitalMinStayMinutes
-                : _config.MinHospitalStayMinutes;
-
-            return elapsed >= minStay;
+            return _dischargeAllowed;
         }
 
         /// <summary>
@@ -249,8 +375,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public void NotifyDischargeReadyIfNeeded()
         {
-            if (!IsHospitalized) return;
-            if (!CanDischarge()) return;
+            if (!_hospitalHoldActive) return;
+            if (!_dischargeAllowed) return;
 
             var state = _stateManager.State;
             if (state.HospitalDischargeReadyShown) return;
@@ -272,6 +398,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     HarveyEmotes.Recovery,
                     "Показатели стабильны. Можешь идти, но без шахты сегодня.");
             }
+
+            _doctorVisitReminderManager?.SyncReminderBuff();
         }
 
         /// <summary>
@@ -290,6 +418,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             // Сбрасываем активности госпитализации
             _activityManager?.Reset();
+
+            _doctorVisitReminderManager?.SyncReminderBuff();
         }
 
         private void ReplaceIntensiveCareWithOutpatientRecovery()
@@ -587,11 +717,49 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
         }
 
+        private void RestoreHospitalStayCounters()
+        {
+            if (!IsHospitalized)
+            {
+                ResetHospitalStayCounters();
+                return;
+            }
+
+            _hospitalHoldActive = true;
+            _currentHospitalCaseInjury = CurrentInjury;
+            _lastHospitalClockMinutes = GameUtils.CurrentTimeInMinutes();
+            _hospitalElapsedMinutes = HospitalizationHelper.GetElapsedMinutes(_stateManager.State, Game1.timeOfDay);
+            _dischargeAllowed = _hospitalElapsedMinutes >= GetMinStayMinutes();
+        }
+
+        private void ResetHospitalStayCounters()
+        {
+            _hospitalHoldActive = false;
+            _currentHospitalCaseInjury = null;
+            _hospitalElapsedMinutes = 0;
+            _lastHospitalClockMinutes = -1;
+            _dischargeAllowed = false;
+        }
+
+        private int GetMinStayMinutes()
+        {
+            var state = _stateManager.State;
+            return state.HospitalMinStayMinutes > 0
+                ? state.HospitalMinStayMinutes
+                : _config.MinHospitalStayMinutes;
+        }
+
+        private int GetRemainingMinutes()
+        {
+            return Math.Max(0, GetMinStayMinutes() - _hospitalElapsedMinutes);
+        }
+
         private void ClearHospitalizationState()
         {
             _pendingReturnToHospital = false;
             _pendingBlockedExitReaction = false;
             ResetReturnWarpState();
+            ResetHospitalStayCounters();
 
             var state = _stateManager.State;
             state.IsHospitalized = false;
@@ -602,6 +770,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             state.HospitalAdmissionMinutes = -1;
             state.HospitalMinStayMinutes = 120;
             state.HospitalDischargeReadyShown = false;
+            state.HospitalLastStatusHudMinute = -1;
+
+            RemoveHospitalizedBuffFromPlayerAndSaved();
         }
     }
 }

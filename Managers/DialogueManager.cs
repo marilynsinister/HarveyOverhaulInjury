@@ -8,6 +8,17 @@ using StardewValley;
 
 namespace HarveyOverhaul.InjuryCare.Managers
 {
+    /// <summary>Стадия отношений с Харви для выбора реплик лечения (CP: Prefix_Stage_*).</summary>
+    public enum HarveyRelationshipStage
+    {
+        Stranger,
+        Acquaintance,
+        Friend,
+        Close,
+        Dating,
+        Married,
+    }
+
     /// <summary>
     /// Управление диалогами и разговорными топиками
     /// </summary>
@@ -144,6 +155,153 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return ComplicationTreatmentFallback;
         }
 
+        private static readonly string[] FormalAddressMarkers =
+        {
+            "Вы", "Вам", "Вас", "Ваш", "держите", "садитесь", "приходите", "не забывайте",
+        };
+
+        private static readonly HarveyRelationshipStage[] AllRelationshipStages =
+            (HarveyRelationshipStage[])Enum.GetValues(typeof(HarveyRelationshipStage));
+
+        /// <summary>
+        /// Стадия отношений: Married/Dating → иначе по сердцам (8+/4+/2+).
+        /// </summary>
+        public HarveyRelationshipStage GetHarveyRelationshipStage()
+        {
+            var friendship = Game1.player?.friendshipData;
+            if (friendship == null || !friendship.TryGetValue("Harvey", out var data))
+                return HarveyRelationshipStage.Stranger;
+
+            if (data.IsMarried())
+                return HarveyRelationshipStage.Married;
+            if (data.IsDating())
+                return HarveyRelationshipStage.Dating;
+
+            int hearts = data.Points / 250;
+            if (hearts >= 8)
+                return HarveyRelationshipStage.Close;
+            if (hearts >= 4)
+                return HarveyRelationshipStage.Friend;
+            if (hearts >= 2)
+                return HarveyRelationshipStage.Acquaintance;
+            return HarveyRelationshipStage.Stranger;
+        }
+
+        private static string BuildStagedPrefix(string prefix, HarveyRelationshipStage stage)
+        {
+            string stageToken = $"{stage}_";
+            return prefix.EndsWith("_", StringComparison.Ordinal)
+                ? prefix + stageToken
+                : prefix + "_" + stageToken;
+        }
+
+        private static bool IsStagedDialogueKey(string key, string prefix, HarveyRelationshipStage stage) =>
+            key.StartsWith(BuildStagedPrefix(prefix, stage), StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsUnstagedDialogueKey(string key, string prefix)
+        {
+            if (!key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            foreach (var stage in AllRelationshipStages)
+            {
+                if (IsStagedDialogueKey(key, prefix, stage))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool ContainsFormalAddress(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            foreach (string marker in FormalAddressMarkers)
+            {
+                if (text.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool RequiresInformalTone(HarveyRelationshipStage stage) =>
+            stage is HarveyRelationshipStage.Dating or HarveyRelationshipStage.Married;
+
+        private static HarveyRelationshipStage[] GetRelationshipFallbackChain(HarveyRelationshipStage stage) =>
+            stage switch
+            {
+                HarveyRelationshipStage.Married =>
+                    new[]
+                    {
+                        HarveyRelationshipStage.Married,
+                        HarveyRelationshipStage.Dating,
+                        HarveyRelationshipStage.Close,
+                        HarveyRelationshipStage.Friend,
+                    },
+                HarveyRelationshipStage.Dating =>
+                    new[]
+                    {
+                        HarveyRelationshipStage.Dating,
+                        HarveyRelationshipStage.Close,
+                        HarveyRelationshipStage.Friend,
+                    },
+                HarveyRelationshipStage.Close =>
+                    new[]
+                    {
+                        HarveyRelationshipStage.Close,
+                        HarveyRelationshipStage.Friend,
+                        HarveyRelationshipStage.Acquaintance,
+                        HarveyRelationshipStage.Stranger,
+                    },
+                HarveyRelationshipStage.Friend =>
+                    new[]
+                    {
+                        HarveyRelationshipStage.Friend,
+                        HarveyRelationshipStage.Acquaintance,
+                        HarveyRelationshipStage.Stranger,
+                    },
+                HarveyRelationshipStage.Acquaintance =>
+                    new[]
+                    {
+                        HarveyRelationshipStage.Acquaintance,
+                        HarveyRelationshipStage.Stranger,
+                    },
+                _ => new[] { HarveyRelationshipStage.Stranger },
+            };
+
+        private string? PickRandomLineByPrefixWithRelationship(
+            Dictionary<string, string> dialogues,
+            string prefix,
+            HarveyRelationshipStage stage)
+        {
+            foreach (var fallbackStage in GetRelationshipFallbackChain(stage))
+            {
+                var staged = dialogues
+                    .Where(kvp => IsStagedDialogueKey(kvp.Key, prefix, fallbackStage)
+                        && !string.IsNullOrWhiteSpace(kvp.Value))
+                    .Select(kvp => kvp.Value)
+                    .ToList();
+
+                if (staged.Count > 0)
+                    return staged[Game1.random.Next(staged.Count)];
+            }
+
+            var unstaged = dialogues
+                .Where(kvp => IsUnstagedDialogueKey(kvp.Key, prefix) && !string.IsNullOrWhiteSpace(kvp.Value))
+                .Select(kvp => kvp.Value)
+                .ToList();
+
+            if (RequiresInformalTone(stage))
+                unstaged = unstaged.Where(line => !ContainsFormalAddress(line)).ToList();
+
+            if (unstaged.Count == 0)
+                return null;
+
+            return unstaged[Game1.random.Next(unstaged.Count)];
+        }
+
         /// <summary>Случайная строка из полного Characters/Dialogue/Harvey по префиксу ключа.</summary>
         private string? TryPickHarveyDialogueByPrefix(string prefix)
         {
@@ -153,16 +311,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 if (dict == null || dict.Count == 0)
                     return null;
 
-                var matching = dict
-                    .Where(kvp => kvp.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                        && !string.IsNullOrWhiteSpace(kvp.Value))
-                    .Select(kvp => kvp.Value)
-                    .ToList();
-
-                if (matching.Count == 0)
-                    return null;
-
-                return matching[Game1.random.Next(matching.Count)];
+                var stage = GetHarveyRelationshipStage();
+                return PickRandomLineByPrefixWithRelationship(dict, prefix, stage);
             }
             catch (Exception ex)
             {
@@ -471,20 +621,18 @@ namespace HarveyOverhaul.InjuryCare.Managers
             try
             {
                 var dialogues = LoadDialoguesFromAsset();
-                if (dialogues == null) return defaultText;
-
-                var matching = dialogues
-                    .Where(kvp => kvp.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    .Select(kvp => kvp.Value)
-                    .ToList();
-
-                if (matching.Count == 0)
-                {
-                    _monitor.Log($"Диалоги с префиксом '{prefix}' не найдены", LogLevel.Warn);
+                if (dialogues == null || dialogues.Count == 0)
                     return defaultText;
-                }
 
-                return matching[Game1.random.Next(matching.Count)];
+                var stage = GetHarveyRelationshipStage();
+                string? line = PickRandomLineByPrefixWithRelationship(dialogues, prefix, stage);
+                if (!string.IsNullOrWhiteSpace(line))
+                    return line;
+
+                _monitor.Log(
+                    $"Диалоги с префиксом '{prefix}' не найдены (стадия {stage}), fallback",
+                    LogLevel.Warn);
+                return defaultText;
             }
             catch (Exception ex)
             {
@@ -604,33 +752,30 @@ namespace HarveyOverhaul.InjuryCare.Managers
             try
             {
                 var dialogues = LoadDialoguesFromAsset();
-                if (dialogues == null)
+                if (dialogues == null || dialogues.Count == 0)
                 {
                     _monitor.Log($"Диалоги не загружены, возвращаем дефолт: {defaultText}", LogLevel.Warn);
                     return defaultText;
                 }
 
-                // Определяем префикс в зависимости от того, был ли разговор
                 string prefix = wasDiscussed ? $"Treat_{injuryId}_After" : $"Treat_{injuryId}_Before";
-                
-                _monitor.Log($"Ищем диалоги лечения с префиксом: {prefix}", LogLevel.Debug);
-                
-                var matching = dialogues
-                    .Where(kvp => kvp.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    .Select(kvp => kvp.Value)
-                    .ToList();
+                var stage = GetHarveyRelationshipStage();
 
-                if (matching.Count == 0)
+                _monitor.Log($"Ищем диалоги лечения: prefix={prefix}, stage={stage}", LogLevel.Debug);
+
+                string? selected = PickRandomLineByPrefixWithRelationship(dialogues, prefix, stage);
+                if (!string.IsNullOrWhiteSpace(selected))
                 {
-                    _monitor.Log($"⚠️ Диалоги лечения с префиксом '{prefix}' не найдены! Доступные ключи: {string.Join(", ", dialogues.Keys.Take(10))}", LogLevel.Warn);
-                    return defaultText;
+                    _monitor.Log(
+                        $"Выбран диалог лечения ({stage}): {selected.Substring(0, Math.Min(50, selected.Length))}...",
+                        LogLevel.Debug);
+                    return selected;
                 }
 
-                _monitor.Log($"Найдено {matching.Count} диалогов с префиксом '{prefix}'", LogLevel.Debug);
-                string selected = matching[Game1.random.Next(matching.Count)];
-                _monitor.Log($"Выбран диалог: {selected.Substring(0, Math.Min(50, selected.Length))}...", LogLevel.Debug);
-                
-                return selected;
+                _monitor.Log(
+                    $"Диалоги лечения с префиксом '{prefix}' не найдены (стадия {stage}), fallback",
+                    LogLevel.Warn);
+                return defaultText;
             }
             catch (Exception ex)
             {

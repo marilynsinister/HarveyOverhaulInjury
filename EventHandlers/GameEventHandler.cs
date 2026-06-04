@@ -30,6 +30,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly CheckupManager _checkupManager;
         private readonly RehabManager _rehabManager;
         private readonly SelfCareManager _selfCareManager;
+        private readonly DoctorVisitReminderManager _doctorVisitReminderManager;
         private InteractionHandler? _interactionHandler;
         private PassOutHandler? _passOutHandler;
 
@@ -47,7 +48,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             ComplianceManager complianceManager,
             CheckupManager checkupManager,
             RehabManager rehabManager,
-            SelfCareManager selfCareManager)
+            SelfCareManager selfCareManager,
+            DoctorVisitReminderManager doctorVisitReminderManager)
         {
             _monitor = monitor;
             _config = config;
@@ -63,6 +65,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _checkupManager = checkupManager;
             _rehabManager = rehabManager;
             _selfCareManager = selfCareManager;
+            _doctorVisitReminderManager = doctorVisitReminderManager;
         }
 
         /// <summary>
@@ -95,8 +98,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 {
                     try
                     {
-                        // 0. Orphan MineForbidden не должен восстанавливаться из снапшота
+                        // 0. Orphan MineForbidden / Hospitalized не должны восстанавливаться из снапшота
                         SanitizeOrphanMineForbiddenBuff();
+                        _hospitalizationManager.SanitizeOrphanHospitalizedBuff();
 
                         // 1. Восстанавливаем баффы из снапшота конца прошлого дня
                         RestoreBuffsFromSnapshot();
@@ -109,6 +113,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                                 $"[BuffSync] Восстановлено {resynced} лечебных бафф(ов) по ActiveDebuffs",
                                 LogLevel.Info);
                         }
+
+                        _hospitalizationManager.RestoreHospitalizedBuffIfActive();
 
                         _complicationManager.CleanupInvalidComplications();
 
@@ -148,6 +154,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                                 LogLevel.Debug);
                         }
 
+                        _doctorVisitReminderManager.SyncReminderBuff();
+
                         _checkupManager.ProcessMissedCheckupsDaily(GetToday());
                         _complianceManager.TryShowLowComplianceReminder();
 
@@ -181,6 +189,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return "Error: load a save first.";
 
             SanitizeOrphanMineForbiddenBuff();
+            _hospitalizationManager.SanitizeOrphanHospitalizedBuff();
 
             if (_stateManager.State.SavedActiveBuffs.Count == 0)
             {
@@ -192,6 +201,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             RestoreBuffsFromSnapshot();
             _injuryManager.EnsureActiveTreatmentBuffs();
+            _hospitalizationManager.RestoreHospitalizedBuffIfActive();
             _stateManager.SanitizeNonPhasedReadyFlags();
 
             ApplyMineForbiddenIfWarningWasYesterday();
@@ -589,6 +599,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             skipReason = null;
 
+            if (string.Equals(buffId, StatusBuffs.Hospitalized, StringComparison.OrdinalIgnoreCase))
+            {
+                skipReason = "hospitalized buff synced from IsHospitalized state";
+                return false;
+            }
+
             if (_injuryManager.ShouldSkipSnapshotRestoreForBuff(buffId, out string? treatmentReason))
             {
                 skipReason = treatmentReason;
@@ -709,6 +725,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             if (string.Equals(buffId, InjuryBuffs.MineForbidden, StringComparison.OrdinalIgnoreCase)
                 && _stateManager.State.MineForbiddenAppliedDay < 0)
+                return false;
+
+            if (string.Equals(buffId, StatusBuffs.Hospitalized, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (string.Equals(buffId, ReminderBuffs.DoctorVisitNeeded, StringComparison.OrdinalIgnoreCase))
                 return false;
 
             if (InjurySets.KnownComplicationBuffIds.Contains(buffId)

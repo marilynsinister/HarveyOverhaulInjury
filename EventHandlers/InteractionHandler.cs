@@ -55,6 +55,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly RehabManager _rehabManager;
         private readonly SelfCareManager _selfCareManager;
         private readonly ComplicationManager _complicationManager;
+        private readonly DoctorVisitReminderManager _doctorVisitReminderManager;
 
         private PendingMedicalAction? _pendingMedicalAction;
         private bool _pendingSawDialogueBox;
@@ -105,7 +106,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             CheckupManager checkupManager,
             RehabManager rehabManager,
             SelfCareManager selfCareManager,
-            ComplicationManager complicationManager)
+            ComplicationManager complicationManager,
+            DoctorVisitReminderManager doctorVisitReminderManager)
         {
             _monitor = monitor;
             _helper = helper;
@@ -122,6 +124,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _rehabManager = rehabManager;
             _selfCareManager = selfCareManager;
             _complicationManager = complicationManager;
+            _doctorVisitReminderManager = doctorVisitReminderManager;
         }
 
         /// <summary>
@@ -976,6 +979,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _monitor.Log(
                 $"[MedicalAction] applied type=StartTreatment injury={action.InjuryId} complications={stillActiveComplications.Count}",
                 LogLevel.Info);
+            _doctorVisitReminderManager.SyncReminderBuff();
             return true;
         }
 
@@ -1001,6 +1005,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _monitor.Log(
                 $"[MedicalAction] applied type=TreatComplications complications={string.Join(", ", stillActive)}",
                 LogLevel.Info);
+            _doctorVisitReminderManager.SyncReminderBuff();
             return true;
         }
 
@@ -1047,6 +1052,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _monitor.Log(
                 $"[MedicalAction] applied type=AdvancePhase injury={injuryId} oldBuff={oldBuff} newBuff={newBuff} phase={oldPhase}->{newPhase}",
                 LogLevel.Info);
+            _doctorVisitReminderManager.SyncReminderBuff();
             return true;
         }
 
@@ -1079,6 +1085,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _stateManager.Save();
 
             _monitor.Log($"[MedicalAction] applied type=CompleteRecovery injury={injuryId}", LogLevel.Info);
+            _doctorVisitReminderManager.SyncReminderBuff();
             return true;
         }
 
@@ -1119,6 +1126,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _stateManager.Save();
 
             _monitor.Log($"[MedicalAction] applied type=SimpleCompletionTopic topic={topicId} (legacy)", LogLevel.Info);
+            _doctorVisitReminderManager.SyncReminderBuff();
             return true;
         }
 

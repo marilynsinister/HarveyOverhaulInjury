@@ -376,6 +376,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             reason = null;
 
+            if (string.Equals(buffId, StatusBuffs.Hospitalized, StringComparison.OrdinalIgnoreCase))
+            {
+                reason = "hospitalized buff synced from IsHospitalized state";
+                return true;
+            }
+
             if (InjurySets.HarveyTreatable.Contains(buffId)
                 && _stateManager.HasDebuffState(buffId))
             {

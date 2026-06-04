@@ -41,6 +41,7 @@ namespace HarveyOverhaul.InjuryCare
         private RehabManager _rehabManager = null!;
         private TreatmentPlanManager _treatmentPlanManager = null!;
         private SelfCareManager _selfCareManager = null!;
+        private DoctorVisitReminderManager _doctorVisitReminderManager = null!;
 
         // Обработчики событий
         private GameEventHandler _gameEventHandler = null!;
@@ -2327,6 +2328,7 @@ namespace HarveyOverhaul.InjuryCare
 
             // MineForbidden — не в KnownComplicationBuffIds, но может остаться orphan на игроке
             _buffManager.RemoveBuff(InjuryBuffs.MineForbidden);
+            _buffManager.RemoveBuff(StatusBuffs.Hospitalized);
 
             // Удалить все лечебные баффы
             foreach (var cureBuff in new[]
@@ -2455,6 +2457,13 @@ namespace HarveyOverhaul.InjuryCare
                 _treatmentPlanManager);
             _hospitalizationManager.SetTreatmentManager(_treatmentManager);
 
+            _doctorVisitReminderManager = new DoctorVisitReminderManager(
+                Monitor,
+                _buffManager,
+                _stateManager,
+                _hospitalizationManager);
+            _hospitalizationManager.SetDoctorVisitReminderManager(_doctorVisitReminderManager);
+
             _harveyReactionManager = new HarveyReactionManager(
                 Monitor,
                 _stateManager,
@@ -2501,7 +2510,8 @@ namespace HarveyOverhaul.InjuryCare
                 _complianceManager,
                 _checkupManager,
                 _rehabManager,
-                _selfCareManager
+                _selfCareManager,
+                _doctorVisitReminderManager
             );
 
             _playerEventHandler = new PlayerEventHandler(
@@ -2535,7 +2545,8 @@ namespace HarveyOverhaul.InjuryCare
                 _checkupManager,
                 _rehabManager,
                 _selfCareManager,
-                _complicationManager
+                _complicationManager,
+                _doctorVisitReminderManager
             );
 
             _timeEventHandler = new TimeEventHandler(
@@ -3166,6 +3177,12 @@ namespace HarveyOverhaul.InjuryCare
             sb.AppendLine($"location: {Game1.currentLocation?.NameOrUniqueName ?? "-"}");
             sb.AppendLine($"time: {Game1.timeOfDay}  health: {Game1.player.health}/{Game1.player.maxHealth}  stamina: {(int)Game1.player.Stamina}/{(int)Game1.player.MaxStamina}");
             sb.AppendLine($"MainInjury serious: {YesNo(_injuryManager.IsMainInjurySerious())}  dirty+serious: {YesNo(_injuryManager.HasSeriousMainInjuryWithDirtyWound())}");
+            sb.AppendLine(
+                $"Hospital: IsHospitalized={YesNo(_hospitalizationManager.IsHospitalized)}  " +
+                $"elapsed={_hospitalizationManager.HospitalElapsedMinutes}m  " +
+                $"minStay={_hospitalizationManager.MinHospitalStayMinutes}m  " +
+                $"DischargeAllowed={YesNo(_hospitalizationManager.DischargeAllowed)}  " +
+                $"lastClock={_hospitalizationManager.LastHospitalClockMinutes}");
         }
 
         private void BuildCompactDebugHud(StringBuilder sb, InjuryState state)
@@ -3322,6 +3339,9 @@ namespace HarveyOverhaul.InjuryCare
                     _passOutHandler.ResumePendingMineRescueIfNeeded();
                     _passOutHandler.ResumePendingHospitalPassOutIfNeeded();
                     _passOutHandler.ResumePendingMinorMineRescueIfNeeded();
+
+                    _hospitalizationManager.SanitizeOrphanHospitalizedBuff();
+                    _hospitalizationManager.RestoreHospitalizedBuffIfActive();
                 }
                 catch (Exception ex)
                 {

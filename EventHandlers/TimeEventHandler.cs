@@ -59,8 +59,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 // Проверка разгрузки из госпиталя
                 CheckHospitalDischarge(e.NewTime);
 
+                _hospitalizationManager.SyncHospitalizedBuffOnTimeChanged(e.NewTime);
+
                 // Обновить активности во время госпитализации
-                _hospitalActivityManager.UpdateHospitalActivities(_hospitalizationManager);
+                _hospitalActivityManager.UpdateHospitalActivities(_hospitalizationManager, e.NewTime);
 
                 // Ночные визиты Харви (22:00-26:00)
                 CheckNightVisit(e.NewTime);
@@ -87,6 +89,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// </summary>
         private void CheckHospitalDischarge(int newTime)
         {
+            _hospitalizationManager.UpdateHospitalStayProgress(newTime);
             _hospitalizationManager.NotifyDischargeReadyIfNeeded();
         }
 
