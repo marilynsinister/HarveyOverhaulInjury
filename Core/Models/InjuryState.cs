@@ -16,6 +16,15 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// </summary>
         public int LastNightRoundRollDay { get; set; } = -1;
 
+        /// <summary>Ожидает первый ночной обход-событие при серьёзной травме (Dating+).</summary>
+        public bool NeedsSevereNightRoundEvent { get; set; } = false;
+
+        /// <summary>День показа eventHarveyNightRoundSevereFirst. -1 = ещё не показывали.</summary>
+        public int SevereNightRoundEventShownDay { get; set; } = -1;
+
+        /// <summary>ID серьёзной травмы, для которой показан первый ночной обход-событие.</summary>
+        public string SevereNightRoundInjuryId { get; set; } = "";
+
         public int WetBandageMailDay { get; set; } = -1;
         public int WetStitchesMailDay { get; set; } = -1;
         /// <summary>Устарело: мигрируется в <see cref="NeglectStrikesByInjury"/> при загрузке.</summary>
@@ -173,6 +182,41 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         public int LastMinorMineRescueDay { get; set; } = -1;
 
         /// <summary>
+        /// Ночная забота Харви дома после внешнего спасения (не mine rescue / не hospital cutscene).
+        /// </summary>
+        public bool NeedsHarveyAfterExternalRescueHomeEvent { get; set; } = false;
+
+        /// <summary>Локация обморока перед внешним спасением.</summary>
+        public string LastExternalRescueLocation { get; set; } = "";
+
+        /// <summary>День обморока / внешнего спасения.</summary>
+        public int LastExternalRescueDay { get; set; } = -1;
+
+        /// <summary>День последнего показа eventHarveyAfterExternalRescueHome. -1 = ещё не показывали.</summary>
+        public int HarveyAfterExternalRescueShownDay { get; set; } = -1;
+
+        /// <summary>Домашнее мини-событие Харви после выписки из госпитализации.</summary>
+        public bool NeedsHarveyAfterHospitalDischargeHomeEvent { get; set; } = false;
+
+        /// <summary>День последнего показа eventHarveyAfterHospitalDischargeHome. -1 = ещё не показывали.</summary>
+        public int HarveyAfterHospitalDischargeShownDay { get; set; } = -1;
+
+        /// <summary>День последней выписки из госпитализации.</summary>
+        public int LastHospitalDischargeDay { get; set; } = -1;
+
+        /// <summary>ID травмы при последней выписке из госпитализации.</summary>
+        public string LastHospitalDischargeInjuryId { get; set; } = "";
+
+        /// <summary>Утреннее мини-событие Харви после обморока от истощения (Dating+).</summary>
+        public bool NeedsHarveyMorningAfterExhaustionEvent { get; set; } = false;
+
+        /// <summary>День показа eventHarveyMorningAfterExhaustion. -1 = ещё не показывали.</summary>
+        public int HarveyMorningAfterExhaustionShownDay { get; set; } = -1;
+
+        /// <summary>День обморока от истощения, после которого ожидается утреннее событие.</summary>
+        public int LastExhaustionCollapseDay { get; set; } = -1;
+
+        /// <summary>
         /// ID CP-события pass-out, ожидающего запуска в Hospital (переживает reload между warp и startEvent).
         /// </summary>
         public string PendingHospitalPassOutEventId { get; set; } = "";
@@ -212,6 +256,15 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// -1 = ещё не показывали. Не пишется в eventsSeen, чтобы событие не стало one-shot на сейв.
         /// </summary>
         public int LastMineForbiddenInterceptionDay { get; set; } = -1;
+
+        /// <summary>Входов в шахту с MineRestricted за текущий день.</summary>
+        public int MineRestrictionViolationsToday { get; set; } = 0;
+
+        /// <summary>День последнего учёта нарушений мягкого режима шахты.</summary>
+        public int LastMineRestrictionViolationDay { get; set; } = -1;
+
+        /// <summary>Накопленные нарушения мягкого режима (эскалация в жёсткий запрет).</summary>
+        public int MineRestrictionStrikes { get; set; } = 0;
 
         /// <summary>
         /// Накопленные игровые минуты в шахте/вулкане за текущий день (только при травме DirtyInMines).

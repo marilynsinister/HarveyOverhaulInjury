@@ -924,9 +924,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
             IsMainInjurySerious() && HasDirtyWoundComplication();
 
         /// <summary>
-        /// Есть серьёзная основная травма (MainInjury, не «любой severe buff»).
+        /// Есть тяжёлая травма или активная фаза её лечения (источник запрета шахты).
         /// </summary>
-        public bool HasAnySevereInjuryOrPhase() => IsMainInjurySerious();
+        public bool HasAnySevereInjuryOrPhase() =>
+            MineForbiddenHelper.HasSevereMineCondition(
+                _stateManager.State, this, _buffManager, out _);
 
         /// <summary>
         /// Проверить наличие травмы или её фазы (DebuffState + ожидаемый бафф для текущего этапа лечения).
@@ -1220,6 +1222,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 if (!TryApplyMainInjury(injuryId, applyFunc))
                     return;
 
+                TryMarkNeedsSevereNightRoundEvent(injuryId);
                 _dialogueManager.TryAddHarveyNeedsFirstTreatmentTopic(injuryId);
 
                 if (storyOneShot)
@@ -1248,6 +1251,20 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             int today = Helpers.GameUtils.Today();
             _stateManager.ApplyResidualInjuryCooldownAfterRecovery(injuryId, today, residualDays: 2);
+        }
+
+        /// <summary>
+        /// Запланировать первый ночной обход-событие при новой серьёзной травме (InjurySets.Severe).
+        /// </summary>
+        public void TryMarkNeedsSevereNightRoundEvent(string injuryId)
+        {
+            if (!InjurySets.Severe.Contains(injuryId))
+                return;
+
+            _stateManager.State.NeedsSevereNightRoundEvent = true;
+            _monitor.Log(
+                $"[NightRound] Запланирован первый ночной обход для {injuryId}",
+                LogLevel.Debug);
         }
 
         // === ЛЁГКИЕ ТРАВМЫ ===

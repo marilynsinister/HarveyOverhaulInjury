@@ -25,7 +25,7 @@ namespace HarveyOverhaul.InjuryCare.Core
         public int MaxHospitalActivitiesPerStay { get; set; } = 3;
 
         // Настройки механик
-        /// <summary>Сколько игровых дней действует дебафф «Харви запретил шахту» после письма (по умолчанию 2).</summary>
+        /// <summary>Сколько игровых дней действует жёсткий запрет «Харви запретил шахту» (не весь срок лечения).</summary>
         public int MineForbiddenDurationDays { get; set; } = 2;
         /// <summary>Максимальный (высокий) шанс грязной раны в шахте после DirtyWoundHighMineMinutes.</summary>
         public double DirtyWoundChanceMines { get; set; } = 0.35;

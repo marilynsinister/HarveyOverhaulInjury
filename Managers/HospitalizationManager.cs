@@ -184,6 +184,20 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             ApplyHospitalizedBuff(Game1.timeOfDay);
 
+            if (reason.Contains("mine", StringComparison.OrdinalIgnoreCase)
+                || reason.Contains("critical", StringComparison.OrdinalIgnoreCase)
+                || reason.Contains("rescue", StringComparison.OrdinalIgnoreCase))
+            {
+                MineForbiddenHelper.ApplyHardMineForbidden(
+                    state,
+                    _config,
+                    _buffManager,
+                    _stateManager,
+                    _monitor,
+                    GameUtils.Today(),
+                    $"hospital_{reason}");
+            }
+
             // Телепортируем в больницу
             WarpToHospitalBed();
 
@@ -411,6 +425,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             string? injuryId = CurrentInjury;
             ClearHospitalizationState();
+            MarkAfterHospitalDischargeHomeEvent(injuryId);
             _stateManager.Save();
 
             if (string.Equals(injuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
@@ -420,6 +435,28 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _activityManager?.Reset();
 
             _doctorVisitReminderManager?.SyncReminderBuff();
+        }
+
+        private void MarkAfterHospitalDischargeHomeEvent(string? injuryId)
+        {
+            if (string.IsNullOrEmpty(injuryId))
+                return;
+
+            if (!_dialogueManager.IsDatingEngagedOrMarriedToHarvey())
+                return;
+
+            var state = _stateManager.State;
+            int today = GameUtils.Today();
+            state.NeedsHarveyAfterHospitalDischargeHomeEvent = true;
+            state.LastHospitalDischargeDay = today;
+            state.LastHospitalDischargeInjuryId = injuryId;
+
+            if (!GameUtils.HasConversationTopic(ConversationTopics.AfterHospitalDischargeHome))
+                _dialogueManager.AddTopic(ConversationTopics.AfterHospitalDischargeHome, 2);
+
+            _monitor.Log(
+                $"[HospitalDischargeHome] Помечено для домашнего события: injury={injuryId}, day={today}",
+                LogLevel.Info);
         }
 
         private void ReplaceIntensiveCareWithOutpatientRecovery()

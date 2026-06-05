@@ -49,6 +49,7 @@ namespace HarveyOverhaul.InjuryCare
         private InteractionHandler _interactionHandler = null!;
         private TimeEventHandler _timeEventHandler = null!;
         private PassOutHandler _passOutHandler = null!;
+        private HarveyHomeCareEventLauncher _homeCareEventLauncher = null!;
 
         // Конфигурация
         private ModConfig _config = null!;
@@ -137,8 +138,23 @@ namespace HarveyOverhaul.InjuryCare
 
             helper.ConsoleCommands.Add(
                 "injury_mine_forbidden_clear",
-                "Снять дебафф и состояние запрета Харви на шахты.",
+                "Снять жёсткий запрет HarveyMod_MineForbidden и связанный state.",
                 (_, _) => CmdMineForbiddenClear());
+
+            helper.ConsoleCommands.Add(
+                "injury_mine_restriction_clear",
+                "Снять мягкое ограничение HarveyMod_MineRestricted и счётчики нарушений.",
+                (_, _) => CmdMineRestrictionClear());
+
+            helper.ConsoleCommands.Add(
+                "injury_mine_status",
+                "Статус шахты: forbidden, restricted, strikes, severe, режим входа.",
+                (_, _) => CmdMineStatus());
+
+            helper.ConsoleCommands.Add(
+                "injury_mine_forbidden_status",
+                "Алиас injury_mine_status.",
+                (_, _) => CmdMineStatus());
 
             helper.ConsoleCommands.Add(
                 "injury_debug_mine_rescue",
@@ -522,6 +538,7 @@ namespace HarveyOverhaul.InjuryCare
                 return;
             }
 
+            _injuryManager.TryMarkNeedsSevereNightRoundEvent(trauma.BuffId);
             Monitor.Log(
                 $"Применена основная травма: {trauma.BuffId}, MainInjuryId={_stateManager.GetMainInjuryId()}",
                 LogLevel.Info);
@@ -1036,19 +1053,44 @@ namespace HarveyOverhaul.InjuryCare
                 return;
             }
 
-            _buffManager.RemoveBuff(InjuryBuffs.MineForbidden);
-            _stateManager.State.MineWarningDay = -1;
+            MineForbiddenHelper.ClearHardMineForbiddenState(_stateManager.State, _buffManager);
             _stateManager.State.LastMineSevereWarningDay = -1;
             _stateManager.State.LastMineSevereForcedExitDay = -1;
-            _stateManager.State.MineForbiddenAppliedDay = -1;
-            _stateManager.State.LastMineForbiddenInterceptionDay = -1;
-            _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
-                string.Equals(id, InjuryBuffs.MineForbidden, StringComparison.OrdinalIgnoreCase));
-
             _stateManager.Save();
 
-            Monitor.Log("[Шахта] Запрет Харви на шахты снят вручную.", LogLevel.Info);
-            Game1.addHUDMessage(new HUDMessage("[ДЕБАГ] Запрет Харви на шахты снят", HUDMessage.achievement_type));
+            Monitor.Log("[MineForbidden] [ДЕБАГ] Жёсткий запрет шахты сброшен", LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage("[ДЕБАГ] Жёсткий запрет шахты сброшен", HUDMessage.achievement_type));
+        }
+
+        private void CmdMineRestrictionClear()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            MineForbiddenHelper.ClearMineRestrictedState(_stateManager.State, _buffManager);
+            _stateManager.Save();
+
+            Monitor.Log("[MineRestricted] [ДЕБАГ] Ограничения шахты сброшены", LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage("[ДЕБАГ] Ограничения шахты сброшены", HUDMessage.achievement_type));
+        }
+
+        private void CmdMineStatus()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            int today = (int)Game1.stats.DaysPlayed;
+            string report = MineForbiddenHelper.BuildStatusReport(
+                _stateManager.State, _config, _injuryManager, _buffManager, today);
+
+            foreach (string line in report.Split('\n'))
+                Monitor.Log(line, LogLevel.Info);
         }
 
         private void CmdDebugMineRescue()
@@ -1122,9 +1164,14 @@ namespace HarveyOverhaul.InjuryCare
 
             _stateManager.State.LastNightRoundRollDay = -1;
             _stateManager.State.LastNightRoundDay = -1;
+            _stateManager.State.NeedsSevereNightRoundEvent = false;
+            _stateManager.State.SevereNightRoundEventShownDay = -1;
+            _stateManager.State.SevereNightRoundInjuryId = "";
             _stateManager.Save();
 
-            Monitor.Log("Флаги ночного визита Харви сброшены: LastNightRoundRollDay=-1, LastNightRoundDay=-1.", LogLevel.Info);
+            Monitor.Log(
+                "Флаги ночного визита Харви сброшены: LastNightRoundRollDay=-1, LastNightRoundDay=-1, SevereNightRound*=сброс.",
+                LogLevel.Info);
             Game1.addHUDMessage(new HUDMessage("[ДЕБАГ] Ночной визит Харви сброшен.", HUDMessage.achievement_type));
         }
 
@@ -2138,6 +2185,23 @@ namespace HarveyOverhaul.InjuryCare
                     CmdMineForbiddenClear();
                     return BuildPhaseListReport();
 
+                case "injury_mine_status":
+                case "injury_mine_forbidden_status":
+                {
+                    if (!Context.IsWorldReady)
+                        return "Error: load a save first.";
+                    return MineForbiddenHelper.BuildStatusReport(
+                        _stateManager.State,
+                        _config,
+                        _injuryManager,
+                        _buffManager,
+                        (int)Game1.stats.DaysPlayed);
+                }
+
+                case "injury_mine_restriction_clear":
+                    CmdMineRestrictionClear();
+                    return BuildPhaseListReport();
+
                 case "injury_location_logic":
                 {
                     string locationResult = _playerEventHandler.RunLocationLogicForQa();
@@ -2447,6 +2511,7 @@ namespace HarveyOverhaul.InjuryCare
                 _prescriptionManager);
             _treatmentManager = new TreatmentManager(
                 Monitor,
+                _config,
                 _buffManager,
                 _injuryManager,
                 _dialogueManager,
@@ -2572,6 +2637,16 @@ namespace HarveyOverhaul.InjuryCare
                 _treatmentManager
             );
 
+            _homeCareEventLauncher = new HarveyHomeCareEventLauncher(
+                Monitor,
+                _config,
+                _stateManager,
+                _dialogueManager,
+                _hospitalizationManager,
+                _injuryManager,
+                _complicationManager
+            );
+
             // События сохранения
             events.GameLoop.SaveLoaded += OnSaveLoaded;
             events.GameLoop.Saving += OnSaving;
@@ -2583,7 +2658,10 @@ namespace HarveyOverhaul.InjuryCare
             // Связываем обработчики
             _gameEventHandler.SetInteractionHandler(_interactionHandler);
             _gameEventHandler.SetPassOutHandler(_passOutHandler);
+            _gameEventHandler.SetHomeCareLauncher(_homeCareEventLauncher);
             _playerEventHandler.SetPassOutHandler(_passOutHandler);
+            _playerEventHandler.SetHomeCareLauncher(_homeCareEventLauncher);
+            _timeEventHandler.SetHomeCareLauncher(_homeCareEventLauncher);
 
             // События игрока
             events.Player.Warped += _playerEventHandler.OnWarped;
@@ -3152,11 +3230,19 @@ namespace HarveyOverhaul.InjuryCare
         {
             sb.AppendLine("=== SYSTEM FLAGS ===");
             sb.AppendLine($"DaysWithSevere: {state.DaysWithSevere}  LastNightRoundDay: {state.LastNightRoundDay}");
+            sb.AppendLine(
+                $"SevereNightRoundEventShownDay: {state.SevereNightRoundEventShownDay}  " +
+                $"SevereNightRoundInjuryId: {(string.IsNullOrEmpty(state.SevereNightRoundInjuryId) ? "-" : state.SevereNightRoundInjuryId)}  " +
+                $"NeedsSevereNightRoundEvent: {YesNo(state.NeedsSevereNightRoundEvent)}");
             sb.AppendLine($"NeglectStrikesByInjury: {FormatNeglectStrikes(state)}");
             sb.AppendLine($"PassedOutInTownYesterday: {YesNo(state.PassedOutInTownYesterday)}  PassedOutInMineYesterday: {YesNo(state.PassedOutInMineYesterday)}");
             sb.AppendLine($"NeedsMineRescueEvent: {YesNo(state.NeedsMineRescueEvent)}  WasPassedOut: {YesNo(state.WasPassedOut)}");
             sb.AppendLine($"WasExhausted: {YesNo(state.WasExhausted)}  WasUpTooLate: {YesNo(state.WasUpTooLate)}");
             sb.AppendLine($"LastPassedOutHealth: {state.LastPassedOutHealth}  LastPassedOutLocation: {(string.IsNullOrEmpty(state.LastPassedOutLocation) ? "-" : state.LastPassedOutLocation)}");
+            sb.AppendLine($"NeedsExternalRescueHomeEvent: {YesNo(state.NeedsHarveyAfterExternalRescueHomeEvent)}  LastExternalRescueLocation: {(string.IsNullOrEmpty(state.LastExternalRescueLocation) ? "-" : state.LastExternalRescueLocation)}");
+            sb.AppendLine($"LastExternalRescueDay: {state.LastExternalRescueDay}  HarveyAfterExternalRescueShownDay: {state.HarveyAfterExternalRescueShownDay}");
+            sb.AppendLine($"NeedsHarveyAfterHospitalDischargeHomeEvent: {YesNo(state.NeedsHarveyAfterHospitalDischargeHomeEvent)}  LastHospitalDischargeDay: {state.LastHospitalDischargeDay}  LastHospitalDischargeInjuryId: {(string.IsNullOrEmpty(state.LastHospitalDischargeInjuryId) ? "-" : state.LastHospitalDischargeInjuryId)}  HarveyAfterHospitalDischargeShownDay: {state.HarveyAfterHospitalDischargeShownDay}");
+            sb.AppendLine($"NeedsMorningAfterExhaustion: {YesNo(state.NeedsHarveyMorningAfterExhaustionEvent)}  LastExhaustionCollapseDay: {state.LastExhaustionCollapseDay}  MorningAfterExhaustionShownDay: {state.HarveyMorningAfterExhaustionShownDay}");
             int today = (int)Game1.stats.DaysPlayed;
             int mineForbiddenLeft = MineForbiddenHelper.GetMineForbiddenDaysLeft(state, _config, today);
             bool mineForbiddenActive = _buffManager.HasBuff(InjuryBuffs.MineForbidden);
@@ -3217,6 +3303,10 @@ namespace HarveyOverhaul.InjuryCare
             int today = (int)Game1.stats.DaysPlayed;
             sb.AppendLine(
                 $"Mine: warningDay={state.MineWarningDay}  forbiddenApplied={state.MineForbiddenAppliedDay}  daysLeft={MineForbiddenHelper.GetMineForbiddenDaysLeft(state, _config, today)}  buff={YesNo(_buffManager.HasBuff(InjuryBuffs.MineForbidden))}");
+            sb.AppendLine(
+                $"NightRound: LastDay={state.LastNightRoundDay}  severeShownDay={state.SevereNightRoundEventShownDay}  severeInjury={(string.IsNullOrEmpty(state.SevereNightRoundInjuryId) ? "-" : state.SevereNightRoundInjuryId)}  needsFirst={YesNo(state.NeedsSevereNightRoundEvent)}");
+            sb.AppendLine(
+                $"MorningAfterExhaustion: needs={YesNo(state.NeedsHarveyMorningAfterExhaustionEvent)}  collapseDay={state.LastExhaustionCollapseDay}  shownDay={state.HarveyMorningAfterExhaustionShownDay}");
         }
 
         private void BuildFullDebugHud(StringBuilder sb, InjuryState state, int today)

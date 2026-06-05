@@ -31,6 +31,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly ComplicationManager _complicationManager;
 
         private PassOutHandler? _passOutHandler;
+        private HarveyHomeCareEventLauncher? _homeCareLauncher;
 
         /// <summary>Непрерывное использование тяжёлых инструментов при низкой stamina (секунды).</summary>
         private int _lightWorkLowStaminaToolSeconds;
@@ -91,6 +92,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _passOutHandler = passOutHandler;
         }
 
+        public void SetHomeCareLauncher(HarveyHomeCareEventLauncher homeCareLauncher)
+        {
+            _homeCareLauncher = homeCareLauncher;
+        }
+
         /// <summary>
         /// Игрок переместился в другую локацию
         /// </summary>
@@ -129,6 +135,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
                 // Логика локаций
                 HandleLocationLogic(e.NewLocation);
+
+                _homeCareLauncher?.TryTriggerHarveyHomeCareEvent(e.NewLocation, "Warp");
 
                 if (IsMineOrVolcano(e.OldLocation) && !IsMineOrVolcano(e.NewLocation))
                 {
@@ -222,6 +230,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
                 if (_hospitalizationManager.IsHospitalized)
                     _hospitalizationManager.UpdateHospitalizationLock();
+
+                // Домашние care-события: retry, если игрок уже дома
+                if (e.IsMultipleOf(30) && LocationEventLauncher.IsFarmHouseLocation(Game1.currentLocation))
+                    _homeCareLauncher?.TryTriggerHarveyHomeCareEvent(source: "UpdateRetry");
 
                 // Каждые 6 тиков (~100 мс) — накопление использований инструмента
                 if (e.IsMultipleOf(6))
@@ -319,10 +331,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         }
 
         /// <summary>
-        /// Логика шахты/вулкана при входе (OnWarped → MineShaft / VolcanoDungeon):
-        /// 1) HarveyMod_MineForbidden — блок + HUD со сроком (cutscene 1×/день);
-        /// 2) Severe — строгое предупреждение + MineWarningDay, повторный вход — выход (без MineForbidden в тот же день);
-        /// 3) прочие травмы (buffDeepCuts и т.д.) — только мягкий HUD 1×/день, DirtyWound по экспозиции, без выноса.
+        /// Логика шахты/вулкана: жёсткий запрет (короткий) или мягкое ограничение (длительное лечение Severe).
         /// </summary>
         private void HandleMinesLogic()
         {
@@ -330,27 +339,49 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
 
             int today = Helpers.GameUtils.Today();
+            var state = _stateManager.State;
 
-            if (_buffManager.HasBuff(InjuryBuffs.MineForbidden))
-            {
-                HandleMineForbiddenEntry(today);
-                return;
-            }
+            MineForbiddenHelper.ResetDailyRestrictionViolations(state, today);
+            MineForbiddenHelper.SyncMineForbiddenBuff(
+                state, _config, _buffManager, _stateManager, _monitor, today, "MineEntry");
+            MineForbiddenHelper.SyncMineRestrictedBuff(
+                state, _config, _injuryManager, _buffManager, _stateManager, _monitor, today, "MineEntry");
 
-            // Штатный rescue-warp утром — не показываем «не ходи в шахту» перед cutscene
-            if (_stateManager.State.NeedsMineRescueEvent)
+            if (state.NeedsMineRescueEvent)
                 return;
 
             CheckNoMinePrescriptionViolation(today);
             _rehabManager.CheckRehabViolationOnMine();
 
-            bool hasSevereInjury = _injuryManager.IsMainInjurySerious();
-            if (hasSevereInjury)
+            if (MineForbiddenHelper.IsUntreatedSevereForMineEntry(state, _injuryManager, _buffManager)
+                && !MineForbiddenHelper.IsMineForbiddenActive(state, _config, today))
             {
-                TryHandleSevereMineEntry(today);
-                return;
+                state.MineWarningDay = today;
+                state.LastMineSevereWarningDay = today;
+                MineForbiddenHelper.ApplyHardMineForbidden(
+                    state, _config, _buffManager, _stateManager, _monitor, today, "severe_untreated_entry");
+                _complianceManager.AddCompliance(-1, "severe_mine_entry");
+                _stateManager.Save();
             }
 
+            var mode = MineForbiddenHelper.GetMineAccessMode(state, _config, _injuryManager, _buffManager, today);
+
+            switch (mode)
+            {
+                case MineAccessMode.Forbidden:
+                    HandleActiveMineForbiddenBlock(today);
+                    return;
+                case MineAccessMode.Restricted:
+                    HandleMineRestrictedEntry(today);
+                    return;
+                default:
+                    ShowSoftMineWarningIfNeeded(today);
+                    break;
+            }
+        }
+
+        private void ShowSoftMineWarningIfNeeded(int today)
+        {
             bool hasLimitedActivity = _buffManager.HasAnyBuff(InjurySets.LimitedActivity.ToArray());
             bool hasNonSevereInjury = hasLimitedActivity
                 || _stateManager.GetAllActiveDebuffStates().Count > 0
@@ -378,72 +409,38 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
         }
 
-        /// <summary>
-        /// Severe без MineForbidden: первый вход за день — предупреждение; повторный — выход наружу.
-        /// </summary>
-        /// <returns>true, если игрок может остаться в подземелье; false, если уже выгнан.</returns>
-        private bool TryHandleSevereMineEntry(int today)
+        /// <summary>Жёсткий запрет: HUD, затем вынос (без молчаливого warp).</summary>
+        private void HandleActiveMineForbiddenBlock(int today)
         {
             var state = _stateManager.State;
-
-            if (state.LastMineSevereWarningDay != today)
-            {
-                state.LastMineSevereWarningDay = today;
-                state.MineWarningDay = today;
-                _stateManager.Save();
-
-                _complianceManager.AddCompliance(-1, "severe_mine_entry");
-
-                Game1.addHUDMessage(new HUDMessage(
-                    "Харви: У тебя серьёзные раны — ты не должна идти в шахту! Возможны осложнения.",
-                    HUDMessage.error_type));
-                _monitor.Log("⚠️ [Шахта] Вход с серьёзными ранами — предупреждение Харви, письмо и дебафф завтра", LogLevel.Warn);
-                return true;
-            }
-
             GameLocation location = Game1.currentLocation;
-            bool repeatAttempt = state.LastMineSevereForcedExitDay == today;
+            bool isVolcano = IsVolcanoLocation(location);
 
-            if (!repeatAttempt)
+            if (!_buffManager.HasBuff(InjuryBuffs.MineForbidden))
             {
-                state.LastMineSevereForcedExitDay = today;
-                _stateManager.Save();
-                _monitor.Log("⚠️ [Шахта] Повторный вход с Severe после предупреждения — принудительный выход", LogLevel.Warn);
-            }
-            else
-            {
-                _monitor.Log("⚠️ [Шахта] Повторная попытка входа с Severe после принудительного выхода", LogLevel.Debug);
+                MineForbiddenHelper.SyncMineForbiddenBuff(
+                    state, _config, _buffManager, _stateManager, _monitor, today, "MineEntryResync");
             }
 
-            Game1.addHUDMessage(new HUDMessage(
-                repeatAttempt
-                    ? "Сегодня шахта закончена."
-                    : "Харви уже предупреждал тебя. Сегодня шахта закончена.",
-                HUDMessage.error_type));
-            Game1.playSound("cancel");
-            WarpOutOfForbiddenDungeon(location);
-            return false;
-        }
+            string hud = MineForbiddenHelper.FormatHardBanEntryHud(_config, state, today, isVolcano);
+            Game1.addHUDMessage(new HUDMessage(hud, HUDMessage.error_type));
+            _monitor.Log($"[MineForbidden] Блокировка входа: {hud}", LogLevel.Warn);
 
-        private void HandleMineForbiddenEntry(int today)
-        {
-            GameLocation location = Game1.currentLocation;
-
-            if (IsVolcanoLocation(location))
+            if (isVolcano)
             {
-                _monitor.Log("[MineForbidden] Игрок вошёл в вулкан при активном запрете Харви", LogLevel.Warn);
-                ShowMineForbiddenHudAndWarpOut(today, location);
+                Game1.playSound("debuffHit");
+                WarpOutOfForbiddenDungeon(location);
                 return;
             }
 
             _monitor.Log("[MineForbidden] Игрок вошёл в шахту при активном запрете Харви", LogLevel.Warn);
 
-            if (_stateManager.State.LastMineForbiddenInterceptionDay == today)
+            if (state.LastMineForbiddenInterceptionDay == today)
                 _complianceManager.AddCompliance(-2, "mine_forbidden_repeat");
 
-            if (_stateManager.State.LastMineForbiddenInterceptionDay != today)
+            if (state.LastMineForbiddenInterceptionDay != today)
             {
-                _stateManager.State.LastMineForbiddenInterceptionDay = today;
+                state.LastMineForbiddenInterceptionDay = today;
                 _stateManager.Save();
 
                 if (TryStartEventByName("eventHarveyMineInterception", "Mine", WarpOutOfMineIfStillInside))
@@ -452,34 +449,80 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _monitor.Log("[MineForbidden] Событие не запустилось — fallback HUD + warp", LogLevel.Warn);
             }
 
-            ShowMineForbiddenHudAndWarpOut(today, location);
-        }
-
-        private int GetMineForbiddenDaysLeft(int today)
-        {
-            return MineForbiddenHelper.GetMineForbiddenDaysLeft(_stateManager.State, _config, today);
-        }
-
-        private string GetMineForbiddenMessage(int today)
-        {
-            return MineForbiddenHelper.FormatActiveMineHud(GetMineForbiddenDaysLeft(today));
-        }
-
-        private string GetVolcanoForbiddenMessage(int today)
-        {
-            return MineForbiddenHelper.FormatActiveVolcanoHud(GetMineForbiddenDaysLeft(today));
-        }
-
-        private void ShowMineForbiddenHudAndWarpOut(int today, GameLocation location)
-        {
-            bool isVolcano = IsVolcanoLocation(location);
-
-            Game1.addHUDMessage(new HUDMessage(
-                isVolcano ? GetVolcanoForbiddenMessage(today) : GetMineForbiddenMessage(today),
-                HUDMessage.error_type));
-
-            Game1.playSound(isVolcano ? "debuffHit" : "cancel");
+            Game1.playSound("cancel");
             WarpOutOfForbiddenDungeon(location);
+        }
+
+        /// <summary>Мягкое ограничение: предупреждение и риски, без выноса.</summary>
+        private void HandleMineRestrictedEntry(int today)
+        {
+            var state = _stateManager.State;
+            MineForbiddenHelper.ResetDailyRestrictionViolations(state, today);
+
+            if (state.MineRestrictionViolationsToday == 0)
+            {
+                Game1.addHUDMessage(new HUDMessage(
+                    MineForbiddenHelper.FormatRestrictedEntryHud(),
+                    HUDMessage.health_type));
+                state.MineRestrictionViolationsToday = 1;
+                state.MineRestrictionStrikes++;
+                _stateManager.Save();
+                _monitor.Log(
+                    $"[MineRestricted] Первый вход за день — предупреждение (strikes={state.MineRestrictionStrikes})",
+                    LogLevel.Info);
+                return;
+            }
+
+            _monitor.Log("[MineRestricted] Повторный вход в шахту за день — риск осложнений", LogLevel.Warn);
+            TryApplyMineRestrictionViolationRisks(today);
+        }
+
+        private void TryApplyMineRestrictionViolationRisks(int today)
+        {
+            var state = _stateManager.State;
+
+            if (MineForbiddenHelper.TryEscalateRestrictionToHardBan(
+                    state, _config, _buffManager, _stateManager, _monitor, today, "restriction_strikes"))
+            {
+                HandleActiveMineForbiddenBlock(today);
+                return;
+            }
+
+            string? mainId = _injuryManager.GetActiveInjury();
+            if (!string.IsNullOrEmpty(mainId)
+                && InjurySets.IsPainFlareEligibleMain(mainId)
+                && !_complicationManager.HasComplication(InjuryBuffs.PainFlare)
+                && Game1.random.NextDouble() < MineForbiddenHelper.RestrictedPainFlareChance)
+            {
+                _complicationManager.TryApplyComplication(
+                    InjuryBuffs.PainFlare,
+                    InjurySets.StormPainSensitive,
+                    topicDays: 3,
+                    new HUDMessage("Обострение боли в шахте!", HUDMessage.error_type));
+                _monitor.Log("[MineRestricted] PainFlare от нарушения режима", LogLevel.Warn);
+            }
+            else if (Game1.random.NextDouble() < MineForbiddenHelper.RestrictedRepeatNeglectChance)
+            {
+                _complicationManager.TryApplyNeglectComplication(
+                    mainId,
+                    new HUDMessage("Харви заметил, что ты игнорируешь режим восстановления.", HUDMessage.error_type));
+                state.MineRestrictionStrikes++;
+                _stateManager.Save();
+                _monitor.Log("[MineRestricted] Neglect от нарушения режима", LogLevel.Warn);
+            }
+        }
+
+        private void TryApplyMineRestrictionLongStayRisk(int today, int exposureMinutes)
+        {
+            if (!MineForbiddenHelper.ShouldMineRestricted(
+                    _stateManager.State, _config, _injuryManager, _buffManager, today))
+                return;
+
+            if (exposureMinutes < MineForbiddenHelper.RestrictedLongStayMinutes)
+                return;
+
+            if (_stateManager.State.MineRestrictionViolationsToday > 1)
+                TryApplyMineRestrictionViolationRisks(today);
         }
 
         private void WarpOutOfMineIfStillInside()
@@ -631,16 +674,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
-            double chance = CalculateDirtyWoundChance(
-                _stateManager.State.MineDirtyExposureMinutesToday,
-                currentMinute
-            );
+            int exposure = _stateManager.State.MineDirtyExposureMinutesToday;
+            double chance = CalculateDirtyWoundChance(exposure, currentMinute);
 
             if (chance <= 0)
                 return;
 
             _stateManager.State.LastMineDirtyWoundRollMinute = currentMinute;
-            TryApplyDirtyWoundFromMine(chance, $"exposure={_stateManager.State.MineDirtyExposureMinutesToday}m");
+            TryApplyDirtyWoundFromMine(chance, $"exposure={exposure}m");
+            TryApplyMineRestrictionLongStayRisk(today, exposure);
         }
 
         private void ResetMineDirtyRollTimerIfNeeded()
@@ -675,9 +717,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 chance = Math.Clamp(_config.DirtyWoundChanceMines, 0.0, 1.0);
 
             if (_stateManager.State.MineDirtyRiskBoostUntilMinute >= currentMinute)
-            {
                 chance += Math.Clamp(_config.DirtyWoundMineDamageBonusChance, 0.0, 1.0);
-            }
+
+            if (_buffManager.HasBuff(InjuryBuffs.MineRestricted))
+                chance *= MineForbiddenHelper.GetRestrictedDirtyChanceMultiplier();
 
             return Math.Clamp(chance, 0.0, 0.95);
         }

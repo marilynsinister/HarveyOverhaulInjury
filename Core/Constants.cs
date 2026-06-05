@@ -126,8 +126,11 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string AllergicRash = "HarveyMod_AllergicRash";
         public const string WetStitches = "HarveyMod_WetStitches";
         public const string Cold = "buffCold"; // Простуда (2 фазы: острая + восстановление)
-        /// <summary>Дебафф «Харви запретил вход в шахту» — навешивается при входе в шахту/вулкан с серьёзной травмой.</summary>
+        /// <summary>Дебафф «Харви запретил вход в шахту» — короткий жёсткий запрет (1–2 дня).</summary>
         public const string MineForbidden = "HarveyMod_MineForbidden";
+
+        /// <summary>Мягкое ограничение шахты при тяжёлой травме — вход разрешён, риски повышены.</summary>
+        public const string MineRestricted = "HarveyMod_MineRestricted";
 
         /// <summary>Острая фаза простуды (фазовый бафф).</summary>
         public const string ColdAcute = "HarveyMod_Cold_Acute";
@@ -216,12 +219,28 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string MinorMineRescue = "topicHarveyMinorMineRescue";
         /// <summary>Блокирует CP interception/warning, пока C# готовит cutscene спасения из шахты.</summary>
         public const string MineRescuePending = "topicMineRescuePending";
+        /// <summary>После внешнего спасения вне шахты — реакция Харви дома ночью.</summary>
+        public const string ExternalRescueConcern = "topicHarvey_ExternalRescueConcern";
+        /// <summary>После выписки из госпитализации — домашний визит Харви вечером.</summary>
+        public const string AfterHospitalDischargeHome = "topicHarvey_AfterHospitalDischargeHome";
+        /// <summary>После eventHarveyAfterHospitalDischargeHome — мягкое наблюдение 3 дня.</summary>
+        public const string HospitalDischargeFollowup = "topicHarvey_HospitalDischargeFollowup";
+        /// <summary>Утреннее мини-событие после обморока от истощения (окно 2 дня).</summary>
+        public const string HarveyMorningAfterExhaustion = "topicHarvey_MorningAfterExhaustion";
+        /// <summary>После eventHarveyMorningAfterExhaustion — щадящий режим на 2 дня.</summary>
+        public const string ExhaustionFollowup = "topicHarvey_ExhaustionFollowup";
         /// <summary>Триггер CP-события HarveyMod_FirstTreatment (ставится C# при первой травме).</summary>
         public const string HarveyNeedsFirstTreatment = "topicHarveyNeedsFirstTreatment";
         /// <summary>Ставится событием HarveyMod_FirstTreatment после прохождения.</summary>
         public const string FirstTreatmentComplete = "topicFirstTreatmentComplete";
         /// <summary>Триггер CP-события HarveyMod_TreatmentPlanMeeting после начала серьёзного лечения.</summary>
         public const string DiagnosisComplete = "topicDiagnosisComplete";
+        /// <summary>Триггер CP eventHarveyNightRoundSevereFirst (C# ставит перед запуском).</summary>
+        public const string NightRoundSevereFirst = "topicHarvey_NightRoundSevereFirst";
+        /// <summary>После eventHarveyNightRoundSevereFirst — утреннее наблюдение.</summary>
+        public const string NightRoundFollowup = "topicHarvey_NightRoundFollowup";
+        /// <summary>Короткий ночной обход (C# fallback / повторные визиты).</summary>
+        public const string NightRound = "topicHarvey_NightRound";
     }
 
     /// <summary>
@@ -368,6 +387,16 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string MineRescueDating = "eventHarveyMineRescueDating";
         public const string MineRescue = "eventHarveyMineRescue";
         public const string RescueOperation = "eventRescueOperation";
+        /// <summary>Ночная забота Харви дома после внешнего спасения — Dating (FarmHouse, повторяемое с cooldown).</summary>
+        public const string AfterExternalRescueHome = "eventHarveyAfterExternalRescueHome";
+        public const string AfterExternalRescueHomeEngaged = "eventHarveyAfterExternalRescueHomeEngaged";
+        public const string AfterExternalRescueHomeMarried = "eventHarveyAfterExternalRescueHomeMarried";
+        /// <summary>Домашнее мини-событие после выписки из госпитализации (FarmHouse, вечер).</summary>
+        public const string AfterHospitalDischargeHome = "eventHarveyAfterHospitalDischargeHome";
+        /// <summary>Первый ночной обход Харви при серьёзной травме (FarmHouse, повтор через state).</summary>
+        public const string NightRoundSevereFirst = "eventHarveyNightRoundSevereFirst";
+        /// <summary>Утреннее мини-событие после обморока от истощения (FarmHouse, C# launcher).</summary>
+        public const string MorningAfterExhaustion = "eventHarveyMorningAfterExhaustion";
     }
 
     /// <summary>
@@ -434,6 +463,27 @@ namespace HarveyOverhaul.InjuryCare.Core
             "buffSurgicalWound",
             "buffInfectedWound",
             "buffBurnWounds"
+        };
+
+        /// <summary>Фазовые баффы тяжёлых травм — запрет шахты при активной фазе лечения.</summary>
+        public static readonly HashSet<string> SeverePhaseBuffIds = new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            "HarveyMod_InfectedWound_Acute",
+            "HarveyMod_InfectedWound_Treatment",
+            "HarveyMod_BurnWounds_Acute",
+            "HarveyMod_BurnWounds_Healing",
+            "HarveyMod_Concussion_Acute",
+            "HarveyMod_Concussion_Rest",
+            "HarveyMod_Concussion_Limited",
+            "HarveyMod_FracturedBone_Acute",
+            "HarveyMod_FracturedBone_Cast",
+            "HarveyMod_FracturedBone_Recovery",
+            "HarveyMod_Shrapnel_Surgery",
+            "HarveyMod_Shrapnel_Healing",
+            "HarveyMod_Shrapnel_Recovery",
+            "HarveyMod_BadlyHurt_Acute",
+            "HarveyMod_BadlyHurt_Healing",
+            "HarveyMod_BadlyHurt_Recovery",
         };
 
         /// <summary>

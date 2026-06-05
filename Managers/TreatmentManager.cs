@@ -14,6 +14,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
     public class TreatmentManager
     {
         private readonly IMonitor _monitor;
+        private readonly ModConfig _config;
         private readonly BuffManager _buffManager;
         private readonly InjuryManager _injuryManager;
         private readonly DialogueManager _dialogueManager;
@@ -56,6 +57,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         public TreatmentManager(
             IMonitor monitor,
+            ModConfig config,
             BuffManager buffManager,
             InjuryManager injuryManager,
             DialogueManager dialogueManager,
@@ -66,6 +68,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             TreatmentPlanManager treatmentPlanManager)
         {
             _monitor = monitor;
+            _config = config;
             _buffManager = buffManager;
             _injuryManager = injuryManager;
             _dialogueManager = dialogueManager;
@@ -353,6 +356,21 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _prescriptionManager.AssignPrescriptionsForInjury(injuryId);
                 _complianceManager.ApplyTreatmentComplianceTopics();
                 _treatmentPlanManager.SendTreatmentPlanForInjury(injuryId);
+
+                int today = (int)Game1.stats.DaysPlayed;
+                var ds = _stateManager.GetDebuffState(injuryId);
+                int phase = ds?.CurrentPhase ?? 1;
+                if (MineForbiddenHelper.ShouldHardBanOnTreatmentStart(injuryId, phase))
+                {
+                    MineForbiddenHelper.ApplyHardMineForbidden(
+                        _stateManager.State,
+                        _config,
+                        _buffManager,
+                        _stateManager,
+                        _monitor,
+                        today,
+                        "treatment_acute_start");
+                }
             }
 
             return treatmentStarted;

@@ -224,6 +224,8 @@ namespace HarveyOverhaul.InjuryCare.Testing
             sb.AppendLine($"LastMineSevereForcedExitDay={state.LastMineSevereForcedExitDay}");
             sb.AppendLine($"MineForbiddenAppliedDay={state.MineForbiddenAppliedDay}");
             sb.AppendLine($"LastMineForbiddenInterceptionDay={state.LastMineForbiddenInterceptionDay}");
+            sb.AppendLine($"MineRestrictionViolationsToday={state.MineRestrictionViolationsToday}");
+            sb.AppendLine($"MineRestrictionStrikes={state.MineRestrictionStrikes}");
             sb.AppendLine($"MineDirtyExposureMinutesToday={state.MineDirtyExposureMinutesToday}");
             sb.AppendLine($"LastMineDirtyExposureDay={state.LastMineDirtyExposureDay}");
             sb.AppendLine($"LastMineDirtyWoundRollMinute={state.LastMineDirtyWoundRollMinute}");
@@ -259,6 +261,10 @@ namespace HarveyOverhaul.InjuryCare.Testing
             sb.AppendLine($"HospitalDischargeReadyShown={state.HospitalDischargeReadyShown}");
             sb.AppendLine($"PendingForcedHospitalizationWarning={state.PendingForcedHospitalizationWarning}");
             sb.AppendLine($"PendingForcedHospitalizationWarningDay={state.PendingForcedHospitalizationWarningDay}");
+            sb.AppendLine($"NeedsHarveyAfterHospitalDischargeHomeEvent={state.NeedsHarveyAfterHospitalDischargeHomeEvent}");
+            sb.AppendLine($"LastHospitalDischargeDay={state.LastHospitalDischargeDay}");
+            sb.AppendLine($"LastHospitalDischargeInjuryId={Fmt(state.LastHospitalDischargeInjuryId)}");
+            sb.AppendLine($"HarveyAfterHospitalDischargeShownDay={state.HarveyAfterHospitalDischargeShownDay}");
         }
 
         private static void AppendRainBlock(StringBuilder sb, InjuryState state)
@@ -296,6 +302,9 @@ namespace HarveyOverhaul.InjuryCare.Testing
                 sb.AppendLine($"SentMedicalMailDays.{key}={day}");
             sb.AppendLine($"LastNightRoundDay={state.LastNightRoundDay}");
             sb.AppendLine($"LastNightRoundRollDay={state.LastNightRoundRollDay}");
+            sb.AppendLine($"NeedsSevereNightRoundEvent={state.NeedsSevereNightRoundEvent}");
+            sb.AppendLine($"SevereNightRoundEventShownDay={state.SevereNightRoundEventShownDay}");
+            sb.AppendLine($"SevereNightRoundInjuryId={Fmt(state.SevereNightRoundInjuryId)}");
             sb.AppendLine($"LastStormComfortRollDay={state.LastStormComfortRollDay}");
             sb.AppendLine($"LastStormComfortEventDay={state.LastStormComfortEventDay}");
             sb.AppendLine($"LastProximityCheckDay={state.LastProximityCheckDay}");

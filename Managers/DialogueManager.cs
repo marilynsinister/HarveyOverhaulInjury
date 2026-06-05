@@ -863,11 +863,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public bool IsDatingOrMarriedToHarvey()
         {
+            return IsDatingEngagedOrMarriedToHarvey();
+        }
+
+        /// <summary>Dating, Engaged или Married с Харви.</summary>
+        public bool IsDatingEngagedOrMarriedToHarvey()
+        {
             var harvey = Game1.getCharacterFromName("Harvey");
             if (harvey == null) return false;
 
-            return Game1.player.friendshipData.TryGetValue("Harvey", out var friendship) 
-                && (friendship.IsDating() || friendship.IsMarried());
+            return Game1.player.friendshipData.TryGetValue("Harvey", out var friendship)
+                && (friendship.IsDating() || friendship.IsEngaged() || friendship.IsMarried());
         }
 
         /// <summary>

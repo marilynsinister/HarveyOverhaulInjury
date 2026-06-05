@@ -29,6 +29,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             InjuryBuffs.AllergicRash,
             InjuryBuffs.WetStitches,
             InjuryBuffs.MineForbidden,
+            InjuryBuffs.MineRestricted,
             "buffSleepy",
             "buffFarmerExhausted",
             "buffTooCold",

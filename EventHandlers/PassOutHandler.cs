@@ -1,5 +1,6 @@
 using System;
 using HarveyOverhaul.InjuryCare.Core;
+using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.Managers;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
@@ -105,6 +106,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 _monitor.Log($"⚠️ Критический pass-out вне шахты (здоровье было {_stateManager.State.LastPassedOutHealth})", LogLevel.Warn);
                 _injuryManager.ApplyBadlyHurtSafe();
+                MineForbiddenHelper.ApplyHardMineForbidden(
+                    _stateManager.State, _config, _buffManager, _stateManager, _monitor,
+                    (int)Game1.stats.DaysPlayed, "critical_passout");
 
                 if (QueueHospitalEvent(EventIds.EmergencyCare, FallbackCritical))
                 {
@@ -112,6 +116,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     return;
                 }
 
+                TryMarkExternalRescueIfEligible();
                 RunCriticalPassOutFallback();
             }
             // === 2. Истощение → eventHarveyExhaustion (вне шахты) ===
@@ -126,6 +131,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
                     if (QueueHospitalEvent(EventIds.Exhaustion, FallbackExhaustion))
                     {
+                        MarkHarveyMorningAfterExhaustionIfEligible();
                         ClearPassOutFlags();
                         return;
                     }
@@ -167,6 +173,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 Game1.addHUDMessage(new HUDMessage("Ты упала без сил посреди города...", HUDMessage.health_type));
             }
 
+            TryMarkExternalRescueIfEligible();
             ClearPassOutFlags();
         }
 
@@ -199,6 +206,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (CanHarveyMineRescue())
             {
                 _stateManager.State.NeedsMineRescueEvent = true;
+                int today = (int)Game1.stats.DaysPlayed;
+                if (_buffManager.HasBuff(InjuryBuffs.MineRestricted))
+                {
+                    MineForbiddenHelper.ApplyHardMineForbidden(
+                        _stateManager.State, _config, _buffManager, _stateManager, _monitor, today,
+                        "passout_in_mine_restricted");
+                }
                 _monitor.Log($"[MineRescue] Зафиксирована боевая смерть в шахте в реальном времени: {loc}", LogLevel.Info);
             }
             else
@@ -277,6 +291,56 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         }
 
         /// <summary>
+        /// Внешнее спасение (другой мод / ваниль): критический обморок вне шахты → ночная реакция Харви дома.
+        /// </summary>
+        private void TryMarkExternalRescueIfEligible()
+        {
+            var state = _stateManager.State;
+            if (!state.WasPassedOut)
+                return;
+
+            if (state.WasExhausted || state.WasUpTooLate)
+                return;
+
+            if (state.NeedsMineRescueEvent || state.PassedOutInMineYesterday)
+                return;
+
+            int health = state.LastPassedOutHealth;
+            if (health < 0 || health > 10)
+                return;
+
+            if (!_dialogueManager.IsDatingEngagedOrMarriedToHarvey())
+                return;
+
+            if (IsExternalRescueExcludedLocation(state.LastPassedOutLocation))
+                return;
+
+            int today = Helpers.GameUtils.Today();
+            state.NeedsHarveyAfterExternalRescueHomeEvent = true;
+            state.LastExternalRescueLocation = state.LastPassedOutLocation ?? "";
+            state.LastExternalRescueDay = today;
+
+            if (!Helpers.GameUtils.HasConversationTopic(ConversationTopics.ExternalRescueConcern))
+                _dialogueManager.AddTopic(ConversationTopics.ExternalRescueConcern, 2);
+
+            _stateManager.Save();
+            _monitor.Log(
+                $"[ExternalRescue] Помечено для ночного события дома: loc={state.LastExternalRescueLocation}, health={health}, day={today}",
+                LogLevel.Info);
+        }
+
+        private static bool IsExternalRescueExcludedLocation(string? location)
+        {
+            if (string.IsNullOrWhiteSpace(location))
+                return true;
+
+            return string.Equals(location, "Mine", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(location, "UndergroundMine", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(location, "VolcanoDungeon", StringComparison.OrdinalIgnoreCase)
+                || location.Contains("SkullCave", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// Инициирует утреннее событие после боевой смерти в шахте.
         /// Вызывается из DayStarted, когда игрок уже проснулся дома (ванильная механика).
         /// Cutscene у кровати в FarmHouse; событие добавляет topicMineInjuryRescue.
@@ -284,6 +348,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         public void TriggerMineRescueEvents()
         {
             if (!_stateManager.State.NeedsMineRescueEvent) return;
+
+            int today = (int)Game1.stats.DaysPlayed;
+            MineForbiddenHelper.ApplyHardMineForbidden(
+                _stateManager.State, _config, _buffManager, _stateManager, _monitor, today, "mine_rescue");
 
             _monitor.Log("[MineRescue] Подготовка события спасения из шахты", LogLevel.Info);
 
@@ -691,10 +759,34 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private void RunExhaustionPassOutFallback()
         {
+            MarkHarveyMorningAfterExhaustionIfEligible();
             _buffManager.AddBuff("buffFarmerExhausted", -2);
             _dialogueManager.AddTopic(ConversationTopics.FarmerExhausted, 3);
             Game1.playSound("debuffHit");
             Game1.addHUDMessage(new HUDMessage("Ты полностью измотана...", HUDMessage.health_type));
+        }
+
+        /// <summary>
+        /// Помечает утреннее мини-событие после обморока от истощения (Dating / Engaged / Married).
+        /// Запуск — через <see cref="HarveyHomeCareEventLauncher.TryTriggerHarveyHomeCareEvent"/>.
+        /// </summary>
+        private void MarkHarveyMorningAfterExhaustionIfEligible()
+        {
+            if (!_dialogueManager.IsDatingEngagedOrMarriedToHarvey())
+                return;
+
+            int today = Helpers.GameUtils.Today();
+            var state = _stateManager.State;
+            state.NeedsHarveyMorningAfterExhaustionEvent = true;
+            state.LastExhaustionCollapseDay = today;
+
+            if (!Helpers.GameUtils.HasConversationTopic(ConversationTopics.HarveyMorningAfterExhaustion))
+                _dialogueManager.AddTopic(ConversationTopics.HarveyMorningAfterExhaustion, 2);
+
+            _stateManager.Save();
+            _monitor.Log(
+                $"[MorningAfterExhaustion] Помечено утреннее событие: collapseDay={today}",
+                LogLevel.Info);
         }
 
         private void ClearHospitalPassOutPending()

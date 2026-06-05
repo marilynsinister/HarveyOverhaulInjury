@@ -5,7 +5,6 @@ using HarveyOverhaul.InjuryCare.Managers;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
-using StardewValley.Locations;
 
 namespace HarveyOverhaul.InjuryCare.EventHandlers
 {
@@ -24,6 +23,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly TreatmentManager _treatmentManager;
         private readonly InjuryManager _injuryManager;
         private readonly ComplicationManager _complicationManager;
+        private HarveyHomeCareEventLauncher? _homeCareLauncher;
 
         public TimeEventHandler(
             IMonitor monitor,
@@ -49,6 +49,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _complicationManager = complicationManager;
         }
 
+        public void SetHomeCareLauncher(HarveyHomeCareEventLauncher homeCareLauncher)
+        {
+            _homeCareLauncher = homeCareLauncher;
+        }
+
         /// <summary>
         /// Обработать изменение игрового времени
         /// </summary>
@@ -64,8 +69,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 // Обновить активности во время госпитализации
                 _hospitalActivityManager.UpdateHospitalActivities(_hospitalizationManager, e.NewTime);
 
-                // Ночные визиты Харви (22:00-26:00)
-                CheckNightVisit(e.NewTime);
+                // Домашние care-события Харви (единый приоритетный запуск)
+                if (_homeCareLauncher?.TryTriggerHarveyHomeCareEvent(source: "TimeChanged") == true)
+                    return;
+
+                // Короткий ночной визит (22:00–26:00), если нет pending событий выше по приоритету
+                _homeCareLauncher?.TryTriggerShortNightRoundVisit(e.NewTime);
 
                 // Напоминания о визите к врачу
                 CheckDoctorVisitReminders(e.NewTime);
@@ -91,67 +100,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             _hospitalizationManager.UpdateHospitalStayProgress(newTime);
             _hospitalizationManager.NotifyDischargeReadyIfNeeded();
-        }
-
-        /// <summary>
-        /// Проверить ночной визит Харви (только Dating/Married, FarmHouse, severe).
-        /// </summary>
-        private void CheckNightVisit(int newTime)
-        {
-            // Ночное время: 22:00-26:00
-            bool isNight = newTime >= 2200 && newTime <= 2600;
-            if (!isNight) return;
-
-            // Должен быть дома
-            bool atHome = Game1.player.currentLocation is FarmHouse;
-            if (!atHome) return;
-
-            // Должна быть серьёзная основная травма (не PainFlare и не «случайный» severe buff)
-            if (!_injuryManager.IsMainInjurySerious())
-                return;
-
-            if (!_dialogueManager.IsDatingOrMarriedToHarvey())
-                return;
-
-            int today = Helpers.GameUtils.Today();
-
-            // TimeChanged вызывается много раз за ночь — roll один раз за день/ночь.
-            // LastNightRoundRollDay = попытка; LastNightRoundDay = только после показа визита.
-            if (_stateManager.State.LastNightRoundRollDay == today)
-                return;
-
-            _stateManager.State.LastNightRoundRollDay = today;
-            _stateManager.Save();
-
-            // 35% шанс визита ЗА НОЧЬ, а не за каждый TimeChanged.
-            if (!Helpers.GameUtils.Roll(Math.Clamp(_config.NightVisitChance, 0.0, 1.0)))
-            {
-                _monitor.Log("Ночной визит Харви: roll не сработал сегодня", LogLevel.Debug);
-                return;
-            }
-
-            _monitor.Log("Ночной визит Харви", LogLevel.Info);
-
-            string line = "Тихо постучал и заглянул — не спи на животе, ладно?$u#$b#" +
-                            "Пульс ровный. Не геройствуй до утра — я присмотрю.$l";
-
-            var harvey = HarveyHelper.GetHarvey();
-            if (harvey != null)
-                _dialogueManager.Speak(harvey, line);
-
-            _stateManager.State.LastNightRoundDay = today;
-            _stateManager.Save();
-
-            Game1.player.changeFriendship(10, Game1.getCharacterFromName("Harvey"));
-
-            // Снять боль с 50% шансом — полностью убираем осложнение, не только бафф
-            if (_complicationManager.HasComplication(InjuryBuffs.PainFlare) && Helpers.GameUtils.Roll(0.5))
-            {
-                _complicationManager.RemoveComplicationForQa(InjuryBuffs.PainFlare);
-                Game1.addHUDMessage(new HUDMessage("После ночного визита Харви боль утихла.", 2));
-            }
-
-            _dialogueManager.AddTopic("topicHarvey_NightRound", 2);
         }
 
         /// <summary>
@@ -213,4 +161,3 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         }
     }
 }
-
