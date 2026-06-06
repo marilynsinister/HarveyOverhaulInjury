@@ -11,6 +11,7 @@ using HarveyOverhaul.InjuryCare.Managers;
 using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.EventHandlers;
 using HarveyOverhaul.InjuryCare.Testing;
+using HarveyOverhaul.InjuryCare.UI.RecoveryPlan;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using StardewModdingAPI;
@@ -40,6 +41,8 @@ namespace HarveyOverhaul.InjuryCare
         private CareTrustManager _careTrustManager = null!;
         private CheckupManager _checkupManager = null!;
         private RehabManager _rehabManager = null!;
+        private RecoveryPlanManager _recoveryPlanManager = null!;
+        private RecoveryPlanMenu _recoveryPlanMenu = null!;
         private TreatmentPlanManager _treatmentPlanManager = null!;
         private SelfCareManager _selfCareManager = null!;
         private DoctorVisitReminderManager _doctorVisitReminderManager = null!;
@@ -396,6 +399,26 @@ namespace HarveyOverhaul.InjuryCare
                 "injury_rehab_clear",
                 "Снять реабилитацию и связанные topics/buff.",
                 (_, _) => CmdRehabClear());
+
+            helper.ConsoleCommands.Add(
+                "recovery_plan_start",
+                "[QA] Старт плана восстановления после выписки: recovery_plan_start [injuryId]",
+                (_, args) => CmdRecoveryPlanStart(args));
+
+            helper.ConsoleCommands.Add(
+                "recovery_plan_fail",
+                "[QA] Зарегистрировать нарушение плана: recovery_plan_fail <reason>",
+                (_, args) => CmdRecoveryPlanFail(args));
+
+            helper.ConsoleCommands.Add(
+                "recovery_plan_status",
+                "[QA] Статус плана восстановления.",
+                (_, _) => CmdRecoveryPlanStatus());
+
+            helper.ConsoleCommands.Add(
+                "recovery_plan_clear",
+                "[QA] Снять план восстановления.",
+                (_, _) => CmdRecoveryPlanClear());
 
             helper.ConsoleCommands.Add(
                 "injury_selfcare_bandage",
@@ -1966,6 +1989,67 @@ namespace HarveyOverhaul.InjuryCare
             Monitor.Log("Реабилитация снята.", LogLevel.Info);
         }
 
+        private void CmdRecoveryPlanStart(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            string? injuryId = args.Length > 0 ? args[0].Trim() : null;
+            bool started = _recoveryPlanManager.StartHospitalDischargePlan(injuryId);
+            Monitor.Log(
+                started
+                    ? "[RecoveryPlan] План запущен."
+                    : "[RecoveryPlan] План не запущен (уже активен или ошибка).",
+                LogLevel.Info);
+        }
+
+        private void CmdRecoveryPlanFail(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log("Использование: recovery_plan_fail <reason>", LogLevel.Info);
+                return;
+            }
+
+            string reason = string.Join(" ", args).Trim();
+            _recoveryPlanManager.RegisterViolation(reason);
+            Monitor.Log($"[RecoveryPlan] Нарушение зарегистрировано: {reason}", LogLevel.Info);
+        }
+
+        private void CmdRecoveryPlanStatus()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("=== RECOVERY PLAN ===", LogLevel.Info);
+            foreach (string line in _recoveryPlanManager.GetStatusLines())
+                Monitor.Log($"  {line}", LogLevel.Info);
+        }
+
+        private void CmdRecoveryPlanClear()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            _recoveryPlanManager.ClearRecoveryPlan();
+            Monitor.Log("[RecoveryPlan] План снят.", LogLevel.Info);
+        }
+
         private void CmdSelfCareBandage()
         {
             if (!Context.IsWorldReady)
@@ -2587,6 +2671,8 @@ namespace HarveyOverhaul.InjuryCare
                 _dialogueManager,
                 _buffManager,
                 _complianceManager);
+            _recoveryPlanManager = new RecoveryPlanManager(Monitor, _stateManager, _dialogueManager);
+            _recoveryPlanMenu = new RecoveryPlanMenu(Monitor);
             _treatmentPlanManager = new TreatmentPlanManager(
                 Monitor,
                 _config,
@@ -2618,6 +2704,7 @@ namespace HarveyOverhaul.InjuryCare
                 _stateManager,
                 _hospitalizationManager);
             _hospitalizationManager.SetDoctorVisitReminderManager(_doctorVisitReminderManager);
+            _hospitalizationManager.SetRecoveryPlanManager(_recoveryPlanManager);
 
             _harveyReactionManager = new HarveyReactionManager(
                 Monitor,
@@ -2666,6 +2753,7 @@ namespace HarveyOverhaul.InjuryCare
                 _careTrustManager,
                 _checkupManager,
                 _rehabManager,
+                _recoveryPlanManager,
                 _selfCareManager,
                 _doctorVisitReminderManager
             );
@@ -2684,6 +2772,7 @@ namespace HarveyOverhaul.InjuryCare
                 _complianceManager,
                 _careTrustManager,
                 _rehabManager,
+                _recoveryPlanManager,
                 _complicationManager
             );
 
@@ -2704,7 +2793,8 @@ namespace HarveyOverhaul.InjuryCare
                 _rehabManager,
                 _selfCareManager,
                 _complicationManager,
-                _doctorVisitReminderManager
+                _doctorVisitReminderManager,
+                _recoveryPlanManager
             );
 
             _timeEventHandler = new TimeEventHandler(
@@ -2729,6 +2819,7 @@ namespace HarveyOverhaul.InjuryCare
                 _injuryManager,
                 _treatmentManager
             );
+            _passOutHandler.SetRecoveryPlanManager(_recoveryPlanManager);
 
             _homeCareEventLauncher = new HarveyHomeCareEventLauncher(
                 Monitor,
@@ -2742,6 +2833,7 @@ namespace HarveyOverhaul.InjuryCare
             );
 
             // События сохранения
+            events.GameLoop.GameLaunched += OnGameLaunched;
             events.GameLoop.SaveLoaded += OnSaveLoaded;
             events.GameLoop.Saving += OnSaving;
 
@@ -2777,6 +2869,7 @@ namespace HarveyOverhaul.InjuryCare
             // Дебаг: вывод _state на экран (переключение по F10)
             events.Display.RenderedHud += OnRenderedHudDebugState;
             events.Input.ButtonPressed += OnDebugHudToggleKeyPressed;
+            events.Input.ButtonPressed += OnRecoveryPlanKeyPressed;
 
             // Без цветного свечения персонажа от модовых баффов/дебаффов
             events.Content.AssetRequested += OnAssetRequested;
@@ -3464,6 +3557,32 @@ namespace HarveyOverhaul.InjuryCare
         }
 
         private const int MaxDebugHudLines = 45;
+
+        private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
+        {
+            _recoveryPlanMenu.TryInitialize(Helper);
+        }
+
+        private void OnRecoveryPlanKeyPressed(object? sender, ButtonPressedEventArgs e)
+        {
+            if (!Context.IsWorldReady)
+                return;
+
+            if (!MatchesRecoveryPlanKey(e.Button))
+                return;
+
+            Helper.Input.Suppress(e.Button);
+            _recoveryPlanMenu.TryOpen(_recoveryPlanManager);
+        }
+
+        private bool MatchesRecoveryPlanKey(SButton button)
+        {
+            string configured = _config.RecoveryPlanKey?.Trim() ?? "";
+            if (string.IsNullOrEmpty(configured))
+                return false;
+
+            return Enum.TryParse(configured, true, out SButton parsed) && button == parsed;
+        }
 
         /// <summary>
         /// Переключение режима дебаг-HUD по F10: 0 → 1 → 2 → 0.

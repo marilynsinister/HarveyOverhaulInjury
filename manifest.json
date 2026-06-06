@@ -16,6 +16,11 @@
     {
       "UniqueID": "FlashShifter.StardewValleyExpandedCP",
       "IsRequired": true
+    },
+    {
+      "UniqueID": "focustense.StardewUI",
+      "MinimumVersion": "0.6.1",
+      "IsRequired": true
     }
   ]
 }

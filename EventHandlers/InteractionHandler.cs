@@ -57,6 +57,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly SelfCareManager _selfCareManager;
         private readonly ComplicationManager _complicationManager;
         private readonly DoctorVisitReminderManager _doctorVisitReminderManager;
+        private readonly RecoveryPlanManager _recoveryPlanManager;
 
         private PendingMedicalAction? _pendingMedicalAction;
         private bool _pendingSawDialogueBox;
@@ -109,7 +110,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             RehabManager rehabManager,
             SelfCareManager selfCareManager,
             ComplicationManager complicationManager,
-            DoctorVisitReminderManager doctorVisitReminderManager)
+            DoctorVisitReminderManager doctorVisitReminderManager,
+            RecoveryPlanManager recoveryPlanManager)
         {
             _monitor = monitor;
             _helper = helper;
@@ -128,6 +130,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _selfCareManager = selfCareManager;
             _complicationManager = complicationManager;
             _doctorVisitReminderManager = doctorVisitReminderManager;
+            _recoveryPlanManager = recoveryPlanManager;
         }
 
         /// <summary>
@@ -135,6 +138,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// </summary>
         public void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
         {
+            _recoveryPlanManager.OnCompletionTalkDialogueUpdate();
+
             if (Game1.eventUp || Game1.CurrentEvent != null)
             {
                 if (_pendingMedicalAction != null)
@@ -291,6 +296,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             var resolved = TryResolveMedicalAction(injuries);
             if (resolved == null)
             {
+                if (_recoveryPlanManager.IsCompletionTalkPending())
+                    _recoveryPlanManager.NotifyHarveyClickedForCompletionTalk();
+
                 LastClickDebug = BuildClickDebugSnapshot(
                     null,
                     null,

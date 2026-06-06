@@ -212,6 +212,11 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string RehabStrict = "topicHarvey_RehabStrict";
         public const string RehabCompleted = "topicHarvey_RehabCompleted";
 
+        // --- План восстановления после выписки ---
+        public const string RecoveryPlanStarted = "HarveyMod_RecoveryPlanStarted";
+        public const string RecoveryPlanViolated = "HarveyMod_RecoveryPlanViolated";
+        public const string RecoveryPlanCompleted = "HarveyMod_RecoveryPlanCompleted";
+
         // --- Самопомощь (домашний уход) ---
         public const string SelfCare = "topicHarvey_SelfCare";
         public const string CleanBandage = "topicHarvey_CleanBandage";

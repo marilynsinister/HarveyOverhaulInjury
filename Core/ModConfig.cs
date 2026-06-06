@@ -102,6 +102,9 @@ namespace HarveyOverhaul.InjuryCare.Core
         public double MinSkillChanceMultiplier { get; set; } = 0.55;
         public int SkillThresholdBonusPerTwoLevels { get; set; } = 1;
         public int MaxSkillThresholdBonus { get; set; } = 5;
+
+        /// <summary>Клавиша открытия окна «План восстановления» (StardewUI). Пример: H, F6.</summary>
+        public string RecoveryPlanKey { get; set; } = "H";
     }
 }
 

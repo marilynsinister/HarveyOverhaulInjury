@@ -83,6 +83,11 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         public Dictionary<string, PrescriptionState> ActivePrescriptions { get; set; } = new();
 
         /// <summary>
+        /// Активный «План восстановления Харви»; null — плана нет (старые сейвы без поля).
+        /// </summary>
+        public RecoveryPlanState? ActiveRecoveryPlan { get; set; }
+
+        /// <summary>
         /// Медицинский показатель соблюдения лечения (−10…10).
         /// Не Friendship: только тон Харви, topics, предписания, риски и мягкие бонусы.
         /// </summary>

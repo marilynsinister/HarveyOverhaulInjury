@@ -30,6 +30,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly CareTrustManager _careTrustManager;
         private readonly CheckupManager _checkupManager;
         private readonly RehabManager _rehabManager;
+        private readonly RecoveryPlanManager _recoveryPlanManager;
         private readonly SelfCareManager _selfCareManager;
         private readonly DoctorVisitReminderManager _doctorVisitReminderManager;
         private InteractionHandler? _interactionHandler;
@@ -51,6 +52,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             CareTrustManager careTrustManager,
             CheckupManager checkupManager,
             RehabManager rehabManager,
+            RecoveryPlanManager recoveryPlanManager,
             SelfCareManager selfCareManager,
             DoctorVisitReminderManager doctorVisitReminderManager)
         {
@@ -68,6 +70,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _careTrustManager = careTrustManager;
             _checkupManager = checkupManager;
             _rehabManager = rehabManager;
+            _recoveryPlanManager = recoveryPlanManager;
             _selfCareManager = selfCareManager;
             _doctorVisitReminderManager = doctorVisitReminderManager;
         }
@@ -173,6 +176,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         _complianceManager.TryShowLowComplianceReminder();
 
                         _rehabManager.CompleteRehabIfDue(GetToday());
+                        _recoveryPlanManager.OnDayStarted();
 
                         // 8. Предписания: снять истёкшие, начислить TreatmentComplianceScore за вчера
                         _prescriptionManager.RemoveExpiredPrescriptions();
@@ -261,6 +265,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _selfCareManager.TryApplyRestCareOnDayEnding();
                 CheckRestPrescriptionViolation();
                 _rehabManager.CheckRehabViolationLateSleep();
+                _recoveryPlanManager.OnDayEnding();
 
                 // Письмо о запрете шахты — на следующий день после предупреждения в шахте
                 int todayEnd = GetToday();

@@ -29,6 +29,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly ComplianceManager _complianceManager;
         private readonly CareTrustManager _careTrustManager;
         private readonly RehabManager _rehabManager;
+        private readonly RecoveryPlanManager _recoveryPlanManager;
         private readonly ComplicationManager _complicationManager;
 
         private PassOutHandler? _passOutHandler;
@@ -72,6 +73,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             ComplianceManager complianceManager,
             CareTrustManager careTrustManager,
             RehabManager rehabManager,
+            RecoveryPlanManager recoveryPlanManager,
             ComplicationManager complicationManager)
         {
             _monitor = monitor;
@@ -87,6 +89,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _complianceManager = complianceManager;
             _careTrustManager = careTrustManager;
             _rehabManager = rehabManager;
+            _recoveryPlanManager = recoveryPlanManager;
             _complicationManager = complicationManager;
         }
 
@@ -257,12 +260,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     CheckFarmingInjuries();
                     CheckRainExposure();
                     _rehabManager.CheckRehabViolationOnHeavyWork();
+                    _recoveryPlanManager.CheckViolationOnLowStamina();
                 }
 
                 // Проверка здоровья
                 if (e.IsMultipleOf(120))
                 {
                     CheckHealthBasedInjuries();
+                    _recoveryPlanManager.CheckViolationOnLowHealth();
                 }
 
                 // Каждые 10 секунд — окружающая среда (холод, алкоголь при лечении)
@@ -301,6 +306,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             if (string.Equals(location?.Name, _config.HospitalLocationName, StringComparison.OrdinalIgnoreCase))
                 HandleHospitalLogic();
+
+            _recoveryPlanManager.CheckViolationOnLocationEntry(location);
 
             if (IsMineOrVolcanoLocation(location))
                 HandleMinesLogic();

@@ -41,6 +41,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             EnsurePrescriptionState();
             EnsureComplianceState();
             EnsureRehabState();
+            EnsureRecoveryPlanState();
             EnsureSelfCareState();
             EnsureMedicalMailState();
             EnsureNeglectStrikesState();
@@ -274,6 +275,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _state.RehabDurationDays = 3;
         }
 
+        private void EnsureRecoveryPlanState()
+        {
+            if (_state.ActiveRecoveryPlan == null)
+                return;
+
+            _state.ActiveRecoveryPlan.PlanId ??= "";
+            _state.ActiveRecoveryPlan.Reason ??= "";
+            _state.ActiveRecoveryPlan.TodayViolationReasons ??= new List<string>();
+        }
+
         private void EnsureSelfCareState()
         {
             _state.SelfCareProtections ??= new Dictionary<string, int>();
@@ -493,6 +504,28 @@ namespace HarveyOverhaul.InjuryCare.Managers
             Save();
             _monitor.Log($"[MainInjury][Debug] MainInjuryId установлен: {buffId}", LogLevel.Info);
             return true;
+        }
+
+        // ============================================================================
+        // ПЛАН ВОССТАНОВЛЕНИЯ ХАРВИ
+        // ============================================================================
+
+        public RecoveryPlanState? GetActiveRecoveryPlan() => _state.ActiveRecoveryPlan;
+
+        public void SetActiveRecoveryPlan(RecoveryPlanState plan)
+        {
+            _state.ActiveRecoveryPlan = plan;
+            EnsureRecoveryPlanState();
+            Save();
+        }
+
+        public void ClearActiveRecoveryPlan()
+        {
+            if (_state.ActiveRecoveryPlan == null)
+                return;
+
+            _state.ActiveRecoveryPlan = null;
+            Save();
         }
 
         // ============================================================================

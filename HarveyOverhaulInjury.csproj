@@ -19,6 +19,13 @@
     <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.4.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Reference Include="StardewUI">
+      <HintPath>$(GamePath)\Mods\StardewUI\StardewUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
   <!-- Копирование файлов Content Patcher -->
   <ItemGroup>
    
@@ -29,6 +36,9 @@
     </Content>
     <!-- Конфиг мода -->
     <Content Include="config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="assets\views\RecoveryPlan.sml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

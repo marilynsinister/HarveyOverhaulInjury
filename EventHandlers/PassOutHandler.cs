@@ -24,6 +24,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly DialogueManager _dialogueManager;
         private readonly InjuryManager _injuryManager;
         private readonly TreatmentManager _treatmentManager;
+        private RecoveryPlanManager? _recoveryPlanManager;
 
         public PassOutHandler(
             IMonitor monitor,
@@ -41,6 +42,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _dialogueManager = dialogueManager;
             _injuryManager = injuryManager;
             _treatmentManager = treatmentManager;
+        }
+
+        public void SetRecoveryPlanManager(RecoveryPlanManager recoveryPlanManager)
+        {
+            _recoveryPlanManager = recoveryPlanManager;
         }
 
         /// <summary>
@@ -288,6 +294,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
                 _stateManager.Save();
             }
+
+            _recoveryPlanManager?.CheckViolationOnPassOut();
         }
 
         /// <summary>

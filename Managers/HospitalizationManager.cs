@@ -20,6 +20,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private HospitalActivityManager? _activityManager;
         private TreatmentManager? _treatmentManager;
         private DoctorVisitReminderManager? _doctorVisitReminderManager;
+        private RecoveryPlanManager? _recoveryPlanManager;
         private bool _pendingReturnToHospital;
         private bool _pendingBlockedExitReaction;
         private bool _returnWarpInFlight;
@@ -77,6 +78,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void SetDoctorVisitReminderManager(DoctorVisitReminderManager doctorVisitReminderManager)
         {
             _doctorVisitReminderManager = doctorVisitReminderManager;
+        }
+
+        public void SetRecoveryPlanManager(RecoveryPlanManager recoveryPlanManager)
+        {
+            _recoveryPlanManager = recoveryPlanManager;
         }
 
         /// <summary>
@@ -430,6 +436,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (string.Equals(injuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
                 ReplaceIntensiveCareWithOutpatientRecovery();
+
+            if (_recoveryPlanManager?.StartHospitalDischargePlan(injuryId) == true)
+            {
+                _monitor.Log(
+                    $"[RecoveryPlan] План восстановления после выписки: injury={injuryId ?? "(none)"}",
+                    LogLevel.Info);
+            }
 
             // Сбрасываем активности госпитализации
             _activityManager?.Reset();
