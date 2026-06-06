@@ -58,6 +58,13 @@ namespace HarveyOverhaul.InjuryCare.Core
         public double SpringRashChance { get; set; } = 0.35;
         public int NeglectDaysThreshold { get; set; } = 3;
 
+        // Скрытое медицинское доверие Харви (CareTrust)
+        public bool EnableCareTrust { get; set; } = true;
+        public int CareTrustMin { get; set; } = -5;
+        public int CareTrustMax { get; set; } = 8;
+        public int CareTrustLowThreshold { get; set; } = -2;
+        public int CareTrustHighThreshold { get; set; } = 4;
+
         /// <summary>
         /// Шанс ночного визита Харви за одну ночь при серьёзной травме.
         /// Значение от 0.0 до 1.0. По умолчанию 0.35 = 35%.

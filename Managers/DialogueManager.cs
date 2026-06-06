@@ -19,6 +19,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
         Married,
     }
 
+    /// <summary>Уровень отношений для CP-ключей HarveyCareTrust_*_{Tier}_XX.</summary>
+    public enum CareTrustRelationshipTier
+    {
+        Formal,
+        Friendly,
+        Dating,
+        Married,
+    }
+
     /// <summary>
     /// Управление диалогами и разговорными топиками
     /// </summary>
@@ -81,6 +90,29 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 LogLevel.Warn);
             return PhaseTransitionFallback;
         }
+
+        public const int CareTrustFriendlyFriendshipPoints = 1000;
+        public const int CareTrustDatingFriendshipPoints = 2000;
+
+        /// <summary>CP: HarveyCareTrust_{Context}_{TrustLevel}_*</summary>
+        public static string GetCareTrustDialoguePrefix(string context, string trustLevelSuffix) =>
+            $"HarveyCareTrust_{context}_{trustLevelSuffix}_";
+
+        /// <summary>CP: HarveyCareTrust_Recovery_{Level}_*</summary>
+        public static string GetCareTrustRecoveryDialoguePrefix(string levelSuffix) =>
+            GetCareTrustDialoguePrefix("Recovery", levelSuffix);
+
+        /// <summary>CP: HarveyCareTrust_PhaseAdvance_{Level}_*</summary>
+        public static string GetCareTrustPhaseAdvanceDialoguePrefix(string levelSuffix) =>
+            GetCareTrustDialoguePrefix("PhaseAdvance", levelSuffix);
+
+        /// <summary>CP: HarveyCareTrust_TreatmentStart_{Level}_*</summary>
+        public static string GetCareTrustTreatmentStartDialoguePrefix(string levelSuffix) =>
+            GetCareTrustDialoguePrefix("TreatmentStart", levelSuffix);
+
+        /// <summary>CP: HarveyCareTrust_NightVisit_{Level}_*</summary>
+        public static string GetCareTrustNightVisitDialoguePrefix(string levelSuffix) =>
+            GetCareTrustDialoguePrefix("NightVisit", levelSuffix);
 
         /// <summary>Префикс финального выздоровления: buffDeepCuts → RecoveryComplete_DeepCuts_</summary>
         public static string GetRecoveryCompleteDialoguePrefix(string buffId)
@@ -203,6 +235,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 return false;
 
+            if (prefix.StartsWith("HarveyCareTrust_", StringComparison.OrdinalIgnoreCase))
+                return IsCareTrustUnstagedFallbackKey(key, prefix);
+
             foreach (var stage in AllRelationshipStages)
             {
                 if (IsStagedDialogueKey(key, prefix, stage))
@@ -211,6 +246,40 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             return true;
         }
+
+        private static bool IsCareTrustUnstagedFallbackKey(string key, string prefix)
+        {
+            if (!key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            string suffix = key.Substring(prefix.Length);
+            return suffix.Length == 2 && suffix.All(char.IsDigit);
+        }
+
+        /// <summary>
+        /// RelationshipLevel для CP HarveyCareTrust_*_{Formal|Friendly|Dating|Married}_XX.
+        /// Married → dating или points ≥ 2000 → points ≥ 1000 → Formal.
+        /// </summary>
+        public CareTrustRelationshipTier GetCareTrustRelationshipLevel()
+        {
+            var friendship = Game1.player?.friendshipData;
+            if (friendship == null || !friendship.TryGetValue("Harvey", out var data))
+                return CareTrustRelationshipTier.Formal;
+
+            if (data.IsMarried())
+                return CareTrustRelationshipTier.Married;
+
+            if (data.IsDating() || data.Points >= CareTrustDatingFriendshipPoints)
+                return CareTrustRelationshipTier.Dating;
+
+            if (data.Points >= CareTrustFriendlyFriendshipPoints)
+                return CareTrustRelationshipTier.Friendly;
+
+            return CareTrustRelationshipTier.Formal;
+        }
+
+        /// <inheritdoc cref="GetCareTrustRelationshipLevel"/>
+        public CareTrustRelationshipTier GetCareTrustRelationshipTier() => GetCareTrustRelationshipLevel();
 
         private static bool ContainsFormalAddress(string text)
         {
@@ -618,26 +687,97 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public string PickRandomDialogueByPrefix(string prefix, string defaultText = "…")
         {
+            string? line = TryPickRandomDialogueByPrefix(prefix);
+            if (!string.IsNullOrWhiteSpace(line))
+                return line;
+
+            _monitor.Log(
+                $"Диалоги с префиксом '{prefix}' не найдены (стадия {GetHarveyRelationshipStage()}), fallback",
+                LogLevel.Warn);
+            return defaultText;
+        }
+
+        /// <summary>Случайная реплика по префиксу или null, если CP-ключей нет.</summary>
+        public string? TryPickRandomDialogueByPrefix(string prefix)
+        {
+            if (prefix.StartsWith("HarveyCareTrust_", StringComparison.OrdinalIgnoreCase))
+                return TryPickCareTrustDialogueByPrefix(prefix);
+
             try
             {
                 var dialogues = LoadDialoguesFromAsset();
                 if (dialogues == null || dialogues.Count == 0)
-                    return defaultText;
+                    return null;
 
                 var stage = GetHarveyRelationshipStage();
-                string? line = PickRandomLineByPrefixWithRelationship(dialogues, prefix, stage);
-                if (!string.IsNullOrWhiteSpace(line))
-                    return line;
-
-                _monitor.Log(
-                    $"Диалоги с префиксом '{prefix}' не найдены (стадия {stage}), fallback",
-                    LogLevel.Warn);
-                return defaultText;
+                return PickRandomLineByPrefixWithRelationship(dialogues, prefix, stage);
             }
             catch (Exception ex)
             {
                 _monitor.Log($"Ошибка при загрузке диалога: {ex}", LogLevel.Error);
-                return defaultText;
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// HarveyCareTrust_{Context}_{TrustLevel}_{RelationshipLevel}_XX → unstaged _01..03.
+        /// </summary>
+        public bool TryPickCareTrustDialogue(string context, string trustLevelSuffix, out string line, out string prefix)
+        {
+            line = string.Empty;
+            prefix = GetCareTrustDialoguePrefix(context, trustLevelSuffix);
+
+            string? picked = TryPickCareTrustDialogueByPrefix(prefix);
+            if (string.IsNullOrWhiteSpace(picked))
+                return false;
+
+            line = picked;
+            return true;
+        }
+
+        /// <summary>
+        /// HarveyCareTrust_*: сначала точный _{RelationshipLevel}_XX, затем unstaged _01..03.
+        /// </summary>
+        public string? TryPickCareTrustDialogueByPrefix(string prefix)
+        {
+            try
+            {
+                var dialogues = LoadDialoguesFromAsset();
+                if (dialogues == null || dialogues.Count == 0)
+                    return null;
+
+                var relationshipLevel = GetCareTrustRelationshipLevel();
+                string relationshipPrefix = prefix + relationshipLevel + "_";
+                var relationshipLines = dialogues
+                    .Where(kvp => kvp.Key.StartsWith(relationshipPrefix, StringComparison.OrdinalIgnoreCase)
+                        && !string.IsNullOrWhiteSpace(kvp.Value))
+                    .Select(kvp => kvp.Value)
+                    .ToList();
+
+                if (relationshipLines.Count > 0)
+                {
+                    _monitor.Log(
+                        $"[CareTrust] relationship={relationshipLevel} prefix={relationshipPrefix}",
+                        LogLevel.Debug);
+                    return relationshipLines[Game1.random.Next(relationshipLines.Count)];
+                }
+
+                var unstaged = dialogues
+                    .Where(kvp => IsCareTrustUnstagedFallbackKey(kvp.Key, prefix)
+                        && !string.IsNullOrWhiteSpace(kvp.Value))
+                    .Select(kvp => kvp.Value)
+                    .ToList();
+
+                if (unstaged.Count == 0)
+                    return null;
+
+                _monitor.Log($"[CareTrust] unstaged fallback prefix={prefix}", LogLevel.Debug);
+                return unstaged[Game1.random.Next(unstaged.Count)];
+            }
+            catch (Exception ex)
+            {
+                _monitor.Log($"Ошибка подбора CareTrust-диалога: {ex}", LogLevel.Error);
+                return null;
             }
         }
 

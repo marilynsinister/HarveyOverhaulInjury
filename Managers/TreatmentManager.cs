@@ -718,8 +718,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>
         /// Один DialogueBox при первом клике «начать лечение»: TreatmentStart_{Injury}_* (+ осложнения через $b).
         /// </summary>
-        public string BuildFirstStartTreatmentDialogue(InjuryCollection injuries) =>
-            BuildCombinedDialogue(injuries, markTreatmentDiscussed: false, firstTreatmentStart: true);
+        public string BuildFirstStartTreatmentDialogue(InjuryCollection injuries, string? overrideMainInjuryText = null) =>
+            BuildCombinedDialogue(
+                injuries,
+                markTreatmentDiscussed: false,
+                firstTreatmentStart: true,
+                overrideMainInjuryText: overrideMainInjuryText);
 
         /// <summary>
         /// Клик TreatComplications при уже идущем лечении: только ComplicationTreatment_* (без диагноза основной травмы).
@@ -745,17 +749,20 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         /// <param name="markTreatmentDiscussed">Если false — только выбор текста, без записи в state.</param>
         /// <param name="firstTreatmentStart">Префикс TreatmentStart_{InjuryName}_* (первый старт по клику).</param>
+        /// <param name="overrideMainInjuryText">Готовая реплика основной травмы (например HarveyCareTrust_*).</param>
         public string BuildCombinedDialogue(
             InjuryCollection injuries,
             bool markTreatmentDiscussed = true,
-            bool firstTreatmentStart = false)
+            bool firstTreatmentStart = false,
+            string? overrideMainInjuryText = null)
         {
             var parts = new List<string>();
 
             // Основная травма
             if (injuries.MainInjury != null)
             {
-                string mainText = GetTreatmentDialogue(injuries.MainInjury, markTreatmentDiscussed, firstTreatmentStart);
+                string mainText = overrideMainInjuryText
+                    ?? GetTreatmentDialogue(injuries.MainInjury, markTreatmentDiscussed, firstTreatmentStart);
                 parts.Add(mainText);
             }
 

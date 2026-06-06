@@ -50,6 +50,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly TreatmentManager _treatmentManager;
         private readonly HospitalizationManager _hospitalizationManager;
         private readonly ComplianceManager _complianceManager;
+        private readonly CareTrustManager _careTrustManager;
         private readonly PrescriptionManager _prescriptionManager;
         private readonly CheckupManager _checkupManager;
         private readonly RehabManager _rehabManager;
@@ -102,6 +103,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             TreatmentManager treatmentManager,
             HospitalizationManager hospitalizationManager,
             ComplianceManager complianceManager,
+            CareTrustManager careTrustManager,
             PrescriptionManager prescriptionManager,
             CheckupManager checkupManager,
             RehabManager rehabManager,
@@ -119,6 +121,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _treatmentManager = treatmentManager;
             _hospitalizationManager = hospitalizationManager;
             _complianceManager = complianceManager;
+            _careTrustManager = careTrustManager;
             _prescriptionManager = prescriptionManager;
             _checkupManager = checkupManager;
             _rehabManager = rehabManager;
@@ -776,7 +779,19 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private string BuildTreatmentDialogueText(PendingMedicalAction pending, out string dialogueKey)
         {
             var injuries = BuildInjuryContextForDialogue(pending);
-            string dialogue = pending.Type == MedicalActionType.StartTreatment
+            string dialogue;
+
+            if (pending.Type == MedicalActionType.StartTreatment
+                && TryPickCareTrustDialogue("TreatmentStart", out string careTrustLine, out string careTrustPrefix))
+            {
+                dialogue = _treatmentManager.BuildFirstStartTreatmentDialogue(injuries, careTrustLine);
+                dialogueKey = pending.Complications.Count > 0
+                    ? $"{careTrustPrefix}+Proximity_*"
+                    : $"{careTrustPrefix}*";
+                return dialogue;
+            }
+
+            dialogue = pending.Type == MedicalActionType.StartTreatment
                 ? _treatmentManager.BuildFirstStartTreatmentDialogue(injuries)
                 : _treatmentManager.BuildCombinedDialogue(injuries, markTreatmentDiscussed: false);
 
@@ -841,6 +856,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private string BuildAdvancePhaseDialogue(string injuryId, out string dialogueKey)
         {
+            if (TryPickCareTrustDialogue("PhaseAdvance", out string careTrustLine, out string careTrustPrefix))
+            {
+                dialogueKey = $"{careTrustPrefix}*";
+                return careTrustLine;
+            }
+
             var debuffState = _stateManager.GetDebuffState(injuryId);
             int currentPhase = debuffState?.CurrentPhase ?? 0;
             int nextPhase = currentPhase + 1;
@@ -851,8 +872,33 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private string BuildCompleteRecoveryDialogue(string injuryId, out string dialogueKey)
         {
+            if (TryPickCareTrustDialogue("Recovery", out string careTrustLine, out string careTrustPrefix))
+            {
+                dialogueKey = $"{careTrustPrefix}*";
+                return careTrustLine;
+            }
+
             dialogueKey = $"{DialogueManager.GetRecoveryCompleteDialoguePrefix(injuryId)}*";
             return _dialogueManager.PickRecoveryCompleteDialogue(injuryId);
+        }
+
+        private bool TryPickCareTrustDialogue(string scenario, out string line, out string prefix)
+        {
+            if (!_dialogueManager.TryPickCareTrustDialogue(
+                    scenario,
+                    _careTrustManager.GetLevelSuffix(),
+                    out line,
+                    out prefix))
+            {
+                line = string.Empty;
+                return false;
+            }
+
+            _monitor.Log(
+                $"[CareTrust] {scenario} trust={_careTrustManager.GetLevelSuffix()} " +
+                $"relationship={_dialogueManager.GetCareTrustRelationshipLevel()} prefix={prefix}",
+                LogLevel.Debug);
+            return true;
         }
 
         private string BuildSimpleCompletionDialogueText(string topicId, out string dialogueKey)
@@ -1053,6 +1099,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 $"[MedicalAction] applied type=AdvancePhase injury={injuryId} oldBuff={oldBuff} newBuff={newBuff} phase={oldPhase}->{newPhase}",
                 LogLevel.Info);
             _doctorVisitReminderManager.SyncReminderBuff();
+            _careTrustManager.RewardTimelyCheckupOncePerDay();
             return true;
         }
 
@@ -1086,6 +1133,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             _monitor.Log($"[MedicalAction] applied type=CompleteRecovery injury={injuryId}", LogLevel.Info);
             _doctorVisitReminderManager.SyncReminderBuff();
+            _careTrustManager.RewardTimelyCheckupOncePerDay();
             return true;
         }
 

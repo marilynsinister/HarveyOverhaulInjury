@@ -114,6 +114,14 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string TrustedPatient = "topicHarvey_TrustedPatient";
     }
 
+    /// <summary>Conversation topics по уровню скрытого медицинского доверия (CareTrust) для CP.</summary>
+    public static class CareTrustTopics
+    {
+        public const string Low = "HarveyMod_CareTrust_Low";
+        public const string Medium = "HarveyMod_CareTrust_Medium";
+        public const string High = "HarveyMod_CareTrust_High";
+    }
+
     /// <summary>
     /// Константы для ID новых баффов (осложнений)
     /// </summary>
@@ -346,6 +354,13 @@ namespace HarveyOverhaul.InjuryCare.Core
             }
 
             foreach (var field in typeof(ComplianceTopics).GetFields(
+                         System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+            {
+                if (field.FieldType == typeof(string) && field.GetValue(null) is string topicId)
+                    ids.Add(topicId);
+            }
+
+            foreach (var field in typeof(CareTrustTopics).GetFields(
                          System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
             {
                 if (field.FieldType == typeof(string) && field.GetValue(null) is string topicId)

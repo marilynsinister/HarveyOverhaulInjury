@@ -97,6 +97,21 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// <summary>День последнего HUD-предупреждения при нарушении режима лечения.</summary>
         public int LastLowComplianceHudDay { get; set; } = -1;
 
+        /// <summary>Скрытое медицинское доверие Харви (CareTrust).</summary>
+        public int CareTrust { get; set; } = 0;
+
+        /// <summary>День последнего начисления CareTrust за соблюдение запрета шахты.</summary>
+        public int LastCareTrustMineBanRewardDay { get; set; } = -1;
+
+        /// <summary>День последнего нарушения шахты, учтённого в CareTrust.</summary>
+        public int LastCareTrustMineViolationDay { get; set; } = -1;
+
+        /// <summary>День последнего начисления CareTrust за ранний сон.</summary>
+        public int LastCareTrustEarlySleepRewardDay { get; set; } = -1;
+
+        /// <summary>День последнего начисления CareTrust за визит Checkup.</summary>
+        public int LastCareTrustCheckupRewardDay { get; set; } = -1;
+
         /// <summary>Защита самопомощи: тип → день, когда она активна (SelfCareProtectionTypes.*).</summary>
         public Dictionary<string, int> SelfCareProtections { get; set; } = new();
 

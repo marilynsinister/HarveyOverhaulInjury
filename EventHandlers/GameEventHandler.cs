@@ -27,6 +27,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly ComplicationManager _complicationManager;
         private readonly PrescriptionManager _prescriptionManager;
         private readonly ComplianceManager _complianceManager;
+        private readonly CareTrustManager _careTrustManager;
         private readonly CheckupManager _checkupManager;
         private readonly RehabManager _rehabManager;
         private readonly SelfCareManager _selfCareManager;
@@ -47,6 +48,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             ComplicationManager complicationManager,
             PrescriptionManager prescriptionManager,
             ComplianceManager complianceManager,
+            CareTrustManager careTrustManager,
             CheckupManager checkupManager,
             RehabManager rehabManager,
             SelfCareManager selfCareManager,
@@ -63,6 +65,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _complicationManager = complicationManager;
             _prescriptionManager = prescriptionManager;
             _complianceManager = complianceManager;
+            _careTrustManager = careTrustManager;
             _checkupManager = checkupManager;
             _rehabManager = rehabManager;
             _selfCareManager = selfCareManager;
@@ -164,6 +167,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         }
 
                         _doctorVisitReminderManager.SyncReminderBuff();
+                        _careTrustManager.SyncCareTrustTopic();
 
                         _checkupManager.ProcessMissedCheckupsDaily(GetToday());
                         _complianceManager.TryShowLowComplianceReminder();
@@ -269,6 +273,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 // Сохраняем снапшот активных баффов мода на момент конца дня
                 _stateManager.State.SavedActiveBuffs = BuildSavedActiveBuffSnapshot();
                 _monitor.Log($"Снапшот баффов ({_stateManager.State.SavedActiveBuffs.Count}): {string.Join(", ", _stateManager.State.SavedActiveBuffs)}", LogLevel.Debug);
+
+                _careTrustManager.RewardMineBanObeyedIfEligible();
+
+                bool hasSevereInjury = InjurySets.Severe.Any(id => _injuryManager.HasInjuryOrPhase(id));
+                _careTrustManager.RewardEarlySleepIfEligible(hasSevereInjury);
 
                 // Сохранение состояния
                 _stateManager.Save();
@@ -489,6 +498,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _monitor.Log("Применение штрафа за заброшенность", LogLevel.Warn);
             _complicationManager.TryApplyNeglectComplication(
                 hudMessage: new HUDMessage("Ты запустила лечение...", HUDMessage.error_type));
+            _careTrustManager.PenalizeTrust(1, "neglect_treatment");
 
             // Если Харви рядом — короткая реплика о пропуске лечения (без снижения Friendship)
             var harvey = Game1.getCharacterFromName("Harvey");

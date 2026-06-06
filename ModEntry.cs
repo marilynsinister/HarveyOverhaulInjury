@@ -37,6 +37,7 @@ namespace HarveyOverhaul.InjuryCare
         private ComplicationManager _complicationManager = null!;
         private PrescriptionManager _prescriptionManager = null!;
         private ComplianceManager _complianceManager = null!;
+        private CareTrustManager _careTrustManager = null!;
         private CheckupManager _checkupManager = null!;
         private RehabManager _rehabManager = null!;
         private TreatmentPlanManager _treatmentPlanManager = null!;
@@ -350,6 +351,26 @@ namespace HarveyOverhaul.InjuryCare
                 "injury_compliance_set",
                 "TreatmentComplianceScore (−10…10): насколько стабильно соблюдается лечение. Не влияет на Friendship.",
                 (_, args) => CmdComplianceSet(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_trust_get",
+                "Текущее значение CareTrust (скрытое медицинское доверие Харви).",
+                (_, _) => CmdTrustGet());
+
+            helper.ConsoleCommands.Add(
+                "injury_trust_set",
+                "Установить CareTrust: injury_trust_set <value>",
+                (_, args) => CmdTrustSet(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_trust_add",
+                "Изменить CareTrust: injury_trust_add <value> (отрицательное — штраф).",
+                (_, args) => CmdTrustAdd(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_trust_level",
+                "Уровень CareTrust: Low / Medium / High.",
+                (_, _) => CmdTrustLevel());
 
             helper.ConsoleCommands.Add(
                 "injury_test_prescription_violation",
@@ -1773,6 +1794,74 @@ namespace HarveyOverhaul.InjuryCare
                 LogLevel.Info);
         }
 
+        private void CmdTrustGet()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log($"CareTrust: {_careTrustManager.GetTrust()}", LogLevel.Info);
+        }
+
+        private void CmdTrustSet(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0 || !int.TryParse(args[0], out int value))
+            {
+                Monitor.Log("Использование: injury_trust_set <value>", LogLevel.Info);
+                return;
+            }
+
+            _careTrustManager.SetTrust(value, "debug_console_set");
+            Monitor.Log(
+                $"CareTrust = {_careTrustManager.GetTrust()} ({_careTrustManager.GetLevel()})",
+                LogLevel.Info);
+        }
+
+        private void CmdTrustAdd(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0 || !int.TryParse(args[0], out int delta))
+            {
+                Monitor.Log("Использование: injury_trust_add <value>", LogLevel.Info);
+                return;
+            }
+
+            if (delta > 0)
+                _careTrustManager.AddTrust(delta, "debug_console_add");
+            else if (delta < 0)
+                _careTrustManager.PenalizeTrust(-delta, "debug_console_add");
+
+            Monitor.Log(
+                $"CareTrust = {_careTrustManager.GetTrust()} ({_careTrustManager.GetLevel()})",
+                LogLevel.Info);
+        }
+
+        private void CmdTrustLevel()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log(
+                $"CareTrust level: {_careTrustManager.GetLevel()} (value={_careTrustManager.GetTrust()})",
+                LogLevel.Info);
+        }
+
         private void CmdTestPrescriptionViolation(string[] args)
         {
             string kind = args.Length > 0 ? args[0] : "NoMine";
@@ -2452,6 +2541,7 @@ namespace HarveyOverhaul.InjuryCare
             _stateManager = new StateManager(Helper.Data, Monitor);
             _buffManager = new BuffManager(Monitor, Helper);
             _dialogueManager = new DialogueManager(Monitor);
+            _careTrustManager = new CareTrustManager(Monitor, _config, _stateManager, _dialogueManager);
 
             // Загрузить данные баффов
             _buffManager.LoadBuffData();
@@ -2573,6 +2663,7 @@ namespace HarveyOverhaul.InjuryCare
                 _complicationManager,
                 _prescriptionManager,
                 _complianceManager,
+                _careTrustManager,
                 _checkupManager,
                 _rehabManager,
                 _selfCareManager,
@@ -2591,6 +2682,7 @@ namespace HarveyOverhaul.InjuryCare
                 _harveyReactionManager,
                 _prescriptionManager,
                 _complianceManager,
+                _careTrustManager,
                 _rehabManager,
                 _complicationManager
             );
@@ -2606,6 +2698,7 @@ namespace HarveyOverhaul.InjuryCare
                 _treatmentManager,
                 _hospitalizationManager,
                 _complianceManager,
+                _careTrustManager,
                 _prescriptionManager,
                 _checkupManager,
                 _rehabManager,
@@ -2644,7 +2737,8 @@ namespace HarveyOverhaul.InjuryCare
                 _dialogueManager,
                 _hospitalizationManager,
                 _injuryManager,
-                _complicationManager
+                _complicationManager,
+                _careTrustManager
             );
 
             // События сохранения
@@ -3289,6 +3383,7 @@ namespace HarveyOverhaul.InjuryCare
             int prescriptionCount = (state.ActivePrescriptions ?? new Dictionary<string, PrescriptionState>())
                 .Count(kvp => !kvp.Value.IsExpired((int)Game1.stats.DaysPlayed));
             sb.AppendLine($"Prescriptions: {prescriptionCount}  соблюдение: {state.TreatmentComplianceScore} ({ComplianceManager.GetLevelDisplayName(_complianceManager.GetComplianceLevel())})");
+            sb.AppendLine($"CareTrust: {_careTrustManager.GetTrust()} / {_careTrustManager.GetLevel()}");
 
             if (!string.IsNullOrEmpty(state.ActiveRehabInjuryId))
             {

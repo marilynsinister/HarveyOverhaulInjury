@@ -27,6 +27,11 @@ namespace HarveyOverhaul.InjuryCare.Helpers
         private readonly HospitalizationManager _hospitalizationManager;
         private readonly InjuryManager _injuryManager;
         private readonly ComplicationManager _complicationManager;
+        private readonly CareTrustManager _careTrustManager;
+
+        private const string DefaultNightVisitDialogue =
+            "Тихо постучал и заглянул — не спи на животе, ладно?$u#$b#" +
+            "Пульс ровный. Не геройствуй до утра — я присмотрю.$l";
 
         public HarveyHomeCareEventLauncher(
             IMonitor monitor,
@@ -35,7 +40,8 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             DialogueManager dialogueManager,
             HospitalizationManager hospitalizationManager,
             InjuryManager injuryManager,
-            ComplicationManager complicationManager)
+            ComplicationManager complicationManager,
+            CareTrustManager careTrustManager)
         {
             _monitor = monitor;
             _config = config;
@@ -44,6 +50,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             _hospitalizationManager = hospitalizationManager;
             _injuryManager = injuryManager;
             _complicationManager = complicationManager;
+            _careTrustManager = careTrustManager;
         }
 
         /// <summary>
@@ -173,8 +180,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
 
             _monitor.Log("[HomeCare/ShortNightRound] Короткий ночной визит", LogLevel.Info);
 
-            string line = "Тихо постучал и заглянул — не спи на животе, ладно?$u#$b#" +
-                          "Пульс ровный. Не геройствуй до утра — я присмотрю.$l";
+            string line = PickNightVisitDialogueLine();
 
             var harvey = HarveyHelper.GetHarvey();
             if (harvey != null)
@@ -483,8 +489,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
 
             _dialogueManager.RemoveTopic(ConversationTopics.NightRoundSevereFirst);
 
-            string line = "Тихо постучал и заглянул — не спи на животе, ладно?$u#$b#" +
-                          "Пульс ровный. Не геройствуй до утра — я присмотрю.$l";
+            string line = PickNightVisitDialogueLine();
 
             var harvey = HarveyHelper.GetHarvey();
             if (harvey != null)
@@ -541,6 +546,25 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 $"[HomeCare/{source}] MorningAfterExhaustion '{eventId}' завершено; " +
                 $"topic {ConversationTopics.HarveyMorningAfterExhaustion} снят, followup добавлен",
                 LogLevel.Info);
+        }
+
+        private string PickNightVisitDialogueLine()
+        {
+            if (_config.EnableCareTrust
+                && _dialogueManager.TryPickCareTrustDialogue(
+                    "NightVisit",
+                    _careTrustManager.GetLevelSuffix(),
+                    out string careTrustLine,
+                    out string prefix))
+            {
+                _monitor.Log(
+                    $"[CareTrust] NightVisit trust={_careTrustManager.GetLevelSuffix()} " +
+                    $"relationship={_dialogueManager.GetCareTrustRelationshipLevel()} prefix={prefix}",
+                    LogLevel.Debug);
+                return careTrustLine;
+            }
+
+            return DefaultNightVisitDialogue;
         }
 
         private void ApplyNightRoundVisitBonuses()

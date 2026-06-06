@@ -27,6 +27,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly HarveyReactionManager _harveyReactionManager;
         private readonly PrescriptionManager _prescriptionManager;
         private readonly ComplianceManager _complianceManager;
+        private readonly CareTrustManager _careTrustManager;
         private readonly RehabManager _rehabManager;
         private readonly ComplicationManager _complicationManager;
 
@@ -69,6 +70,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             HarveyReactionManager harveyReactionManager,
             PrescriptionManager prescriptionManager,
             ComplianceManager complianceManager,
+            CareTrustManager careTrustManager,
             RehabManager rehabManager,
             ComplicationManager complicationManager)
         {
@@ -83,6 +85,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _harveyReactionManager = harveyReactionManager;
             _prescriptionManager = prescriptionManager;
             _complianceManager = complianceManager;
+            _careTrustManager = careTrustManager;
             _rehabManager = rehabManager;
             _complicationManager = complicationManager;
         }
@@ -347,6 +350,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             MineForbiddenHelper.SyncMineRestrictedBuff(
                 state, _config, _injuryManager, _buffManager, _stateManager, _monitor, today, "MineEntry");
 
+            bool hasSevereInjury = MineForbiddenHelper.HasSevereMineCondition(
+                state, _injuryManager, _buffManager, out _);
+            bool hasMineForbidden = MineForbiddenHelper.IsMineForbiddenActive(state, _config, today);
+
+            if (hasMineForbidden)
+                _careTrustManager.PenalizeMineViolationOncePerDay(hasSevereInjury);
+            else if (hasSevereInjury)
+                _careTrustManager.PenalizeMineViolationOncePerDay(true);
+
             if (state.NeedsMineRescueEvent)
                 return;
 
@@ -422,7 +434,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     state, _config, _buffManager, _stateManager, _monitor, today, "MineEntryResync");
             }
 
-            string hud = MineForbiddenHelper.FormatHardBanEntryHud(_config, state, today, isVolcano);
+            bool hasSevereInjury = MineForbiddenHelper.HasSevereMineCondition(
+                state, _injuryManager, _buffManager, out _);
+            string hud = _careTrustManager.GetMineWarningHudLine(hasSevereInjury, forbidden: true);
             Game1.addHUDMessage(new HUDMessage(hud, HUDMessage.error_type));
             _monitor.Log($"[MineForbidden] Блокировка входа: {hud}", LogLevel.Warn);
 
@@ -462,7 +476,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (state.MineRestrictionViolationsToday == 0)
             {
                 Game1.addHUDMessage(new HUDMessage(
-                    MineForbiddenHelper.FormatRestrictedEntryHud(),
+                    _careTrustManager.GetMineWarningHudLine(severe: true, forbidden: false),
                     HUDMessage.health_type));
                 state.MineRestrictionViolationsToday = 1;
                 state.MineRestrictionStrikes++;
