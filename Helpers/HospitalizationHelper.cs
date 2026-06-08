@@ -1,3 +1,4 @@
+using System;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 
@@ -15,8 +16,12 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             return hours * 60 + minutes;
         }
 
+        /// <summary>Накопленный прогресс госпитализации (устойчив к LongerDays).</summary>
         public static int GetElapsedMinutes(InjuryState state, int timeOfDay)
         {
+            if (state.HospitalStayProgressMinutes > 0)
+                return state.HospitalStayProgressMinutes;
+
             int admissionMinutes = state.HospitalAdmissionMinutes;
             if (admissionMinutes < 0 && state.HospitalAdmissionTime >= 0)
                 admissionMinutes = ToClockMinutes(state.HospitalAdmissionTime);
@@ -27,7 +32,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             int now = ToClockMinutes(timeOfDay);
             int elapsed = now - admissionMinutes;
             if (elapsed < 0)
-                elapsed += 24 * 60;
+                return 0;
 
             return elapsed;
         }
@@ -63,7 +68,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             int now = ToClockMinutes(timeOfDay);
             int delta = now - lastHudMinute;
             if (delta < 0)
-                delta += 24 * 60;
+                return false;
 
             return delta >= StatusHudIntervalMinutes;
         }

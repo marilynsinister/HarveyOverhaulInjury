@@ -31,8 +31,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private bool _hospitalHoldActive;
         private string? _currentHospitalCaseInjury;
-        private int _hospitalElapsedMinutes;
-        private int _lastHospitalClockMinutes = -1;
         private bool _dischargeAllowed;
 
         /// <summary>
@@ -40,10 +38,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public bool HasPendingReturnToHospital => _pendingReturnToHospital;
 
-        public int HospitalElapsedMinutes => _hospitalElapsedMinutes;
+        public int HospitalStayProgressMinutes => _stateManager.State.HospitalStayProgressMinutes;
+        public int HospitalElapsedMinutes => HospitalStayProgressMinutes;
         public bool DischargeAllowed => _dischargeAllowed;
-        public int LastHospitalClockMinutes => _lastHospitalClockMinutes;
+        public int LastHospitalTimeOfDay => _stateManager.State.LastHospitalTimeOfDay;
+        public int AdmissionDay => _stateManager.State.HospitalAdmissionDay;
         public int MinHospitalStayMinutes => GetMinStayMinutes();
+
+        public static string BuildCaseId(string injuryId, string reason, int day) =>
+            $"{injuryId}|{reason}|{day}";
 
         public HospitalizationManager(
             IMonitor monitor,
@@ -162,6 +165,25 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public void StartForcedHospitalizationWithExplanation(string injuryId, NPC? harvey, string reason)
         {
+            var state = _stateManager.State;
+            int today = GameUtils.Today();
+            string caseId = BuildCaseId(injuryId, reason, today);
+
+            if (state.DischargedToday
+                && string.Equals(state.LastHospitalDischargeInjuryId, injuryId, StringComparison.OrdinalIgnoreCase))
+            {
+                _monitor.Log(
+                    $"[Hospital] Пропуск повторной госпитализации {injuryId} — уже выписан сегодня",
+                    LogLevel.Debug);
+                return;
+            }
+
+            if (string.Equals(state.HospitalizationCompletedCaseId, caseId, StringComparison.OrdinalIgnoreCase))
+            {
+                _monitor.Log($"[Hospital] Пропуск — кейс {caseId} уже завершён", LogLevel.Debug);
+                return;
+            }
+
             EnsureTreatmentBeforeForcedHospitalization(injuryId);
 
             if (!_dialogueManager.HasTopic(ConversationTopics.ForcedHosp))
@@ -169,23 +191,24 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             _monitor.Log($"🏥 Начинаем принудительную госпитализацию: {injuryId}, причина: {reason}", LogLevel.Info);
 
-            var state = _stateManager.State;
             state.IsHospitalized = true;
             state.HospitalizedInjuryId = injuryId;
             state.HospitalizationReason = reason;
-            state.HospitalAdmissionDay = GameUtils.Today();
+            state.HospitalAdmissionDay = today;
             state.HospitalAdmissionTime = Game1.timeOfDay;
             state.HospitalAdmissionMinutes = ToClockMinutes(Game1.timeOfDay);
             state.HospitalMinStayMinutes = CalculateHospitalStayMinutes(injuryId, reason);
             state.HospitalDischargeReadyShown = false;
             state.PendingForcedHospitalizationWarning = false;
             state.HospitalLastStatusHudMinute = -1;
+            state.HospitalStayProgressMinutes = 0;
+            state.LastHospitalTimeOfDay = Game1.timeOfDay;
+            state.HospitalizationCaseId = caseId;
+            state.DischargedToday = false;
             _stateManager.Save();
 
             _hospitalHoldActive = true;
             _currentHospitalCaseInjury = injuryId;
-            _hospitalElapsedMinutes = 0;
-            _lastHospitalClockMinutes = GameUtils.CurrentTimeInMinutes();
             _dischargeAllowed = false;
 
             ApplyHospitalizedBuff(Game1.timeOfDay);
@@ -309,35 +332,62 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>
         /// Накопить игровые минуты госпитализации по сменам timeOfDay (HHMM), устойчиво к откату времени.
         /// </summary>
-        public void UpdateHospitalStayProgress(int newTimeOfDay)
+        public void UpdateHospitalStayProgress(int oldTimeOfDay, int newTimeOfDay)
         {
-            if (!_hospitalHoldActive || _dischargeAllowed)
+            if (!_hospitalHoldActive || _dischargeAllowed || !IsHospitalized)
                 return;
 
-            int currentMinutes = ToClockMinutes(newTimeOfDay);
+            var state = _stateManager.State;
+            int oldMinutes = ToClockMinutes(oldTimeOfDay);
+            int newMinutes = ToClockMinutes(newTimeOfDay);
 
-            if (_lastHospitalClockMinutes < 0)
+            if (state.LastHospitalTimeOfDay >= 0 && oldTimeOfDay != state.LastHospitalTimeOfDay)
+                oldMinutes = ToClockMinutes(state.LastHospitalTimeOfDay);
+
+            if (newMinutes > oldMinutes)
             {
-                _lastHospitalClockMinutes = currentMinutes;
-                return;
+                int delta = newMinutes - oldMinutes;
+                if (delta <= MaxHospitalClockDeltaMinutes)
+                {
+                    state.HospitalStayProgressMinutes += delta;
+                    _stateManager.Save();
+                }
+                else
+                {
+                    _monitor.Log($"Hospital time jump ignored (delta={delta} min)", LogLevel.Debug);
+                }
+            }
+            else if (newMinutes <= oldMinutes)
+            {
+                _monitor.Log(
+                    "time moved backwards or wrapped, ignoring negative delta",
+                    LogLevel.Debug);
             }
 
-            int delta = currentMinutes - _lastHospitalClockMinutes;
+            state.LastHospitalTimeOfDay = newTimeOfDay;
 
-            if (delta > 0 && delta <= MaxHospitalClockDeltaMinutes)
-                _hospitalElapsedMinutes += delta;
-            else if (delta <= 0)
-                _monitor.Log("Hospital time rollback ignored", LogLevel.Debug);
-            else
-                _monitor.Log($"Hospital time jump ignored (delta={delta} min)", LogLevel.Debug);
-
-            _lastHospitalClockMinutes = currentMinutes;
-
-            if (_hospitalElapsedMinutes < GetMinStayMinutes())
+            if (state.HospitalStayProgressMinutes < GetMinStayMinutes())
                 return;
 
             _dischargeAllowed = true;
+            _stateManager.Save();
             _monitor.Log("Минимальный срок госпитализации прошёл, можно выписаться", LogLevel.Debug);
+        }
+
+        /// <summary>QA: установить накопленный прогресс госпитализации в минутах.</summary>
+        public void SetHospitalStayProgressMinutes(int minutes)
+        {
+            var state = _stateManager.State;
+            state.HospitalStayProgressMinutes = Math.Max(0, minutes);
+            _dischargeAllowed = state.HospitalStayProgressMinutes >= GetMinStayMinutes();
+            _stateManager.Save();
+        }
+
+        /// <summary>QA: полный сброс госпитализации.</summary>
+        public void ResetHospitalizationForQa()
+        {
+            ClearHospitalizationState(markDischarged: false);
+            _stateManager.Save();
         }
 
         private void ApplyHospitalizedBuff(int timeOfDay)
@@ -384,10 +434,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public bool CanDischarge()
         {
-            if (!_hospitalHoldActive)
+            if (!IsHospitalized)
                 return true;
 
-            return _dischargeAllowed;
+            if (!_hospitalHoldActive)
+                RestoreHospitalStayCounters();
+
+            return _dischargeAllowed
+                || _stateManager.State.HospitalStayProgressMinutes >= GetMinStayMinutes();
         }
 
         /// <summary>
@@ -430,7 +484,22 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _monitor.Log("🏥 Выписка пациента", LogLevel.Info);
 
             string? injuryId = CurrentInjury;
-            ClearHospitalizationState();
+            var state = _stateManager.State;
+            string completedCase = state.HospitalizationCaseId;
+
+            ClearHospitalizationState(markDischarged: true, completedCaseId: completedCase);
+
+            if (!string.IsNullOrEmpty(completedCase))
+            {
+                state.HospitalizationCompletedCaseId = completedCase;
+                state.LastHospitalDischargeDay = GameUtils.Today();
+                state.LastHospitalDischargeInjuryId = injuryId ?? "";
+                state.DischargedToday = true;
+            }
+
+            if (!_dialogueManager.HasTopic(ConversationTopics.HospitalDischarged))
+                _dialogueManager.AddTopic(ConversationTopics.HospitalDischarged, 2);
+
             MarkAfterHospitalDischargeHomeEvent(injuryId);
             _stateManager.Save();
 
@@ -777,17 +846,18 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             _hospitalHoldActive = true;
             _currentHospitalCaseInjury = CurrentInjury;
-            _lastHospitalClockMinutes = GameUtils.CurrentTimeInMinutes();
-            _hospitalElapsedMinutes = HospitalizationHelper.GetElapsedMinutes(_stateManager.State, Game1.timeOfDay);
-            _dischargeAllowed = _hospitalElapsedMinutes >= GetMinStayMinutes();
+            var state = _stateManager.State;
+
+            if (state.LastHospitalTimeOfDay < 0)
+                state.LastHospitalTimeOfDay = Game1.timeOfDay;
+
+            _dischargeAllowed = state.HospitalStayProgressMinutes >= GetMinStayMinutes();
         }
 
         private void ResetHospitalStayCounters()
         {
             _hospitalHoldActive = false;
             _currentHospitalCaseInjury = null;
-            _hospitalElapsedMinutes = 0;
-            _lastHospitalClockMinutes = -1;
             _dischargeAllowed = false;
         }
 
@@ -801,10 +871,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private int GetRemainingMinutes()
         {
-            return Math.Max(0, GetMinStayMinutes() - _hospitalElapsedMinutes);
+            return Math.Max(0, GetMinStayMinutes() - _stateManager.State.HospitalStayProgressMinutes);
         }
 
-        private void ClearHospitalizationState()
+        private void ClearHospitalizationState(bool markDischarged = false, string? completedCaseId = null)
         {
             _pendingReturnToHospital = false;
             _pendingBlockedExitReaction = false;
@@ -821,6 +891,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             state.HospitalMinStayMinutes = 120;
             state.HospitalDischargeReadyShown = false;
             state.HospitalLastStatusHudMinute = -1;
+            state.HospitalStayProgressMinutes = 0;
+            state.LastHospitalTimeOfDay = -1;
+            state.HospitalizationCaseId = "";
 
             RemoveHospitalizedBuffFromPlayerAndSaved();
         }

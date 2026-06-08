@@ -31,6 +31,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly RehabManager _rehabManager;
         private readonly RecoveryPlanManager _recoveryPlanManager;
         private readonly ComplicationManager _complicationManager;
+        private readonly MineEntryCoordinator _mineEntryCoordinator;
 
         private PassOutHandler? _passOutHandler;
         private HarveyHomeCareEventLauncher? _homeCareLauncher;
@@ -74,7 +75,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             CareTrustManager careTrustManager,
             RehabManager rehabManager,
             RecoveryPlanManager recoveryPlanManager,
-            ComplicationManager complicationManager)
+            ComplicationManager complicationManager,
+            MineEntryCoordinator mineEntryCoordinator)
         {
             _monitor = monitor;
             _config = config;
@@ -91,6 +93,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _rehabManager = rehabManager;
             _recoveryPlanManager = recoveryPlanManager;
             _complicationManager = complicationManager;
+            _mineEntryCoordinator = mineEntryCoordinator;
         }
 
         public void SetPassOutHandler(PassOutHandler passOutHandler)
@@ -260,14 +263,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     CheckFarmingInjuries();
                     CheckRainExposure();
                     _rehabManager.CheckRehabViolationOnHeavyWork();
-                    _recoveryPlanManager.CheckViolationOnLowStamina();
+                    _recoveryPlanManager.CheckRecoveryStaminaViolations((int)e.Ticks);
                 }
 
-                // Проверка здоровья
                 if (e.IsMultipleOf(120))
                 {
                     CheckHealthBasedInjuries();
-                    _recoveryPlanManager.CheckViolationOnLowHealth();
+                    _recoveryPlanManager.CheckLowHealthViolation((int)e.Ticks);
                 }
 
                 // Каждые 10 секунд — окружающая среда (холод, алкоголь при лечении)
@@ -310,7 +312,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _recoveryPlanManager.CheckViolationOnLocationEntry(location);
 
             if (IsMineOrVolcanoLocation(location))
+            {
                 HandleMinesLogic();
+            }
 
             if (string.Equals(location?.Name, "BathHouse_Pool", StringComparison.OrdinalIgnoreCase))
                 HandleSpaLogic();
@@ -318,30 +322,40 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private void HandleHospitalLogic()
         {
-            // Проверка: игрок в госпитале после спасения из шахты
             bool hasMineInjuryTopic = Helpers.GameUtils.HasConversationTopic(ConversationTopics.MineInjuryRescue);
             bool hasSeriousMainInjury = _injuryManager.IsMainInjurySerious();
-            
-            if (_config.ForceHospitalization && hasMineInjuryTopic && hasSeriousMainInjury)
-            {
-                // Если уже госпитализирован, не запускаем снова
-                if (_hospitalizationManager.IsHospitalized)
-                    return;
 
-                _monitor.Log("⚠️ Игрок в госпитале с ранами после шахты → ПРИНУДИТЕЛЬНАЯ ГОСПИТАЛИЗАЦИЯ", LogLevel.Warn);
-                
-                NPC? harvey = HarveyHelper.GetHarvey();
-                string? injury = _injuryManager.GetActiveInjuryOrPhaseByPriority() ?? "buffBadlyHurt";
-                
-                _hospitalizationManager.StartForcedHospitalizationWithExplanation(injury, harvey, "mine_rescue");
-                
-                // Удаляем топик после срабатывания
-                _dialogueManager.RemoveTopic(ConversationTopics.MineInjuryRescue);
+            if (!_config.ForceHospitalization || !hasMineInjuryTopic || !hasSeriousMainInjury)
+                return;
+
+            if (_hospitalizationManager.IsHospitalized)
+                return;
+
+            var state = _stateManager.State;
+            if (state.DischargedToday)
+            {
+                _monitor.Log("[Hospital] Пропуск повторной госпитализации — игрок уже выписан сегодня", LogLevel.Debug);
+                return;
             }
+
+            string? injury = _injuryManager.GetActiveInjuryOrPhaseByPriority() ?? "buffBadlyHurt";
+            string caseId = HospitalizationManager.BuildCaseId(injury, "mine_rescue", GameUtils.Today());
+            if (string.Equals(state.HospitalizationCompletedCaseId, caseId, StringComparison.OrdinalIgnoreCase))
+            {
+                _monitor.Log($"[Hospital] Пропуск — кейс {caseId} уже завершён", LogLevel.Debug);
+                _dialogueManager.RemoveTopic(ConversationTopics.MineInjuryRescue);
+                return;
+            }
+
+            _monitor.Log("⚠️ Игрок в госпитале с ранами после шахты → ПРИНУДИТЕЛЬНАЯ ГОСПИТАЛИЗАЦИЯ", LogLevel.Warn);
+
+            NPC? harvey = HarveyHelper.GetHarvey();
+            _hospitalizationManager.StartForcedHospitalizationWithExplanation(injury, harvey, "mine_rescue");
+            _dialogueManager.RemoveTopic(ConversationTopics.MineInjuryRescue);
         }
 
         /// <summary>
-        /// Логика шахты/вулкана: жёсткий запрет (короткий) или мягкое ограничение (длительное лечение Severe).
+        /// Логика шахты/вулкана: MineForbidden (жёсткий) vs RecoveryPlan (мягкий) vs MineRestricted.
         /// </summary>
         private void HandleMinesLogic()
         {
@@ -350,6 +364,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             int today = Helpers.GameUtils.Today();
             var state = _stateManager.State;
+            GameLocation location = Game1.currentLocation;
+            bool isVolcano = IsVolcanoLocation(location);
 
             MineForbiddenHelper.ResetDailyRestrictionViolations(state, today);
             MineForbiddenHelper.SyncMineForbiddenBuff(
@@ -372,24 +388,37 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             CheckNoMinePrescriptionViolation(today);
             _rehabManager.CheckRehabViolationOnMine();
 
-            if (MineForbiddenHelper.IsUntreatedSevereForMineEntry(state, _injuryManager, _buffManager)
-                && !MineForbiddenHelper.IsMineForbiddenActive(state, _config, today))
+            if (_mineEntryCoordinator.ShouldPhysicallyBlockMines())
             {
-                state.MineWarningDay = today;
-                state.LastMineSevereWarningDay = today;
-                MineForbiddenHelper.ApplyHardMineForbidden(
-                    state, _config, _buffManager, _stateManager, _monitor, today, "severe_untreated_entry");
-                _complianceManager.AddCompliance(-1, "severe_mine_entry");
-                _stateManager.Save();
+                _mineEntryCoordinator.HandleMineEntryDuringMineForbidden(
+                    location,
+                    today,
+                    isVolcano,
+                    WarpOutOfForbiddenDungeon,
+                    () => !isVolcano && TryStartEventByName(
+                        "eventHarveyMineInterception",
+                        "Mine",
+                        WarpOutOfMineIfStillInside));
+                return;
+            }
+
+            if (_mineEntryCoordinator.ShouldWarnRecoveryPlanMineEntry())
+            {
+                _mineEntryCoordinator.HandleMineEntryDuringRecoveryPlan(location, today, isVolcano);
+                if (!_config.RecoveryPlanMineRuleBlocksEntry)
+                {
+                    ShowSoftMineWarningIfNeeded(today);
+                    return;
+                }
+
+                WarpOutOfForbiddenDungeon(location);
+                return;
             }
 
             var mode = MineForbiddenHelper.GetMineAccessMode(state, _config, _injuryManager, _buffManager, today);
 
             switch (mode)
             {
-                case MineAccessMode.Forbidden:
-                    HandleActiveMineForbiddenBlock(today);
-                    return;
                 case MineAccessMode.Restricted:
                     HandleMineRestrictedEntry(today);
                     return;
@@ -428,50 +457,20 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
         }
 
-        /// <summary>Жёсткий запрет: HUD, затем вынос (без молчаливого warp).</summary>
         private void HandleActiveMineForbiddenBlock(int today)
         {
-            var state = _stateManager.State;
             GameLocation location = Game1.currentLocation;
             bool isVolcano = IsVolcanoLocation(location);
 
-            if (!_buffManager.HasBuff(InjuryBuffs.MineForbidden))
-            {
-                MineForbiddenHelper.SyncMineForbiddenBuff(
-                    state, _config, _buffManager, _stateManager, _monitor, today, "MineEntryResync");
-            }
-
-            bool hasSevereInjury = MineForbiddenHelper.HasSevereMineCondition(
-                state, _injuryManager, _buffManager, out _);
-            string hud = _careTrustManager.GetMineWarningHudLine(hasSevereInjury, forbidden: true);
-            Game1.addHUDMessage(new HUDMessage(hud, HUDMessage.error_type));
-            _monitor.Log($"[MineForbidden] Блокировка входа: {hud}", LogLevel.Warn);
-
-            if (isVolcano)
-            {
-                Game1.playSound("debuffHit");
-                WarpOutOfForbiddenDungeon(location);
-                return;
-            }
-
-            _monitor.Log("[MineForbidden] Игрок вошёл в шахту при активном запрете Харви", LogLevel.Warn);
-
-            if (state.LastMineForbiddenInterceptionDay == today)
-                _complianceManager.AddCompliance(-2, "mine_forbidden_repeat");
-
-            if (state.LastMineForbiddenInterceptionDay != today)
-            {
-                state.LastMineForbiddenInterceptionDay = today;
-                _stateManager.Save();
-
-                if (TryStartEventByName("eventHarveyMineInterception", "Mine", WarpOutOfMineIfStillInside))
-                    return;
-
-                _monitor.Log("[MineForbidden] Событие не запустилось — fallback HUD + warp", LogLevel.Warn);
-            }
-
-            Game1.playSound("cancel");
-            WarpOutOfForbiddenDungeon(location);
+            _mineEntryCoordinator.HandleMineEntryDuringMineForbidden(
+                location,
+                today,
+                isVolcano,
+                WarpOutOfForbiddenDungeon,
+                () => !isVolcano && TryStartEventByName(
+                    "eventHarveyMineInterception",
+                    "Mine",
+                    WarpOutOfMineIfStillInside));
         }
 
         /// <summary>Мягкое ограничение: предупреждение и риски, без выноса.</summary>
@@ -988,6 +987,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (keepDryActive)
                 CheckKeepDryRainPrescriptionViolation(secondsUnderRain);
+
+            if (keepDryActive || bandageLogic)
+                _recoveryPlanManager.CheckRainBandageViolation(secondsUnderRain);
 
             // === ПРОМОКАНИЕ ПОВЯЗКИ ===
             if (!bandageLogic)

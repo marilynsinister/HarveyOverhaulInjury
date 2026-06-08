@@ -3,7 +3,8 @@ using System.Collections.Generic;
 namespace HarveyOverhaul.InjuryCare.Core.Models
 {
     /// <summary>
-    /// DTO для будущего UI «Плана восстановления» (без StardewUI-привязок).
+    /// DTO для UI «Плана восстановления» (без StardewUI-привязок).
+    /// Объединяет сохранённый post-hospital план и вычисленный контекст лечения.
     /// </summary>
     public sealed class RecoveryPlanViewModel
     {
@@ -42,5 +43,45 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         public bool CompletionTalkPending { get; init; }
 
         public int LastEvaluatedDay { get; init; } = -1;
+
+        // --- Вычисленный контекст лечения ---
+
+        public RecoveryPlanMoodStatus Status { get; init; } = RecoveryPlanMoodStatus.None;
+
+        public string StatusText { get; init; } = "";
+
+        public string StatusDescription { get; init; } = "";
+
+        public string DayProgressText { get; init; } = "";
+
+        public string InjuryDisplayName { get; init; } = "";
+
+        public string PhaseLabel { get; init; } = "";
+
+        public string WhyImportant { get; init; } = "";
+
+        public string ComplicationSummary { get; init; } = "";
+
+        public int ConcernScore { get; init; }
+
+        public string? MainInjuryId { get; init; }
+
+        public int CurrentPhase { get; init; }
+
+        public int TotalPhases { get; init; }
+
+        public bool ReadyForNextPhase { get; init; }
+
+        public bool ReadyForRecovery { get; init; }
+
+        public IReadOnlyList<RecoveryPlanTask> Tasks { get; init; } = new List<RecoveryPlanTask>();
+
+        public IReadOnlyList<RecoveryPlanViolation> Violations { get; init; } = new List<RecoveryPlanViolation>();
+
+        /// <summary>Короткий статус режима («режим соблюдается», «нужен осмотр»).</summary>
+        public string RegimeStatusText { get; init; } = "";
+
+        /// <summary>Блок «Тон Харви» для UI.</summary>
+        public HarveyToneViewModel HarveyTone { get; init; } = HarveyToneViewModel.Empty;
     }
 }

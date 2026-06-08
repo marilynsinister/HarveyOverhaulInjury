@@ -4,6 +4,8 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text;
 using CoreDto = HarveyOverhaul.InjuryCare.Core.Models.RecoveryPlanViewModel;
+using CoreTask = HarveyOverhaul.InjuryCare.Core.Models.RecoveryPlanTask;
+using HarveyOverhaul.InjuryCare.Core;
 
 namespace HarveyOverhaul.InjuryCare.UI.RecoveryPlan
 {
@@ -12,131 +14,106 @@ namespace HarveyOverhaul.InjuryCare.UI.RecoveryPlan
     /// </summary>
     public sealed class RecoveryPlanViewModel : INotifyPropertyChanged
     {
-        private string _title = "План восстановления Харви";
-        private string _planTypeLabel = "";
-        private string _progressText = "";
-        private string _todayStatusText = "";
-        private string _rulesText = "";
-        private string _todayViolationsText = "";
+        private string _title = "План восстановления";
+        private string _injuryLine = "";
+        private string _phaseLine = "";
+        private string _progressLine = "";
+        private string _regimeStatusLine = "";
+        private string _harveyToneSectionLabel = "";
+        private string _harveyToneTitle = "";
+        private string _harveyToneDescription = "";
+        private string _harveyToneAccentColor = "#7f6139";
+        private string _tasksText = "";
+        private string _whyImportant = "";
+        private string _complicationLine = "";
         private string _hintText = "";
+        private string _todayFailedSectionText = "";
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
-        public string Title
-        {
-            get => _title;
-            set => SetField(ref _title, value);
-        }
-
-        public string PlanTypeLabel
-        {
-            get => _planTypeLabel;
-            set => SetField(ref _planTypeLabel, value);
-        }
-
-        public string ProgressText
-        {
-            get => _progressText;
-            set => SetField(ref _progressText, value);
-        }
-
-        public string TodayStatusText
-        {
-            get => _todayStatusText;
-            set => SetField(ref _todayStatusText, value);
-        }
-
-        public string RulesText
-        {
-            get => _rulesText;
-            set => SetField(ref _rulesText, value);
-        }
-
-        public string TodayViolationsText
-        {
-            get => _todayViolationsText;
-            set => SetField(ref _todayViolationsText, value);
-        }
-
-        public string HintText
-        {
-            get => _hintText;
-            set => SetField(ref _hintText, value);
-        }
+        public string Title { get => _title; set => SetField(ref _title, value); }
+        public string InjuryLine { get => _injuryLine; set => SetField(ref _injuryLine, value); }
+        public string PhaseLine { get => _phaseLine; set => SetField(ref _phaseLine, value); }
+        public string ProgressLine { get => _progressLine; set => SetField(ref _progressLine, value); }
+        public string RegimeStatusLine { get => _regimeStatusLine; set => SetField(ref _regimeStatusLine, value); }
+        public string HarveyToneSectionLabel { get => _harveyToneSectionLabel; set => SetField(ref _harveyToneSectionLabel, value); }
+        public string HarveyToneTitle { get => _harveyToneTitle; set => SetField(ref _harveyToneTitle, value); }
+        public string HarveyToneDescription { get => _harveyToneDescription; set => SetField(ref _harveyToneDescription, value); }
+        public string HarveyToneAccentColor { get => _harveyToneAccentColor; set => SetField(ref _harveyToneAccentColor, value); }
+        public string TasksText { get => _tasksText; set => SetField(ref _tasksText, value); }
+        public string WhyImportant { get => _whyImportant; set => SetField(ref _whyImportant, value); }
+        public string ComplicationLine { get => _complicationLine; set => SetField(ref _complicationLine, value); }
+        public string HintText { get => _hintText; set => SetField(ref _hintText, value); }
+        public string TodayFailedSectionText { get => _todayFailedSectionText; set => SetField(ref _todayFailedSectionText, value); }
 
         public static RecoveryPlanViewModel FromDto(CoreDto dto)
         {
-            var vm = new RecoveryPlanViewModel
+            if (!dto.HasPlan)
             {
-                Title = "План восстановления Харви",
-                PlanTypeLabel = $"Тип плана: {ResolvePlanTypeLabel(dto.Reason, dto.PlanId)}",
-                ProgressText = $"Прогресс: {dto.CompletedDays} / {dto.RequiredDays}",
-                TodayStatusText = ResolveTodayStatus(dto),
-                RulesText = BuildRulesText(),
-                TodayViolationsText = BuildTodayViolationsText(dto.TodayViolationReasons),
-                HintText = ResolveHint(dto),
+                return new RecoveryPlanViewModel
+                {
+                    Title = "План восстановления",
+                    HarveyToneDescription = RecoveryPlanTexts.HarveyTone.NoActivePlan,
+                    HintText = "Закрыть — ESC или клик вне окна.",
+                };
+            }
+
+            var tone = dto.HarveyTone;
+
+            return new RecoveryPlanViewModel
+            {
+                Title = "План восстановления",
+                InjuryLine = string.IsNullOrWhiteSpace(dto.InjuryDisplayName)
+                    ? ""
+                    : $"Травма: {dto.InjuryDisplayName}",
+                PhaseLine = string.IsNullOrWhiteSpace(dto.PhaseLabel) ? "" : $"Фаза: {dto.PhaseLabel}",
+                ProgressLine = dto.DayProgressText,
+                RegimeStatusLine = string.IsNullOrWhiteSpace(dto.RegimeStatusText)
+                    ? ""
+                    : $"Статус: {dto.RegimeStatusText}",
+                HarveyToneSectionLabel = tone.HasTone ? RecoveryPlanTexts.HarveyTone.SectionLabel : "",
+                HarveyToneTitle = tone.Title,
+                HarveyToneDescription = tone.Description,
+                HarveyToneAccentColor = tone.AccentColor,
+                TasksText = BuildTasksText(dto.Tasks),
+                WhyImportant = dto.WhyImportant,
+                ComplicationLine = dto.ComplicationSummary,
+                TodayFailedSectionText = RecoveryPlanViolationReasonTexts.BuildTodayFailedSection(
+                    dto.IsActive,
+                    dto.TodayFailed,
+                    dto.TodayViolationReasons),
+                HintText = BuildHint(dto),
             };
-
-            return vm;
         }
 
-        private static string ResolvePlanTypeLabel(string reason, string planId)
+        private static string BuildTasksText(IReadOnlyList<CoreTask> tasks)
         {
-            if (string.Equals(reason, "hospital", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(planId, Managers.RecoveryPlanManager.HospitalDischargePlanId, StringComparison.OrdinalIgnoreCase))
+            if (tasks.Count == 0)
+                return "• Нет активных задач на сегодня";
+
+            var sb = new StringBuilder();
+            foreach (CoreTask task in tasks)
             {
-                return "После выписки";
+                string mark = task.IsFailed ? "✗" : task.IsCompleted ? "✓" : "○";
+                sb.Append(mark);
+                sb.Append(' ');
+                sb.Append(task.Title);
+                if (task.IsFailed)
+                    sb.Append(" — нарушено");
+                else if (task.Id == Core.RecoveryPlanTaskIds.VisitHarveyIfReady)
+                    sb.Append(" — нужно поговорить с Харви");
+                sb.AppendLine();
             }
 
-            return string.IsNullOrWhiteSpace(reason) ? "Восстановление" : reason;
+            return sb.ToString().TrimEnd();
         }
 
-        private static string ResolveTodayStatus(CoreDto dto)
+        private static string BuildHint(CoreDto dto)
         {
-            if (dto.CompletionTalkPending)
-                return "План завершён — поговори с Харви";
+            if (dto.RequiresHarveyTalk || dto.ReadyForNextPhase || dto.ReadyForRecovery)
+                return "Подсказка: поговори с Харви, когда будешь готова. Закрыть — ESC.";
 
-            if (dto.TodayFailed)
-                return "Сегодня режим сорван";
-
-            return "Сегодня режим соблюдается";
-        }
-
-        private static string ResolveHint(CoreDto dto)
-        {
-            if (dto.CompletionTalkPending)
-                return "Поговори с Харви, чтобы снять режим.";
-
-            if (dto.TodayFailed)
-                return "Харви захочет обсудить это лично.";
-
-            return "Харви будет доволен, если день закончится спокойно.";
-        }
-
-        private static string BuildRulesText()
-        {
-            return string.Join(
-                Environment.NewLine,
-                "• Не ходить в шахту",
-                "• Не доводить себя до истощения",
-                "• Не падать в обморок",
-                "• Не получать новые тяжёлые травмы");
-        }
-
-        private static string BuildTodayViolationsText(IReadOnlyList<string> reasons)
-        {
-            if (reasons.Count == 0)
-                return "";
-
-            var sb = new StringBuilder("Нарушения за сегодня: ");
-            for (int i = 0; i < reasons.Count; i++)
-            {
-                if (i > 0)
-                    sb.Append(", ");
-                sb.Append(reasons[i]);
-            }
-
-            return sb.ToString();
+            return "Подсказка: соблюдай режим — окно помогает спланировать день. Закрыть — ESC.";
         }
 
         private void SetField(ref string field, string value, [CallerMemberName] string? propertyName = null)

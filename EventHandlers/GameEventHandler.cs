@@ -113,6 +113,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         // 0. Orphan MineForbidden / Hospitalized не должны восстанавливаться из снапшота
                         SanitizeOrphanMineForbiddenBuff();
                         _hospitalizationManager.SanitizeOrphanHospitalizedBuff();
+                        _stateManager.State.DischargedToday = false;
 
                         // 1. Восстанавливаем баффы из снапшота конца прошлого дня
                         RestoreBuffsFromSnapshot();
@@ -176,7 +177,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         _complianceManager.TryShowLowComplianceReminder();
 
                         _rehabManager.CompleteRehabIfDue(GetToday());
-                        _recoveryPlanManager.OnDayStarted();
+                        _recoveryPlanManager.OnRecoveryContextDayStarted();
+                        _recoveryPlanManager.OnHospitalPlanDayStarted();
+                        _recoveryPlanManager.RefreshPlanForToday();
+                        _recoveryPlanManager.ScheduleMorningPlanHud();
 
                         // 8. Предписания: снять истёкшие, начислить TreatmentComplianceScore за вчера
                         _prescriptionManager.RemoveExpiredPrescriptions();
@@ -207,6 +211,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             SanitizeOrphanMineForbiddenBuff();
             _hospitalizationManager.SanitizeOrphanHospitalizedBuff();
+            _stateManager.State.DischargedToday = false;
 
             if (_stateManager.State.SavedActiveBuffs.Count == 0)
             {
@@ -265,7 +270,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _selfCareManager.TryApplyRestCareOnDayEnding();
                 CheckRestPrescriptionViolation();
                 _rehabManager.CheckRehabViolationLateSleep();
-                _recoveryPlanManager.OnDayEnding();
+                _recoveryPlanManager.ProcessDayEndingDaily();
 
                 // Письмо о запрете шахты — на следующий день после предупреждения в шахте
                 int todayEnd = GetToday();
@@ -339,6 +344,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                             _checkupManager.OnPhaseCheckupDue(injuryId, debuffState, nextPhase, today);
                             _stateManager.SetReadyForNextPhase(injuryId, true);
                             _monitor.Log($"📍 Установлен флаг готовности к смене фазы: {injuryId} (фаза {debuffState.CurrentPhase} → {nextPhase})", LogLevel.Info);
+                            _recoveryPlanManager.RefreshPlanForToday();
 
                             if (_injuryManager.HasExpectedTreatmentBuff(injuryId))
                                 ShowPhaseTransitionReminder(injuryId, nextPhase);
@@ -358,6 +364,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                             _stateManager.SetReadyForRecovery(injuryId, true);
                             _dialogueManager.RemoveTopic(TopicIds.GetCuredTopic(injuryId));
                             _monitor.Log($"🎉 Установлен флаг готовности к выздоровлению: {injuryId}", LogLevel.Info);
+                            _recoveryPlanManager.RefreshPlanForToday();
 
                             if (_injuryManager.HasExpectedTreatmentBuff(injuryId))
                                 ShowRecoveryReminder(injuryId);
@@ -817,6 +824,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
                 _checkupManager.OnRecoveryCheckupDue(buffId, ds, today);
                 _stateManager.SetReadyForRecovery(buffId, true);
+                _recoveryPlanManager.RefreshPlanForToday();
 
                 // Старый автозавершение вешал topic*Cured — убираем, чтобы не дублировать финальный диалог
                 _dialogueManager.RemoveTopic(TopicIds.GetCuredTopic(buffId));

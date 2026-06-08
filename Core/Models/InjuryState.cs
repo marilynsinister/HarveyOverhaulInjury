@@ -83,9 +83,50 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         public Dictionary<string, PrescriptionState> ActivePrescriptions { get; set; } = new();
 
         /// <summary>
-        /// Активный «План восстановления Харви»; null — плана нет (старые сейвы без поля).
+        /// Активный «План восстановления Харви» после выписки; null — нет (старые сейвы без поля).
         /// </summary>
-        public RecoveryPlanState? ActiveRecoveryPlan { get; set; }
+        public HospitalDischargePlanState? ActiveRecoveryPlan { get; set; }
+
+        /// <summary>
+        /// Ежедневный save-state плана восстановления (правила дня, задачи, нарушения).
+        /// </summary>
+        public RecoveryPlanState RecoveryPlan { get; set; } = new();
+
+        /// <summary>Общее число зафиксированных нарушений режима восстановления.</summary>
+        public int RecoveryPlanTotalViolations { get; set; } = 0;
+
+        /// <summary>Число лёгких нарушений режима восстановления.</summary>
+        public int RecoveryPlanMildViolations { get; set; } = 0;
+
+        /// <summary>Число средних нарушений режима восстановления.</summary>
+        public int RecoveryPlanMediumViolations { get; set; } = 0;
+
+        /// <summary>Число тяжёлых нарушений режима восстановления.</summary>
+        public int RecoveryPlanSevereViolations { get; set; } = 0;
+
+        /// <summary>Тип последнего нарушения (<see cref="RecoveryViolationTypes"/>).</summary>
+        public string LastRecoveryViolationType { get; set; } = "";
+
+        /// <summary>Тяжесть последнего нарушения (<see cref="RecoveryViolationSeverity"/>).</summary>
+        public int LastRecoveryViolationSeverity { get; set; } = 0;
+
+        /// <summary>День последнего нарушения режима восстановления.</summary>
+        public int LastRecoveryViolationDay { get; set; } = -1;
+
+        /// <summary>Игровое время последнего нарушения (формат Stardew, например 1430).</summary>
+        public int LastRecoveryViolationTime { get; set; } = -1;
+
+        /// <summary>Текущий день плана признан проваленным из-за нарушения.</summary>
+        public bool RecoveryPlanDayFailed { get; set; } = false;
+
+        /// <summary>После нарушения требуется визит к Харви.</summary>
+        public bool RecoveryPlanNeedsHarveyVisit { get; set; } = false;
+
+        /// <summary>План уже продлён сегодня (флаг на будущую логику продления).</summary>
+        public bool RecoveryPlanExtendedToday { get; set; } = false;
+
+        /// <summary>Тяжесть нарушений по типу за текущий игровой день (ключ — RecoveryViolationTypes).</summary>
+        public Dictionary<string, int> RecoveryPlanTodayViolationSeverities { get; set; } = new();
 
         /// <summary>
         /// Медицинский показатель соблюдения лечения (−10…10).
@@ -323,6 +364,21 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// Последняя игровая минута HUD-напоминания о сроке госпитализации. -1 = ещё не показывали.
         /// </summary>
         public int HospitalLastStatusHudMinute { get; set; } = -1;
+
+        /// <summary>Накопленные игровые минуты текущей госпитализации (устойчиво к LongerDays).</summary>
+        public int HospitalStayProgressMinutes { get; set; } = 0;
+
+        /// <summary>Последний обработанный timeOfDay для прогресса госпитализации (HHMM).</summary>
+        public int LastHospitalTimeOfDay { get; set; } = -1;
+
+        /// <summary>ID кейса госпитализации (injury+day+reason) — защита от повторного старта после выписки.</summary>
+        public string HospitalizationCaseId { get; set; } = "";
+
+        /// <summary>Завершённый кейс — не запускать ту же госпитализацию снова в этот день.</summary>
+        public string HospitalizationCompletedCaseId { get; set; } = "";
+
+        /// <summary>Игрок уже выписан сегодня (сбрасывается на DayStarted).</summary>
+        public bool DischargedToday { get; set; } = false;
 
         /// <summary>
         /// Proximity-предупреждение перед принудительной госпитализацией (уже показано).

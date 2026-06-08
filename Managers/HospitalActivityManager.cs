@@ -1,7 +1,7 @@
 using System;
-using System.Collections.Generic;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Helpers;
+using HarveyOverhaul.InjuryCare.Managers;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -15,12 +15,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly IMonitor _monitor;
         private readonly ModConfig _config;
         private readonly DialogueManager _dialogueManager;
-        
-        private int _activityMinutesAccumulated;
-        private int _lastActivityClockMinutes = -1;
+
+        private int _lastActivityAtProgressMinutes = -1;
         private int _activityCounter = 0;
-        private const int MaxActivityClockDeltaMinutes = 120;
-        private readonly List<string> _availableActivities = new();
+        private readonly System.Collections.Generic.List<string> _availableActivities = new();
 
         public HospitalActivityManager(IMonitor monitor, ModConfig config, DialogueManager dialogueManager)
         {
@@ -30,28 +28,25 @@ namespace HarveyOverhaul.InjuryCare.Managers
             InitializeActivities();
         }
 
-        /// <summary>
-        /// Инициализировать доступные активности
-        /// </summary>
         private void InitializeActivities()
         {
             _availableActivities.AddRange(new[]
             {
-                "checkVitals",      // Харви проверяет показатели
-                "bringWater",       // Харви приносит воду
-                "adjustPillow",     // Харви поправляет подушку
-                "readChart",        // Харви изучает карту
-                "conversation",     // Лёгкая беседа
-                "holdHand",         // Харви держит за руку
-                "checkBandage",     // Харви проверяет повязку
-                "bringMedicine",    // Харви даёт лекарство
-                "comfort",          // Харви успокаивает
-                "checkTemperature"  // Харви измеряет температуру
+                "checkVitals",
+                "bringWater",
+                "adjustPillow",
+                "readChart",
+                "conversation",
+                "holdHand",
+                "checkBandage",
+                "bringMedicine",
+                "comfort",
+                "checkTemperature"
             });
         }
 
         /// <summary>
-        /// Обновить активности во время госпитализации
+        /// Обновить активности во время госпитализации (по накопленным минутам прогресса).
         /// </summary>
         public void UpdateHospitalActivities(HospitalizationManager hospitalization, int newTimeOfDay)
         {
@@ -62,29 +57,22 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (_activityCounter >= _config.MaxHospitalActivitiesPerStay) return;
 
             int intervalMinutes = Math.Max(1, _config.HospitalActivityIntervalMinutes);
-            int currentMinutes = ToClockMinutes(newTimeOfDay);
+            int progressMinutes = hospitalization.HospitalStayProgressMinutes;
 
-            if (_lastActivityClockMinutes >= 0)
+            if (_lastActivityAtProgressMinutes < 0)
             {
-                int delta = currentMinutes - _lastActivityClockMinutes;
-                if (delta > 0 && delta <= MaxActivityClockDeltaMinutes)
-                    _activityMinutesAccumulated += delta;
-                else if (delta <= 0)
-                    _monitor.Log("Hospital activity time rollback ignored", LogLevel.Debug);
+                _lastActivityAtProgressMinutes = progressMinutes;
+                return;
             }
 
-            _lastActivityClockMinutes = currentMinutes;
-
-            if (_activityMinutesAccumulated < intervalMinutes)
-                return;
-
-            _activityMinutesAccumulated = 0;
-            TriggerRandomActivity();
+            while (_lastActivityAtProgressMinutes + intervalMinutes <= progressMinutes
+                && _activityCounter < _config.MaxHospitalActivitiesPerStay)
+            {
+                _lastActivityAtProgressMinutes += intervalMinutes;
+                TriggerRandomActivity();
+            }
         }
 
-        /// <summary>
-        /// Запустить случайную активность
-        /// </summary>
         private void TriggerRandomActivity()
         {
             if (_availableActivities.Count == 0) return;
@@ -92,7 +80,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
             NPC? harvey = HarveyHelper.GetHarvey();
             if (harvey == null) return;
 
-            // Выбираем случайную активность
             string activity = _availableActivities[Game1.random.Next(_availableActivities.Count)];
             _activityCounter++;
 
@@ -162,18 +149,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
         }
 
-        /// <summary>
-        /// Показать активность с диалогом
-        /// </summary>
         private void ShowActivity(NPC harvey, string dialogue)
         {
             _dialogueManager.Speak(harvey, dialogue);
             Game1.playSound("healSound");
         }
 
-        /// <summary>
-        /// Показать беседу с Харви
-        /// </summary>
         private void ShowConversation(NPC harvey)
         {
             var conversations = new[]
@@ -189,23 +170,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
             ShowActivity(harvey, dialogue);
         }
 
-        /// <summary>
-        /// Сбросить счётчики при выписке
-        /// </summary>
         public void Reset()
         {
-            _activityMinutesAccumulated = 0;
-            _lastActivityClockMinutes = -1;
+            _lastActivityAtProgressMinutes = -1;
             _activityCounter = 0;
             _monitor.Log("🏥 Сброс активностей госпитализации", LogLevel.Debug);
         }
-
-        private static int ToClockMinutes(int timeOfDay)
-        {
-            int hours = timeOfDay / 100;
-            int minutes = timeOfDay % 100;
-            return hours * 60 + minutes;
-        }
     }
 }
-

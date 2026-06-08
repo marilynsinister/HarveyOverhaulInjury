@@ -217,6 +217,33 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string RecoveryPlanViolated = "HarveyMod_RecoveryPlanViolated";
         public const string RecoveryPlanCompleted = "HarveyMod_RecoveryPlanCompleted";
 
+        // --- Нарушения плана по типу (CP-расширение; fallback — RecoveryPlanViolated) ---
+        public const string RecoveryPlanViolatedMine = "HarveyMod_RecoveryPlanViolated_Mine";
+        public const string RecoveryPlanViolatedLowStamina = "HarveyMod_RecoveryPlanViolated_LowStamina";
+        public const string RecoveryPlanViolatedLowHealth = "HarveyMod_RecoveryPlanViolated_LowHealth";
+        public const string RecoveryPlanViolatedLateNight = "HarveyMod_RecoveryPlanViolated_LateNight";
+        public const string RecoveryPlanViolatedRain = "HarveyMod_RecoveryPlanViolated_Rain";
+
+        // --- Нарушения плана по тяжести и продлению ---
+        public const string RecoveryPlanViolatedMild = "HarveyMod_RecoveryPlanViolated_Mild";
+        public const string RecoveryPlanViolatedMedium = "HarveyMod_RecoveryPlanViolated_Medium";
+        public const string RecoveryPlanViolatedSevere = "HarveyMod_RecoveryPlanViolated_Severe";
+        public const string RecoveryPlanExtended = "HarveyMod_RecoveryPlanExtended";
+        public const string RecoveryPlanMaxExtensionsReached = "HarveyMod_RecoveryPlanMaxExtensionsReached";
+        public const string RecoveryPlanStrictFollowUpRequired = "HarveyMod_RecoveryPlanStrictFollowUpRequired";
+
+        // --- Завершение плана (идеально / с предупреждениями / нормально; fallback — RecoveryPlanCompleted) ---
+        public const string RecoveryPlanPerfect = "HarveyMod_RecoveryPlanPerfect";
+        public const string RecoveryPlanCompletedPerfect = "HarveyMod_RecoveryPlanCompleted_Perfect";
+        public const string RecoveryPlanCompletedWithWarnings = "HarveyMod_RecoveryPlanCompleted_WithWarnings";
+        public const string RecoveryPlanCompletedNormal = "HarveyMod_RecoveryPlanCompleted_Normal";
+        public const string RecoveryPlanSoftTone = "HarveyMod_RecoveryPlanSoftTone";
+
+        // --- Нарушения режима восстановления по тяжести (CP-диалоги) ---
+        public const string RecoveryViolationMild = RecoveryViolationTopics.Mild;
+        public const string RecoveryViolationMedium = RecoveryViolationTopics.Medium;
+        public const string RecoveryViolationSevere = RecoveryViolationTopics.Severe;
+
         // --- Самопомощь (домашний уход) ---
         public const string SelfCare = "topicHarvey_SelfCare";
         public const string CleanBandage = "topicHarvey_CleanBandage";
@@ -236,6 +263,8 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string ExternalRescueConcern = "topicHarvey_ExternalRescueConcern";
         /// <summary>После выписки из госпитализации — домашний визит Харви вечером.</summary>
         public const string AfterHospitalDischargeHome = "topicHarvey_AfterHospitalDischargeHome";
+        /// <summary>После выписки из госпитализации — мягкое наблюдение.</summary>
+        public const string HospitalDischarged = "HarveyMod_HospitalDischarged";
         /// <summary>После eventHarveyAfterHospitalDischargeHome — мягкое наблюдение 3 дня.</summary>
         public const string HospitalDischargeFollowup = "topicHarvey_HospitalDischargeFollowup";
         /// <summary>Утреннее мини-событие после обморока от истощения (окно 2 дня).</summary>

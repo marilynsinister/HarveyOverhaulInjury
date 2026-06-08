@@ -27,6 +27,12 @@ namespace HarveyOverhaul.InjuryCare.Core
         // Настройки механик
         /// <summary>Сколько игровых дней действует жёсткий запрет «Харви запретил шахту» (не весь срок лечения).</summary>
         public int MineForbiddenDurationDays { get; set; } = 2;
+
+        /// <summary>Если true — нарушение RecoveryPlan «не ходить в шахту» физически выносит игрока.</summary>
+        public bool RecoveryPlanMineRuleBlocksEntry { get; set; } = false;
+
+        /// <summary>Жёсткий MineForbidden только для тяжёлых травм из медицинского списка.</summary>
+        public bool MineForbiddenOnlyForSevereInjuries { get; set; } = true;
         /// <summary>Максимальный (высокий) шанс грязной раны в шахте после DirtyWoundHighMineMinutes.</summary>
         public double DirtyWoundChanceMines { get; set; } = 0.35;
 
@@ -104,7 +110,26 @@ namespace HarveyOverhaul.InjuryCare.Core
         public int MaxSkillThresholdBonus { get; set; } = 5;
 
         /// <summary>Клавиша открытия окна «План восстановления» (StardewUI). Пример: H, F6.</summary>
-        public string RecoveryPlanKey { get; set; } = "H";
+        public string OpenRecoveryPlanKey { get; set; } = "H";
+
+        /// <summary>Устарело: используйте OpenRecoveryPlanKey.</summary>
+        public string RecoveryPlanKey
+        {
+            get => OpenRecoveryPlanKey;
+            set => OpenRecoveryPlanKey = value;
+        }
+
+        /// <summary>Авто-показ окна плана утром после начала лечения (требует StardewUI).</summary>
+        public bool AutoShowRecoveryPlanMorning { get; set; } = false;
+
+        /// <summary>Максимум продлений плана из-за тяжёлых нарушений (severe).</summary>
+        public int MaxRecoveryPlanExtensions { get; set; } = 2;
+
+        /// <summary>Разрешить продление плана при severe-нарушениях.</summary>
+        public bool EnableRecoveryPlanExtensions { get; set; } = true;
+
+        /// <summary>Severe-нарушение может добавить +1 день к плану (в пределах MaxRecoveryPlanExtensions).</summary>
+        public bool SevereViolationExtendsRecoveryPlan { get; set; } = true;
     }
 }
 

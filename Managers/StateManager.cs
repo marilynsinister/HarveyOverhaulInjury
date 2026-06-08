@@ -1,5 +1,6 @@
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
+using HarveyOverhaul.InjuryCare.Helpers;
 using StardewModdingAPI;
 using StardewValley;
 using System;
@@ -42,6 +43,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             EnsureComplianceState();
             EnsureRehabState();
             EnsureRecoveryPlanState();
+            EnsureRecoveryPlan();
+            EnsureRecoveryViolationDailyState();
             EnsureSelfCareState();
             EnsureMedicalMailState();
             EnsureNeglectStrikesState();
@@ -285,6 +288,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _state.ActiveRecoveryPlan.TodayViolationReasons ??= new List<string>();
         }
 
+        /// <summary>Миграция: старые сейвы без RecoveryPlan получают пустой экземпляр.</summary>
+        private void EnsureRecoveryPlan()
+        {
+            _state.RecoveryPlan ??= new RecoveryPlanState();
+            _state.RecoveryPlan.Tasks ??= new List<RecoveryPlanTask>();
+            _state.RecoveryPlan.TodayViolations ??= new List<RecoveryPlanViolation>();
+            _state.RecoveryPlan.TodayViolationReasons ??= new List<string>();
+        }
+
         private void EnsureSelfCareState()
         {
             _state.SelfCareProtections ??= new Dictionary<string, int>();
@@ -510,13 +522,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
         // ПЛАН ВОССТАНОВЛЕНИЯ ХАРВИ
         // ============================================================================
 
-        public RecoveryPlanState? GetActiveRecoveryPlan() => _state.ActiveRecoveryPlan;
+        public HospitalDischargePlanState? GetActiveRecoveryPlan() => _state.ActiveRecoveryPlan;
 
-        public void SetActiveRecoveryPlan(RecoveryPlanState plan)
+        public void SetActiveRecoveryPlan(HospitalDischargePlanState plan)
         {
             _state.ActiveRecoveryPlan = plan;
             EnsureRecoveryPlanState();
             Save();
+        }
+
+        public RecoveryPlanState GetRecoveryPlan()
+        {
+            EnsureRecoveryPlan();
+            return _state.RecoveryPlan;
         }
 
         public void ClearActiveRecoveryPlan()
@@ -525,6 +543,171 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
 
             _state.ActiveRecoveryPlan = null;
+            Save();
+        }
+
+        /// <summary>
+        /// Зафиксировать нарушение режима восстановления с учётом тяжести.
+        /// Не понижает severity за день; при повышении тяжести того же типа обновляет счётчики.
+        /// </summary>
+        public bool TryRegisterRecoveryViolation(string type, int severity, bool failDay, bool needsHarveyVisit)
+        {
+            type = type ?? "";
+            EnsureRecoveryViolationDailyState();
+
+            int today = GameUtils.Today();
+
+            if (_state.RecoveryPlanTodayViolationSeverities.TryGetValue(type, out int existingSeverity))
+            {
+                if (existingSeverity >= severity)
+                    return false;
+
+                AdjustRecoverySeverityCounter(existingSeverity, increment: false);
+                AdjustRecoverySeverityCounter(severity, increment: true);
+                _state.RecoveryPlanTodayViolationSeverities[type] = severity;
+
+                _state.LastRecoveryViolationType = type;
+                _state.LastRecoveryViolationSeverity = severity;
+                _state.LastRecoveryViolationDay = today;
+                _state.LastRecoveryViolationTime = Game1.timeOfDay;
+
+                if (failDay)
+                    _state.RecoveryPlanDayFailed = true;
+
+                if (needsHarveyVisit)
+                    _state.RecoveryPlanNeedsHarveyVisit = true;
+
+                Save();
+                LogRecoveryViolation(type, severity, today, failDay, needsHarveyVisit, upgraded: true);
+                return true;
+            }
+
+            _state.RecoveryPlanTodayViolationSeverities[type] = severity;
+            ApplyRecoveryViolation(type, severity, failDay, needsHarveyVisit, today);
+            return true;
+        }
+
+        /// <summary>Сбросить дневные флаги нарушений (начало нового игрового дня).</summary>
+        public void ResetRecoveryViolationDailyState()
+        {
+            EnsureRecoveryViolationDailyState();
+
+            bool changed = _state.RecoveryPlanDayFailed
+                || _state.RecoveryPlanExtendedToday
+                || _state.RecoveryPlanTodayViolationSeverities.Count > 0;
+
+            _state.RecoveryPlanDayFailed = false;
+            _state.RecoveryPlanExtendedToday = false;
+            _state.RecoveryPlanTodayViolationSeverities.Clear();
+
+            if (changed)
+                Save();
+        }
+
+        private void EnsureRecoveryViolationDailyState()
+        {
+            _state.RecoveryPlanTodayViolationSeverities ??=
+                new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private void ApplyRecoveryViolation(string type, int severity, bool failDay, bool needsHarveyVisit, int today)
+        {
+            _state.LastRecoveryViolationType = type;
+            _state.LastRecoveryViolationSeverity = severity;
+            _state.LastRecoveryViolationDay = today;
+            _state.LastRecoveryViolationTime = Game1.timeOfDay;
+            _state.RecoveryPlanTotalViolations++;
+            AdjustRecoverySeverityCounter(severity, increment: true);
+
+            if (failDay)
+                _state.RecoveryPlanDayFailed = true;
+
+            if (needsHarveyVisit)
+                _state.RecoveryPlanNeedsHarveyVisit = true;
+
+            Save();
+            LogRecoveryViolation(type, severity, today, failDay, needsHarveyVisit, upgraded: false);
+        }
+
+        private void AdjustRecoverySeverityCounter(int severity, bool increment)
+        {
+            int delta = increment ? 1 : -1;
+
+            switch (severity)
+            {
+                case RecoveryViolationSeverity.Mild:
+                    _state.RecoveryPlanMildViolations = Math.Max(0, _state.RecoveryPlanMildViolations + delta);
+                    break;
+                case RecoveryViolationSeverity.Medium:
+                    _state.RecoveryPlanMediumViolations = Math.Max(0, _state.RecoveryPlanMediumViolations + delta);
+                    break;
+                case RecoveryViolationSeverity.Severe:
+                    _state.RecoveryPlanSevereViolations = Math.Max(0, _state.RecoveryPlanSevereViolations + delta);
+                    break;
+            }
+        }
+
+        private void LogRecoveryViolation(
+            string type,
+            int severity,
+            int today,
+            bool failDay,
+            bool needsHarveyVisit,
+            bool upgraded)
+        {
+            string severityLabel = severity switch
+            {
+                RecoveryViolationSeverity.Mild => "mild",
+                RecoveryViolationSeverity.Medium => "medium",
+                RecoveryViolationSeverity.Severe => "severe",
+                _ => "none",
+            };
+
+            string action = upgraded ? "эскалация" : "нарушение";
+            _monitor.Log(
+                $"[RecoveryPlan] {action} #{_state.RecoveryPlanTotalViolations}: type={type}, severity={severityLabel} ({severity}), day={today}, time={Game1.timeOfDay}, failDay={failDay}, needsHarveyVisit={needsHarveyVisit}",
+                LogLevel.Info);
+        }
+
+        /// <summary>QA: зарегистрировать нарушение (снимает dedup по типу за сегодня, без HUD/topics).</summary>
+        public bool DebugRegisterRecoveryViolation(string type, int severity)
+        {
+            type = type ?? "";
+            EnsureRecoveryViolationDailyState();
+
+            if (_state.RecoveryPlanTodayViolationSeverities.TryGetValue(type, out int existing))
+            {
+                AdjustRecoverySeverityCounter(existing, increment: false);
+                _state.RecoveryPlanTodayViolationSeverities.Remove(type);
+                if (_state.RecoveryPlanTotalViolations > 0)
+                    _state.RecoveryPlanTotalViolations--;
+            }
+
+            bool failDay = severity >= RecoveryViolationSeverity.Medium;
+            bool needsHarveyVisit = severity >= RecoveryViolationSeverity.Medium;
+            return TryRegisterRecoveryViolation(type, severity, failDay, needsHarveyVisit);
+        }
+
+        /// <summary>QA: сбросить поля нарушения режима; includeCounters — также Total/Mild/Medium/Severe.</summary>
+        public void ClearRecoveryViolationState(bool includeCounters = false)
+        {
+            EnsureRecoveryViolationDailyState();
+
+            _state.LastRecoveryViolationType = "";
+            _state.LastRecoveryViolationSeverity = RecoveryViolationSeverity.None;
+            _state.RecoveryPlanDayFailed = false;
+            _state.RecoveryPlanNeedsHarveyVisit = false;
+            _state.RecoveryPlanExtendedToday = false;
+            _state.RecoveryPlanTodayViolationSeverities.Clear();
+
+            if (includeCounters)
+            {
+                _state.RecoveryPlanTotalViolations = 0;
+                _state.RecoveryPlanMildViolations = 0;
+                _state.RecoveryPlanMediumViolations = 0;
+                _state.RecoveryPlanSevereViolations = 0;
+            }
+
             Save();
         }
 

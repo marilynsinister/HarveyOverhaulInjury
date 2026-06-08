@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Managers;
 using StardewModdingAPI;
@@ -15,7 +16,7 @@ namespace HarveyOverhaul.InjuryCare.UI.RecoveryPlan
     {
         public const string ModUniqueId = "marilynsinister.HarveyOverhaul.Injury";
         public const string ViewAssetName = "Mods/marilynsinister.HarveyOverhaul.Injury/Views/RecoveryPlan";
-        private const string HudNoActivePlan = "Сейчас нет активного плана восстановления.";
+        private const string HudNoActivePlan = RecoveryPlanTexts.Hud.NoActivePlan;
 
         private readonly IMonitor _monitor;
         private IViewEngine? _viewEngine;
@@ -32,6 +33,12 @@ namespace HarveyOverhaul.InjuryCare.UI.RecoveryPlan
         {
             if (_viewEngine != null)
                 return;
+
+            if (!helper.ModRegistry.IsLoaded("focustense.StardewUI"))
+            {
+                _monitor.Log("[RecoveryPlanUI] StardewUI не установлен — окно недоступно, используйте injury_plan_show.", LogLevel.Warn);
+                return;
+            }
 
             _viewEngine = helper.ModRegistry.GetApi<IViewEngine>("focustense.StardewUI");
             if (_viewEngine == null)
@@ -90,10 +97,7 @@ namespace HarveyOverhaul.InjuryCare.UI.RecoveryPlan
             _monitor.Log("[RecoveryPlanUI] Окно плана восстановления открыто.", LogLevel.Debug);
         }
 
-        public static bool HasPlanToDisplay(RecoveryPlanManager recoveryPlanManager)
-        {
-            RecoveryPlanState? plan = recoveryPlanManager.GetActivePlan();
-            return plan != null && (plan.IsActive || plan.CompletionTalkPending);
-        }
+        public static bool HasPlanToDisplay(RecoveryPlanManager recoveryPlanManager) =>
+            recoveryPlanManager.HasDisplayablePlan();
     }
 }

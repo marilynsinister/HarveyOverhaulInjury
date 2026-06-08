@@ -110,10 +110,16 @@ namespace HarveyOverhaul.InjuryCare.Testing
             sb.AppendLine($"PendingForcedHospitalizationWarningDay={state.PendingForcedHospitalizationWarningDay}");
             sb.AppendLine($"DaysWithSevere={state.DaysWithSevere}");
             sb.AppendLine($"PendingHospitalPassOutEventId={Fmt(state.PendingHospitalPassOutEventId)}");
+            sb.AppendLine($"HospitalStayProgressMinutes={state.HospitalStayProgressMinutes}");
+            sb.AppendLine($"LastHospitalTimeOfDay={state.LastHospitalTimeOfDay}");
+            sb.AppendLine($"HospitalizationCaseId={Fmt(state.HospitalizationCaseId)}");
+            sb.AppendLine($"HospitalizationCompletedCaseId={Fmt(state.HospitalizationCompletedCaseId)}");
+            sb.AppendLine($"DischargedToday={state.DischargedToday}");
+            sb.AppendLine($"LastHospitalDischargeDay={state.LastHospitalDischargeDay}");
             sb.AppendLine($"CanDischarge={hospitalizationManager.CanDischarge()}");
             sb.AppendLine($"HospitalElapsedMinutes={hospitalizationManager.HospitalElapsedMinutes}");
             sb.AppendLine($"DischargeAllowed={hospitalizationManager.DischargeAllowed}");
-            sb.AppendLine($"LastHospitalClockMinutes={hospitalizationManager.LastHospitalClockMinutes}");
+            sb.AppendLine($"MinHospitalStayMinutes={hospitalizationManager.MinHospitalStayMinutes}");
             return sb.ToString().TrimEnd();
         }
 

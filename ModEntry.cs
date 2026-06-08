@@ -42,6 +42,7 @@ namespace HarveyOverhaul.InjuryCare
         private CheckupManager _checkupManager = null!;
         private RehabManager _rehabManager = null!;
         private RecoveryPlanManager _recoveryPlanManager = null!;
+        private MineEntryCoordinator _mineEntryCoordinator = null!;
         private RecoveryPlanMenu _recoveryPlanMenu = null!;
         private TreatmentPlanManager _treatmentPlanManager = null!;
         private SelfCareManager _selfCareManager = null!;
@@ -139,6 +140,16 @@ namespace HarveyOverhaul.InjuryCare
                 "injury_mine_dirty_debug",
                 "Показать состояние шахтного риска грязной раны (только чтение).",
                 (_, _) => CmdMineDirtyDebug());
+
+            helper.ConsoleCommands.Add(
+                "injury_mine_forbid",
+                "[QA] Наложить MineForbidden: injury_mine_forbid [daysLeft]",
+                (_, args) => CmdMineForbid(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_mine_clear",
+                "[QA] Снять MineForbidden и MineRestricted (полный сброс шахты).",
+                (_, _) => CmdMineClear());
 
             helper.ConsoleCommands.Add(
                 "injury_mine_forbidden_clear",
@@ -244,6 +255,16 @@ namespace HarveyOverhaul.InjuryCare
                 "injury_hospital_status",
                 "[QA] Read-only снимок госпитализации.",
                 (_, _) => CmdHospitalStatus());
+
+            helper.ConsoleCommands.Add(
+                "injury_hospital_progress",
+                "[QA] Установить прогресс госпитализации: injury_hospital_progress <minutes>",
+                (_, args) => CmdHospitalProgress(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_hospital_reset",
+                "[QA] Полный сброс госпитализации (state + buff).",
+                (_, _) => CmdHospitalReset());
 
             helper.ConsoleCommands.Add(
                 "injury_hospital_discharge",
@@ -417,8 +438,78 @@ namespace HarveyOverhaul.InjuryCare
 
             helper.ConsoleCommands.Add(
                 "recovery_plan_clear",
-                "[QA] Снять план восстановления.",
+                "[QA] Снять hospital-план восстановления.",
                 (_, _) => CmdRecoveryPlanClear());
+
+            helper.ConsoleCommands.Add(
+                "recovery_violation_test",
+                "[QA] Тест severity-нарушения: recovery_violation_test <type> <severity 1|2|3>",
+                (_, args) => CmdRecoveryViolationTest(args));
+
+            helper.ConsoleCommands.Add(
+                "recovery_violation_status",
+                "[QA] Статус severity-нарушений режима восстановления.",
+                (_, _) => CmdRecoveryViolationStatus());
+
+            helper.ConsoleCommands.Add(
+                "recovery_violation_clear",
+                "[QA] Сброс полей нарушения: recovery_violation_clear [all]",
+                (_, args) => CmdRecoveryViolationClear(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_plan_show",
+                "Текущий RecoveryPlanState (daily plan).",
+                (_, _) => CmdInjuryPlanShow());
+
+            helper.ConsoleCommands.Add(
+                "injury_plan_refresh",
+                "Пересобрать план восстановления на сегодня.",
+                (_, _) => CmdInjuryPlanRefresh());
+
+            helper.ConsoleCommands.Add(
+                "injury_plan_violate",
+                "Тестовое нарушение: mines|stamina|health|sleep|rain|missed_checkup",
+                (_, args) => CmdInjuryPlanViolate(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_plan_clear",
+                "Очистить daily RecoveryPlan и нарушения.",
+                (_, _) => CmdInjuryPlanClear());
+
+            helper.ConsoleCommands.Add(
+                "recovery_violate",
+                "[QA] Типизированное нарушение: recovery_violate mine|stamina|health|night|rain",
+                (_, args) => CmdRecoveryViolate(args));
+
+            helper.ConsoleCommands.Add(
+                "recovery_complete",
+                "[QA] Completion topic: recovery_complete perfect|warnings|violated",
+                (_, args) => CmdRecoveryComplete(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_recovery_status",
+                "Статус RecoveryPlan: дни, нарушения, perfect flag, награда.",
+                (_, _) => CmdInjuryRecoveryStatus());
+
+            helper.ConsoleCommands.Add(
+                "injury_recovery_complete_debug",
+                "[QA] Завершить план: injury_recovery_complete_debug perfect|warnings|violated",
+                (_, args) => CmdInjuryRecoveryCompleteDebug(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_recovery_reset",
+                "Сбросить только RecoveryPlan (травмы не трогать).",
+                (_, _) => CmdInjuryRecoveryReset());
+
+            helper.ConsoleCommands.Add(
+                "injury_recovery_violate",
+                "[QA] Нарушение с тяжестью: injury_recovery_violate <type> <severity>",
+                (_, args) => CmdInjuryRecoveryViolate(args));
+
+            helper.ConsoleCommands.Add(
+                "recovery_debug",
+                "[QA] Debug Recovery Plan: типы, severity, completion topic.",
+                (_, _) => CmdRecoveryDebug());
 
             helper.ConsoleCommands.Add(
                 "injury_selfcare_bandage",
@@ -1106,6 +1197,81 @@ namespace HarveyOverhaul.InjuryCare
             Game1.addHUDMessage(new HUDMessage("[ДЕБАГ] Жёсткий запрет шахты сброшен", HUDMessage.achievement_type));
         }
 
+        private void CmdMineClear()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            CmdMineForbiddenClear();
+            CmdMineRestrictionClear();
+            Monitor.Log("[Mine] [ДЕБАГ] Полный сброс шахты (forbidden + restricted)", LogLevel.Info);
+        }
+
+        private void CmdMineForbid(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            int today = (int)Game1.stats.DaysPlayed;
+            int duration = Math.Max(1, _config.MineForbiddenDurationDays);
+            int daysLeft = duration;
+
+            if (args.Length > 0 && int.TryParse(args[0], out int parsed))
+                daysLeft = Math.Max(1, parsed);
+
+            var state = _stateManager.State;
+            state.MineForbiddenAppliedDay = today - Math.Max(0, duration - daysLeft);
+            MineForbiddenHelper.ApplyHardMineForbidden(
+                state,
+                _config,
+                _buffManager,
+                _stateManager,
+                Monitor,
+                today,
+                "qa_forbid",
+                resetAppliedDay: false);
+
+            Monitor.Log($"[QA] injury_mine_forbid daysLeft={daysLeft} appliedDay={state.MineForbiddenAppliedDay}", LogLevel.Info);
+        }
+
+        private void CmdHospitalProgress(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0 || !int.TryParse(args[0], out int minutes))
+            {
+                Monitor.Log("Использование: injury_hospital_progress <minutes>", LogLevel.Warn);
+                return;
+            }
+
+            _hospitalizationManager.SetHospitalStayProgressMinutes(minutes);
+            Monitor.Log(
+                $"[QA] injury_hospital_progress minutes={minutes} CanDischarge={_hospitalizationManager.CanDischarge()}",
+                LogLevel.Info);
+        }
+
+        private void CmdHospitalReset()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            _hospitalizationManager.ResetHospitalizationForQa();
+            Monitor.Log("[QA] injury_hospital_reset ok", LogLevel.Info);
+        }
+
         private void CmdMineRestrictionClear()
         {
             if (!Context.IsWorldReady)
@@ -1132,6 +1298,10 @@ namespace HarveyOverhaul.InjuryCare
             int today = (int)Game1.stats.DaysPlayed;
             string report = MineForbiddenHelper.BuildStatusReport(
                 _stateManager.State, _config, _injuryManager, _buffManager, today);
+
+            report += Environment.NewLine +
+                $"ShouldPhysicallyBlockMines={_mineEntryCoordinator.ShouldPhysicallyBlockMines()}" + Environment.NewLine +
+                $"ShouldWarnRecoveryPlanMineEntry={_mineEntryCoordinator.ShouldWarnRecoveryPlanMineEntry()}";
 
             foreach (string line in report.Split('\n'))
                 Monitor.Log(line, LogLevel.Info);
@@ -2021,7 +2191,7 @@ namespace HarveyOverhaul.InjuryCare
             }
 
             string reason = string.Join(" ", args).Trim();
-            _recoveryPlanManager.RegisterViolation(reason);
+            _recoveryPlanManager.RegisterHospitalViolation(reason);
             Monitor.Log($"[RecoveryPlan] Нарушение зарегистрировано: {reason}", LogLevel.Info);
         }
 
@@ -2047,7 +2217,334 @@ namespace HarveyOverhaul.InjuryCare
             }
 
             _recoveryPlanManager.ClearRecoveryPlan();
-            Monitor.Log("[RecoveryPlan] План снят.", LogLevel.Info);
+            Monitor.Log("[RecoveryPlan] Hospital-план снят.", LogLevel.Info);
+        }
+
+        private void CmdRecoveryViolationTest(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length < 2)
+            {
+                Monitor.Log(
+                    "Использование: recovery_violation_test <type> <severity 1|2|3>\n"
+                    + "Типы: low_stamina_farm, overwork, late_night, rain_with_bandage, "
+                    + "mine_or_volcano, critical_health, pass_out",
+                    LogLevel.Info);
+                return;
+            }
+
+            if (!TryParseRecoveryViolationSeverity(args[^1], out int severity))
+            {
+                Monitor.Log("Severity: 1 (mild), 2 (medium) или 3 (severe).", LogLevel.Warn);
+                return;
+            }
+
+            string type = string.Join(" ", args, 0, args.Length - 1).Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(type))
+            {
+                Monitor.Log("Укажите тип нарушения.", LogLevel.Warn);
+                return;
+            }
+
+            bool registered = _stateManager.DebugRegisterRecoveryViolation(type, severity);
+            Monitor.Log(
+                registered
+                    ? $"[RecoveryViolation][QA] Зарегистрировано: type={type}, severity={severity}"
+                    : $"[RecoveryViolation][QA] Не зарегистрировано (type={type}, severity={severity})",
+                LogLevel.Info);
+        }
+
+        private void CmdRecoveryViolationStatus()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("=== RECOVERY VIOLATION STATUS ===", LogLevel.Info);
+            foreach (string line in _recoveryPlanManager.GetRecoveryViolationStatusLines())
+                Monitor.Log($"  {line}", LogLevel.Info);
+        }
+
+        private void CmdRecoveryViolationClear(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            bool clearAll = args.Length > 0
+                && string.Equals(args[0].Trim(), "all", StringComparison.OrdinalIgnoreCase);
+
+            _stateManager.ClearRecoveryViolationState(clearAll);
+            Monitor.Log(
+                clearAll
+                    ? "[RecoveryViolation][QA] Все поля и счётчики нарушений сброшены."
+                    : "[RecoveryViolation][QA] Поля текущего нарушения сброшены (счётчики сохранены).",
+                LogLevel.Info);
+        }
+
+        private static bool TryParseRecoveryViolationSeverity(string raw, out int severity)
+        {
+            severity = RecoveryViolationSeverity.None;
+            string normalized = raw.Trim().ToLowerInvariant();
+
+            switch (normalized)
+            {
+                case "1":
+                case "mild":
+                    severity = RecoveryViolationSeverity.Mild;
+                    return true;
+                case "2":
+                case "medium":
+                    severity = RecoveryViolationSeverity.Medium;
+                    return true;
+                case "3":
+                case "severe":
+                    severity = RecoveryViolationSeverity.Severe;
+                    return true;
+                default:
+                    return int.TryParse(normalized, out severity)
+                        && severity is >= RecoveryViolationSeverity.Mild and <= RecoveryViolationSeverity.Severe;
+            }
+        }
+
+        private void CmdInjuryPlanShow()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            var plan = _recoveryPlanManager.GetDailyPlan();
+            Monitor.Log("=== RECOVERY PLAN (daily) ===", LogLevel.Info);
+            Monitor.Log($"  active injury: {plan.ActiveInjuryId ?? "(none)"}", LogLevel.Info);
+            Monitor.Log($"  day: {plan.CurrentDay}/{plan.TotalDays}  phase: {plan.CurrentPhase}/{plan.TotalPhases}", LogLevel.Info);
+            Monitor.Log($"  status: {plan.Status}  concern: {plan.ConcernScore}", LogLevel.Info);
+            Monitor.Log($"  needsHarvey: {plan.NeedsHarveyVisit}  active: {plan.IsActive}", LogLevel.Info);
+            foreach (var task in plan.Tasks)
+                Monitor.Log($"  task {task.Id}: {task.Title} failed={task.IsFailed}", LogLevel.Info);
+            foreach (var v in plan.TodayViolations)
+                Monitor.Log($"  violation {v.Id} day={v.Day} time={v.TimeOfDay}", LogLevel.Info);
+        }
+
+        private void CmdInjuryPlanRefresh()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            _recoveryPlanManager.RefreshPlanForToday(notifyUpdated: true);
+            Monitor.Log("[RecoveryPlan] План пересобран.", LogLevel.Info);
+        }
+
+        private void CmdInjuryPlanViolate(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log("Использование: injury_plan_violate mines|stamina|health|sleep|rain|missed_checkup", LogLevel.Info);
+                return;
+            }
+
+            _recoveryPlanManager.AddTestViolation(args[0]);
+            Monitor.Log($"[RecoveryPlan] Тестовое нарушение: {args[0]}", LogLevel.Info);
+        }
+
+        private void CmdInjuryPlanClear()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            _recoveryPlanManager.ClearDailyPlan();
+            Monitor.Log("[RecoveryPlan] Daily plan cleared.", LogLevel.Info);
+        }
+
+        private void CmdRecoveryViolate(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log(
+                    "Использование: recovery_violate mine|stamina|health|night|rain",
+                    LogLevel.Info);
+                return;
+            }
+
+            bool registered = _recoveryPlanManager.DebugViolateRecoveryPlan(args[0]);
+            if (!registered)
+            {
+                Monitor.Log(
+                    $"[RecoveryPlan] Не удалось зарегистрировать нарушение: {args[0]}. "
+                    + "Проверьте аргумент и активен ли план восстановления.",
+                    LogLevel.Warn);
+                return;
+            }
+
+            var plan = _recoveryPlanManager.GetDailyPlan();
+            Monitor.Log(
+                $"[RecoveryPlan] Нарушение: {args[0]} → type={plan.LastViolationType}, "
+                + $"severity={plan.LastViolationSeverity}, topic={plan.TodayViolationDialogueType}",
+                LogLevel.Info);
+        }
+
+        private void CmdRecoveryComplete(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log("Использование: recovery_complete perfect|warnings|violated", LogLevel.Info);
+                return;
+            }
+
+            if (!_recoveryPlanManager.DebugCompleteRecoveryPlan(args[0]))
+            {
+                Monitor.Log(
+                    $"[RecoveryPlan] Неизвестный аргумент: {args[0]}. Используйте perfect, warnings или violated.",
+                    LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log($"[RecoveryPlan] Completion применён: {args[0]}", LogLevel.Info);
+        }
+
+        private void CmdInjuryRecoveryStatus()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("=== RECOVERY PLAN STATUS ===", LogLevel.Info);
+            foreach (string line in _recoveryPlanManager.GetRecoveryStatusLines())
+                Monitor.Log($"  {line}", LogLevel.Info);
+        }
+
+        private void CmdInjuryRecoveryCompleteDebug(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log(
+                    "Использование: injury_recovery_complete_debug perfect|warnings|violated",
+                    LogLevel.Info);
+                return;
+            }
+
+            if (!_recoveryPlanManager.DebugCompleteRecoveryPlan(args[0]))
+            {
+                Monitor.Log(
+                    $"[RecoveryPlan] Неизвестный аргумент: {args[0]}. Используйте perfect, warnings или violated.",
+                    LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log($"[RecoveryPlan] Debug completion: {args[0]}", LogLevel.Info);
+        }
+
+        private void CmdInjuryRecoveryReset()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            _recoveryPlanManager.ResetRecoveryPlanOnly();
+            Monitor.Log("[RecoveryPlan] Сброшен (травмы не затронуты).", LogLevel.Info);
+        }
+
+        private void CmdInjuryRecoveryViolate(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length < 2)
+            {
+                Monitor.Log(
+                    "Использование: injury_recovery_violate <type> <severity>\n"
+                    + "  type: Mine|LowStamina|LowHealth|LateNight|Rain|IgnoredCheckup|PassedOut\n"
+                    + "  severity: 1 (mild) | 2 (medium) | 3 (severe)\n"
+                    + "Примеры: injury_recovery_violate Mine 3 | injury_recovery_violate LowStamina 1",
+                    LogLevel.Info);
+                return;
+            }
+
+            if (!int.TryParse(args[1], out int severity) || severity < 1 || severity > 3)
+            {
+                Monitor.Log("severity должен быть 1, 2 или 3.", LogLevel.Warn);
+                return;
+            }
+
+            bool registered = _recoveryPlanManager.DebugHandleRecoveryPlanViolation(args[0], severity);
+            if (!registered)
+            {
+                Monitor.Log(
+                    $"[RecoveryPlan] Не удалось: {args[0]} severity={severity}. "
+                    + "Проверьте тип и активен ли план.",
+                    LogLevel.Warn);
+                return;
+            }
+
+            var plan = _recoveryPlanManager.GetDailyPlan();
+            Monitor.Log(
+                $"[RecoveryPlan] Violation: {args[0]} sev={severity} → "
+                + $"type={plan.LastViolationType}, "
+                + $"extensions={plan.ExtensionCount}/{_recoveryPlanManager.GetMaxExtensions()}, "
+                + $"maxReached={plan.MaxExtensionsReached}, "
+                + $"strictFollowUp={plan.NeedsStrictFollowUp}, "
+                + $"reasons=[{string.Join(", ", plan.TodayViolationReasons)}]",
+                LogLevel.Info);
+        }
+
+        private void CmdRecoveryDebug()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            Monitor.Log("=== RECOVERY PLAN DEBUG ===", LogLevel.Info);
+            foreach (string line in _recoveryPlanManager.GetStatusLines())
+                Monitor.Log($"  {line}", LogLevel.Info);
         }
 
         private void CmdSelfCareBandage()
@@ -2358,6 +2855,18 @@ namespace HarveyOverhaul.InjuryCare
                     CmdMineForbiddenClear();
                     return BuildPhaseListReport();
 
+                case "injury_mine_clear":
+                    CmdMineClear();
+                    return BuildPhaseListReport();
+
+                case "injury_mine_forbid":
+                {
+                    if (!McpTryGetInt(arguments, "days", out int forbidDays))
+                        forbidDays = _config.MineForbiddenDurationDays;
+                    CmdMineForbid(new[] { forbidDays.ToString() });
+                    return BuildPhaseListReport();
+                }
+
                 case "injury_mine_status":
                 case "injury_mine_forbidden_status":
                 {
@@ -2483,6 +2992,18 @@ namespace HarveyOverhaul.InjuryCare
 
                 case "injury_hospital_status":
                     return "[QA] injury_hospital_status\n" + BuildHospitalStatusReport();
+
+                case "injury_hospital_progress":
+                {
+                    if (!McpTryGetInt(arguments, "minutes", out int hospMinutes))
+                        return "Error: minutes is required.";
+                    CmdHospitalProgress(new[] { hospMinutes.ToString() });
+                    return "[QA] injury_hospital_progress\n" + BuildHospitalStatusReport();
+                }
+
+                case "injury_hospital_reset":
+                    CmdHospitalReset();
+                    return "[QA] injury_hospital_reset ok\n" + BuildHospitalStatusReport();
 
                 case "injury_hospital_discharge":
                 {
@@ -2671,7 +3192,22 @@ namespace HarveyOverhaul.InjuryCare
                 _dialogueManager,
                 _buffManager,
                 _complianceManager);
-            _recoveryPlanManager = new RecoveryPlanManager(Monitor, _stateManager, _dialogueManager);
+            _recoveryPlanManager = new RecoveryPlanManager(
+                Monitor,
+                _config,
+                _stateManager,
+                _buffManager,
+                _injuryManager,
+                _dialogueManager);
+            _mineEntryCoordinator = new MineEntryCoordinator(
+                Monitor,
+                _config,
+                _stateManager,
+                _buffManager,
+                _injuryManager,
+                _recoveryPlanManager,
+                _careTrustManager,
+                _complianceManager);
             _recoveryPlanMenu = new RecoveryPlanMenu(Monitor);
             _treatmentPlanManager = new TreatmentPlanManager(
                 Monitor,
@@ -2773,7 +3309,8 @@ namespace HarveyOverhaul.InjuryCare
                 _careTrustManager,
                 _rehabManager,
                 _recoveryPlanManager,
-                _complicationManager
+                _complicationManager,
+                _mineEntryCoordinator
             );
 
             _interactionHandler = new InteractionHandler(
@@ -2807,8 +3344,8 @@ namespace HarveyOverhaul.InjuryCare
                 _hospitalActivityManager,
                 _treatmentManager,
                 _injuryManager,
-                _complicationManager
-            );
+                _complicationManager,
+                _recoveryPlanManager);
 
             _passOutHandler = new PassOutHandler(
                 Monitor,
@@ -3452,10 +3989,12 @@ namespace HarveyOverhaul.InjuryCare
             sb.AppendLine($"MainInjury serious: {YesNo(_injuryManager.IsMainInjurySerious())}  dirty+serious: {YesNo(_injuryManager.HasSeriousMainInjuryWithDirtyWound())}");
             sb.AppendLine(
                 $"Hospital: IsHospitalized={YesNo(_hospitalizationManager.IsHospitalized)}  " +
-                $"elapsed={_hospitalizationManager.HospitalElapsedMinutes}m  " +
-                $"minStay={_hospitalizationManager.MinHospitalStayMinutes}m  " +
-                $"DischargeAllowed={YesNo(_hospitalizationManager.DischargeAllowed)}  " +
-                $"lastClock={_hospitalizationManager.LastHospitalClockMinutes}");
+                $"injury={(_hospitalizationManager.CurrentInjury ?? "-")}  " +
+                $"progress={_hospitalizationManager.HospitalStayProgressMinutes}/{_hospitalizationManager.MinHospitalStayMinutes}m  " +
+                $"lastTime={state.LastHospitalTimeOfDay}  " +
+                $"admissionDay={_hospitalizationManager.AdmissionDay}  " +
+                $"dischargeDay={state.LastHospitalDischargeDay}  " +
+                $"CanDischarge={YesNo(_hospitalizationManager.CanDischarge())}");
         }
 
         private void BuildCompactDebugHud(StringBuilder sb, InjuryState state)
@@ -3487,6 +4026,8 @@ namespace HarveyOverhaul.InjuryCare
             {
                 sb.AppendLine("Rehab: (none)");
             }
+
+            sb.AppendLine(_recoveryPlanManager.GetDebugHudBlock());
 
             int today = (int)Game1.stats.DaysPlayed;
             sb.AppendLine(
@@ -3577,7 +4118,7 @@ namespace HarveyOverhaul.InjuryCare
 
         private bool MatchesRecoveryPlanKey(SButton button)
         {
-            string configured = _config.RecoveryPlanKey?.Trim() ?? "";
+            string configured = _config.OpenRecoveryPlanKey?.Trim() ?? "";
             if (string.IsNullOrEmpty(configured))
                 return false;
 

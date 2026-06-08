@@ -298,6 +298,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 if (_recoveryPlanManager.IsCompletionTalkPending())
                     _recoveryPlanManager.NotifyHarveyClickedForCompletionTalk();
+                else if (_stateManager.State.RecoveryPlanNeedsHarveyVisit)
+                    _recoveryPlanManager.NotifyHarveyRecoveryViolationTalkAcknowledged();
 
                 LastClickDebug = BuildClickDebugSnapshot(
                     null,
@@ -1034,6 +1036,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 $"[MedicalAction] applied type=StartTreatment injury={action.InjuryId} complications={stillActiveComplications.Count}",
                 LogLevel.Info);
             _doctorVisitReminderManager.SyncReminderBuff();
+            _recoveryPlanManager.RefreshPlanForToday(notifyCreated: true);
             return true;
         }
 
@@ -1060,6 +1063,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 $"[MedicalAction] applied type=TreatComplications complications={string.Join(", ", stillActive)}",
                 LogLevel.Info);
             _doctorVisitReminderManager.SyncReminderBuff();
+            _recoveryPlanManager.RefreshPlanForToday();
             return true;
         }
 
@@ -1107,6 +1111,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 $"[MedicalAction] applied type=AdvancePhase injury={injuryId} oldBuff={oldBuff} newBuff={newBuff} phase={oldPhase}->{newPhase}",
                 LogLevel.Info);
             _doctorVisitReminderManager.SyncReminderBuff();
+            _recoveryPlanManager.RefreshPlanForToday(notifyUpdated: true);
             _careTrustManager.RewardTimelyCheckupOncePerDay();
             return true;
         }
@@ -1141,6 +1146,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             _monitor.Log($"[MedicalAction] applied type=CompleteRecovery injury={injuryId}", LogLevel.Info);
             _doctorVisitReminderManager.SyncReminderBuff();
+            _recoveryPlanManager.NotifyTreatmentCompleted();
+            _recoveryPlanManager.RefreshPlanForToday();
             _careTrustManager.RewardTimelyCheckupOncePerDay();
             return true;
         }

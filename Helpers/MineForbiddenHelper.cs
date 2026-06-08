@@ -105,7 +105,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             return MineAccessMode.Allowed;
         }
 
-        /// <summary>Наложить жёсткий запрет на MineForbiddenDurationDays (сбрасывает срок с сегодня).</summary>
+        /// <summary>Наложить жёсткий запрет на MineForbiddenDurationDays.</summary>
         public static void ApplyHardMineForbidden(
             InjuryState state,
             ModConfig config,
@@ -113,9 +113,17 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             StateManager stateManager,
             IMonitor monitor,
             int today,
-            string trigger)
+            string trigger,
+            bool resetAppliedDay = true)
         {
-            state.MineForbiddenAppliedDay = today;
+            bool alreadyActive = IsMineForbiddenActive(state, config, today);
+
+            if (resetAppliedDay || state.MineForbiddenAppliedDay < 0)
+            {
+                if (!alreadyActive || resetAppliedDay)
+                    state.MineForbiddenAppliedDay = today;
+            }
+
             buffManager.RemoveBuff(InjuryBuffs.MineRestricted);
             state.SavedActiveBuffs.RemoveAll(id =>
                 string.Equals(id, InjuryBuffs.MineRestricted, StringComparison.OrdinalIgnoreCase));
@@ -125,7 +133,8 @@ namespace HarveyOverhaul.InjuryCare.Helpers
 
             stateManager.Save();
             monitor.Log(
-                $"[MineForbidden] Жёсткий запрет на {GetMineForbiddenDurationDays(config)} дн. (trigger={trigger}, appliedDay={today})",
+                $"[MineForbidden] Жёсткий запрет на {GetMineForbiddenDurationDays(config)} дн. "
+                + $"(trigger={trigger}, appliedDay={state.MineForbiddenAppliedDay}, reset={resetAppliedDay})",
                 LogLevel.Info);
         }
 
@@ -342,6 +351,8 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             sb.AppendLine($"Mode: {mode} (entry blocked only when Forbidden)");
             sb.AppendLine($"HarveyMod_MineForbidden: {buffManager.HasBuff(InjuryBuffs.MineForbidden)}");
             sb.AppendLine($"HarveyMod_MineRestricted: {buffManager.HasBuff(InjuryBuffs.MineRestricted)}");
+            sb.AppendLine($"RecoveryPlanMineRuleBlocksEntry: {config.RecoveryPlanMineRuleBlocksEntry}");
+            sb.AppendLine($"MineForbiddenOnlyForSevereInjuries: {config.MineForbiddenOnlyForSevereInjuries}");
             sb.AppendLine($"MineWarningDay: {state.MineWarningDay}");
             sb.AppendLine($"MineForbiddenAppliedDay: {state.MineForbiddenAppliedDay}");
             sb.AppendLine($"MineForbiddenDurationDays: {GetMineForbiddenDurationDays(config)}");

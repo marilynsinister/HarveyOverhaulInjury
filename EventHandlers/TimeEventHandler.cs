@@ -23,6 +23,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly TreatmentManager _treatmentManager;
         private readonly InjuryManager _injuryManager;
         private readonly ComplicationManager _complicationManager;
+        private readonly RecoveryPlanManager _recoveryPlanManager;
         private HarveyHomeCareEventLauncher? _homeCareLauncher;
 
         public TimeEventHandler(
@@ -35,7 +36,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             HospitalActivityManager hospitalActivityManager,
             TreatmentManager treatmentManager,
             InjuryManager injuryManager,
-            ComplicationManager complicationManager)
+            ComplicationManager complicationManager,
+            RecoveryPlanManager recoveryPlanManager)
         {
             _monitor = monitor;
             _config = config;
@@ -47,6 +49,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _treatmentManager = treatmentManager;
             _injuryManager = injuryManager;
             _complicationManager = complicationManager;
+            _recoveryPlanManager = recoveryPlanManager;
         }
 
         public void SetHomeCareLauncher(HarveyHomeCareEventLauncher homeCareLauncher)
@@ -62,7 +65,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             try
             {
                 // Проверка разгрузки из госпиталя
-                CheckHospitalDischarge(e.NewTime);
+                CheckHospitalDischarge(e.OldTime, e.NewTime);
 
                 _hospitalizationManager.SyncHospitalizedBuffOnTimeChanged(e.NewTime);
 
@@ -78,6 +81,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
                 // Напоминания о визите к врачу
                 CheckDoctorVisitReminders(e.NewTime);
+
+                _recoveryPlanManager.CheckLateNightReminder(e.NewTime);
 
                 // Storm comfort: один C#-бросок в день → buff/topic для CP cutscenes
                 StormComfortLauncher.TryDailyStormComfortRoll(
@@ -96,9 +101,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// <summary>
         /// Проверить, можно ли выписать игрока из госпиталя
         /// </summary>
-        private void CheckHospitalDischarge(int newTime)
+        private void CheckHospitalDischarge(int oldTime, int newTime)
         {
-            _hospitalizationManager.UpdateHospitalStayProgress(newTime);
+            _hospitalizationManager.UpdateHospitalStayProgress(oldTime, newTime);
             _hospitalizationManager.NotifyDischargeReadyIfNeeded();
         }
 
