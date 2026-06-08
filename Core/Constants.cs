@@ -259,6 +259,8 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string MinorMineRescue = "topicHarveyMinorMineRescue";
         /// <summary>Блокирует CP interception/warning, пока C# готовит cutscene спасения из шахты.</summary>
         public const string MineRescuePending = "topicMineRescuePending";
+        /// <summary>CP eventHarveyMineInterception — блокирует повторный показ (3 дня).</summary>
+        public const string HarveyMineIntercept = "HarveyMineIntercept";
         /// <summary>После внешнего спасения вне шахты — реакция Харви дома ночью.</summary>
         public const string ExternalRescueConcern = "topicHarvey_ExternalRescueConcern";
         /// <summary>После выписки из госпитализации — домашний визит Харви вечером.</summary>
@@ -435,6 +437,7 @@ namespace HarveyOverhaul.InjuryCare.Core
         /// <summary>Legacy: сцена в Mine (только debug / старые saves).</summary>
         public const string MineRescueDating = "eventHarveyMineRescueDating";
         public const string MineRescue = "eventHarveyMineRescue";
+        public const string MineInterception = "eventHarveyMineInterception";
         public const string RescueOperation = "eventRescueOperation";
         /// <summary>Ночная забота Харви дома после внешнего спасения — Dating (FarmHouse, повторяемое с cooldown).</summary>
         public const string AfterExternalRescueHome = "eventHarveyAfterExternalRescueHome";
@@ -514,7 +517,7 @@ namespace HarveyOverhaul.InjuryCare.Core
             "buffBurnWounds"
         };
 
-        /// <summary>Фазовые баффы тяжёлых травм — запрет шахты при активной фазе лечения.</summary>
+        /// <summary>Фазовые баффы тяжёлых травм — только для отчётов/legacy; блокировка шахты через IsMineHardBlocked.</summary>
         public static readonly HashSet<string> SeverePhaseBuffIds = new(System.StringComparer.OrdinalIgnoreCase)
         {
             "HarveyMod_InfectedWound_Acute",

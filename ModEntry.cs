@@ -157,6 +157,11 @@ namespace HarveyOverhaul.InjuryCare
                 (_, _) => CmdMineForbiddenClear());
 
             helper.ConsoleCommands.Add(
+                "injury_mine_ban_clear",
+                "Снять HarveyMod_MineForbidden, MineWarningDay и MineForbiddenAppliedDay.",
+                (_, _) => CmdMineBanClear());
+
+            helper.ConsoleCommands.Add(
                 "injury_mine_restriction_clear",
                 "Снять мягкое ограничение HarveyMod_MineRestricted и счётчики нарушений.",
                 (_, _) => CmdMineRestrictionClear());
@@ -1182,6 +1187,11 @@ namespace HarveyOverhaul.InjuryCare
 
         private void CmdMineForbiddenClear()
         {
+            CmdMineBanClear();
+        }
+
+        private void CmdMineBanClear()
+        {
             if (!Context.IsWorldReady)
             {
                 Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
@@ -1193,8 +1203,8 @@ namespace HarveyOverhaul.InjuryCare
             _stateManager.State.LastMineSevereForcedExitDay = -1;
             _stateManager.Save();
 
-            Monitor.Log("[MineForbidden] [ДЕБАГ] Жёсткий запрет шахты сброшен", LogLevel.Info);
-            Game1.addHUDMessage(new HUDMessage("[ДЕБАГ] Жёсткий запрет шахты сброшен", HUDMessage.achievement_type));
+            Monitor.Log("[MineForbidden] Жёсткий запрет шахты сброшен", LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage("Харви: Запрет на шахту снят.", HUDMessage.achievement_type));
         }
 
         private void CmdMineClear()

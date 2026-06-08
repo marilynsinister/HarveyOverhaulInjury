@@ -33,6 +33,18 @@ namespace HarveyOverhaul.InjuryCare.Core
 
         /// <summary>Жёсткий MineForbidden только для тяжёлых травм из медицинского списка.</summary>
         public bool MineForbiddenOnlyForSevereInjuries { get; set; } = true;
+
+        /// <summary>Дней жёсткого запрета шахты в острой фазе 1 (инфекция, ожог, шrapnel и т.п.).</summary>
+        public int MineHardBlockAcuteDays { get; set; } = 2;
+
+        /// <summary>Дней жёсткого запрета после крупной травмы (перелом, badly hurt, хирургия).</summary>
+        public int MineHardBlockAfterMajorInjuryDays { get; set; } = 2;
+
+        /// <summary>Разрешить обычную шахту на фазах лечения после острого окна (фаза 2+).</summary>
+        public bool AllowMinesDuringHealingPhase { get; set; } = true;
+
+        /// <summary>Показывать мягкие HUD-предупреждения Харви при входе в шахту во время лечения.</summary>
+        public bool ShowMineWarningsDuringHealing { get; set; } = true;
         /// <summary>Максимальный (высокий) шанс грязной раны в шахте после DirtyWoundHighMineMinutes.</summary>
         public double DirtyWoundChanceMines { get; set; } = 0.35;
 

@@ -41,20 +41,14 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             _complianceManager = complianceManager;
         }
 
-        /// <summary>Жёсткий физический запрет: активный MineForbidden или тяжёлая травма из списка.</summary>
+        /// <summary>Жёсткий физический запрет: активный MineForbidden или острое окно травмы.</summary>
         public bool ShouldPhysicallyBlockMines()
         {
             int today = GameUtils.Today();
             var state = _stateManager.State;
 
-            if (MineForbiddenHelper.IsMineForbiddenActive(state, _config, today)
-                || _buffManager.HasBuff(InjuryBuffs.MineForbidden))
-                return true;
-
-            if (!_config.MineForbiddenOnlyForSevereInjuries)
-                return MineForbiddenHelper.HasSevereMineCondition(state, _injuryManager, _buffManager, out _);
-
-            return HasAnyActiveSevereMineForbiddenInjury();
+            return MineForbiddenHelper.IsMineHardBlocked(
+                state, _config, _injuryManager, _buffManager, today, out _);
         }
 
         /// <summary>Мягкий режим RecoveryPlan: предупреждение без обязательного выноса.</summary>
@@ -211,11 +205,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
         {
             var state = _stateManager.State;
 
-            if (!ShouldPhysicallyBlockMines() && !MineForbiddenHelper.IsMineForbiddenActive(state, _config, today))
-                return;
-
-            if (!HasAnyActiveSevereMineForbiddenInjury()
-                && !MineForbiddenHelper.IsMineForbiddenActive(state, _config, today))
+            if (!MineForbiddenHelper.IsMineForbiddenActive(state, _config, today))
                 return;
 
             MineForbiddenHelper.ApplyHardMineForbidden(
@@ -230,21 +220,6 @@ namespace HarveyOverhaul.InjuryCare.Helpers
 
             MineForbiddenHelper.SyncMineForbiddenBuff(
                 state, _config, _buffManager, _stateManager, _monitor, today, trigger);
-        }
-
-        private bool HasAnyActiveSevereMineForbiddenInjury()
-        {
-            string? mainId = _injuryManager.GetActiveInjury();
-            if (!string.IsNullOrEmpty(mainId) && IsActiveSevereMineForbiddenInjury(mainId))
-                return true;
-
-            foreach (string injuryId in _stateManager.State.ActiveDebuffs.Keys)
-            {
-                if (IsActiveSevereMineForbiddenInjury(injuryId))
-                    return true;
-            }
-
-            return false;
         }
     }
 }
