@@ -58,6 +58,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly ComplicationManager _complicationManager;
         private readonly DoctorVisitReminderManager _doctorVisitReminderManager;
         private readonly RecoveryPlanManager _recoveryPlanManager;
+        private readonly TreatmentStartHandler _treatmentStartHandler;
 
         private PendingMedicalAction? _pendingMedicalAction;
         private bool _pendingSawDialogueBox;
@@ -111,7 +112,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             SelfCareManager selfCareManager,
             ComplicationManager complicationManager,
             DoctorVisitReminderManager doctorVisitReminderManager,
-            RecoveryPlanManager recoveryPlanManager)
+            RecoveryPlanManager recoveryPlanManager,
+            TreatmentStartHandler treatmentStartHandler)
         {
             _monitor = monitor;
             _helper = helper;
@@ -131,6 +133,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _complicationManager = complicationManager;
             _doctorVisitReminderManager = doctorVisitReminderManager;
             _recoveryPlanManager = recoveryPlanManager;
+            _treatmentStartHandler = treatmentStartHandler;
         }
 
         /// <summary>
@@ -304,7 +307,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 LastClickDebug = BuildClickDebugSnapshot(
                     null,
                     null,
-                    "ALLOWED: no InjuryCare medical action");
+                    "ALLOWED: untreated injury — start via HarveyMod_TreatmentNeeded topic");
                 return;
             }
 
@@ -367,7 +370,16 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _injuryManager.EnsureActiveTreatmentBuffs();
             var resolved = TryResolveMedicalAction(_injuryManager.CollectAllInjuries());
             if (resolved == null)
+            {
+                var untreated = GetHarveyTreatableInjuryStates()
+                    .Where(d => !d.TreatmentStarted)
+                    .OrderByDescending(d => GetInjuryPriority(d.BuffId))
+                    .FirstOrDefault();
+                if (untreated != null)
+                    return $"none (untreated {untreated.BuffId} — CP topic {TopicIds.GetTreatmentNeededTopic(untreated.BuffId)})";
+
                 return "none (standard dialogue allowed)";
+            }
 
             return $"SELECT {FormatMedicalActionLabel(resolved)}";
         }
@@ -392,6 +404,51 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             var resolved = TryResolveMedicalAction(_injuryManager.CollectAllInjuries());
             if (resolved == null)
             {
+                var untreated = GetHarveyTreatableInjuryStates()
+                    .Where(d => !d.TreatmentStarted)
+                    .OrderByDescending(d => GetInjuryPriority(d.BuffId))
+                    .FirstOrDefault();
+
+                if (untreated != null)
+                {
+                    string label = $"StartTreatment:{untreated.BuffId}";
+                    if (dryRun)
+                    {
+                        LastClickDebug = BuildClickDebugSnapshot(null, null, $"DRY_RUN: {label} (via TreatmentStartHandler)");
+                        return $"DRY_RUN: {label}";
+                    }
+
+                    bool applied = _treatmentStartHandler.TryStartTreatment(
+                        untreated.BuffId,
+                        fromDialogueAction: false,
+                        out string? skipReason);
+                    LastClickDebug = BuildClickDebugSnapshot(
+                        null,
+                        null,
+                        applied ? $"DEBUG: applied {label}" : $"DEBUG: skipped {label} ({skipReason})");
+
+                    return applied
+                        ? $"APPLIED: {label}"
+                        : $"SKIPPED: {label} ({skipReason ?? "unknown"})";
+                }
+
+                var activeComplications = GetActiveComplicationIds();
+                if (activeComplications.Count > 0)
+                {
+                    string complicationId = activeComplications[0];
+                    string label = $"TreatComplication:{complicationId}";
+                    if (dryRun)
+                        return $"DRY_RUN: {label}";
+
+                    bool applied = _treatmentStartHandler.TryTreatComplication(
+                        complicationId,
+                        fromDialogueAction: false,
+                        out string? skipReason);
+                    return applied
+                        ? $"APPLIED: {label}"
+                        : $"SKIPPED: {label} ({skipReason ?? "unknown"})";
+                }
+
                 LastClickDebug = "DEBUG: no InjuryCare medical action";
                 return "NO_ACTION: standard Harvey dialogue would apply";
             }
@@ -488,35 +545,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 };
             }
 
-            // C. StartTreatment — только DebuffState InjuryCare, без проверки чужих/фазовых баффов на игроке
-            var nextToTreat = treatableStates
-                .Where(d => !d.TreatmentStarted)
-                .OrderByDescending(d => GetInjuryPriority(d.BuffId))
-                .FirstOrDefault();
-
-            if (nextToTreat != null)
-            {
-                injuries.MainInjury = nextToTreat.BuffId;
-                var complications = GetActiveComplicationIds();
-                return new PendingMedicalAction
-                {
-                    Type = MedicalActionType.StartTreatment,
-                    InjuryId = nextToTreat.BuffId,
-                    Complications = complications
-                };
-            }
-
-            // D. TreatComplications — только если нет нелеченной травмы (C) и лечение основной уже идёт
-            var activeComplications = GetActiveComplicationIds();
-            bool anyUntreatedTreatable = treatableStates.Any(d => !d.TreatmentStarted);
-            if (activeComplications.Count > 0 && !anyUntreatedTreatable)
-            {
-                return new PendingMedicalAction
-                {
-                    Type = MedicalActionType.TreatComplications,
-                    Complications = activeComplications
-                };
-            }
+            // C. StartTreatment — только через CP topic + $action (TreatmentStartHandler), не через клик.
+            // D. TreatComplications — только через HarveyMod_TreatmentNeeded_* + $action TreatComplication.
 
             // E. SimpleCompletionTopic
             string? completionTopic = FindActiveCompletionTopic();
@@ -577,7 +607,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 MedicalActionType.AdvancePhase => TryBeginAdvancePhase(harvey, pending.InjuryId!),
                 MedicalActionType.CompleteRecovery => TryBeginCompleteRecovery(harvey, pending.InjuryId!),
-                MedicalActionType.StartTreatment or MedicalActionType.TreatComplications
+                MedicalActionType.TreatComplications
                     or MedicalActionType.SimpleCompletionTopic => BeginMedicalDialogue(
                         harvey,
                         pending.Type,
@@ -726,8 +756,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _pendingMedicalAction = pending;
             LogMedicalQueued(pending);
 
-            if (type is MedicalActionType.StartTreatment
-                or MedicalActionType.AdvancePhase
+            if (type is MedicalActionType.AdvancePhase
                 or MedicalActionType.CompleteRecovery)
             {
                 _complianceManager.ApplyTreatmentComplianceTopics();
@@ -982,62 +1011,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return false;
             }
 
-            var debuffState = _stateManager.GetDebuffState(action.InjuryId);
-            if (debuffState == null)
-            {
-                LogStaleApply(action, $"DebuffState {action.InjuryId} не найден");
-                return false;
-            }
-
-            if (debuffState.TreatmentStarted)
-            {
-                LogStaleApply(action, $"{action.InjuryId} уже TreatmentStarted");
-                return false;
-            }
-
-            bool needsHospitalization = ShouldRequireHospitalization(action.InjuryId, debuffState);
-
-            if (!_treatmentManager.ApplyTreatmentForInjury(action.InjuryId))
-            {
-                LogStaleApply(action, $"не удалось начать лечение {action.InjuryId} (бафф не наложился)");
-                return false;
-            }
-
-            _dialogueManager.ClearHarveyNeedsFirstTreatmentTopic("лечение начато после медицинского диалога");
-            _stateManager.MarkHarveyConversation(action.InjuryId, true);
-
-            var stillActiveComplications = GetActiveComplicationIds();
-            if (stillActiveComplications.Count > 0)
-                _treatmentManager.TreatAllComplications(stillActiveComplications);
-
-            GrantMedicalFriendship(10);
-            ShowHarveyEmote(HarveyHelper.GetCaringEmote());
-            ProcessMedicalInteractionCompliance();
-            _stateManager.Save();
-
-            if (needsHospitalization)
-            {
-                string reason = GetTreatmentHospitalizationReason(action.InjuryId, debuffState);
-                _monitor.Log(
-                    $"[MedicalAction] StartTreatment → forced hospitalization {action.InjuryId} reason={reason}",
-                    LogLevel.Info);
-
-                if (reason == "mine_rescue")
-                    _dialogueManager.RemoveTopic(ConversationTopics.MineInjuryRescue);
-
-                NPC? harvey = HarveyHelper.GetHarvey();
-                _hospitalizationManager.StartForcedHospitalizationWithExplanation(
-                    action.InjuryId,
-                    harvey,
-                    reason);
-            }
-
-            _monitor.Log(
-                $"[MedicalAction] applied type=StartTreatment injury={action.InjuryId} complications={stillActiveComplications.Count}",
-                LogLevel.Info);
-            _doctorVisitReminderManager.SyncReminderBuff();
-            _recoveryPlanManager.RefreshPlanForToday(notifyCreated: true);
-            return true;
+            return _treatmentStartHandler.TryStartTreatment(
+                action.InjuryId,
+                fromDialogueAction: false,
+                out string? skipReason)
+                || string.Equals(skipReason, "already started", StringComparison.OrdinalIgnoreCase);
         }
 
         private bool ApplyPendingTreatComplications(PendingMedicalAction action)
@@ -1049,22 +1027,20 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return false;
             }
 
-            int today = (int)Game1.stats.DaysPlayed;
-            var complicationStartDays = stillActive
-                .Where(compId => _stateManager.State.ActiveComplications.ContainsKey(compId))
-                .ToDictionary(compId => compId, compId => _stateManager.State.ActiveComplications[compId]);
+            string complicationId = stillActive[0];
+            bool applied = _treatmentStartHandler.TryTreatComplication(
+                complicationId,
+                fromDialogueAction: false,
+                out _);
 
-            _treatmentManager.TreatAllComplications(stillActive);
-            GrantMedicalFriendship(10);
-            ProcessMedicalInteractionCompliance(complicationStartDays, today);
-            _stateManager.Save();
+            if (applied)
+            {
+                _monitor.Log(
+                    $"[MedicalAction] applied type=TreatComplications complication={complicationId} (debug/legacy pending)",
+                    LogLevel.Info);
+            }
 
-            _monitor.Log(
-                $"[MedicalAction] applied type=TreatComplications complications={string.Join(", ", stillActive)}",
-                LogLevel.Info);
-            _doctorVisitReminderManager.SyncReminderBuff();
-            _recoveryPlanManager.RefreshPlanForToday();
-            return true;
+            return applied;
         }
 
         private bool ApplyPendingAdvancePhase(PendingMedicalAction action)
@@ -1303,80 +1279,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             _pendingMedicalAction = null;
             _pendingSawDialogueBox = false;
-        }
-
-        private bool ShouldRequireHospitalization(string injuryId, DebuffState state)
-        {
-            if (!_config.ForceHospitalization)
-                return false;
-            if (_hospitalizationManager.IsHospitalized)
-                return false;
-
-            string? mainInjuryId = _injuryManager.GetActiveInjury();
-            if (string.IsNullOrEmpty(mainInjuryId))
-                return false;
-
-            if (!string.Equals(injuryId, mainInjuryId, StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            if (!_injuryManager.HasInjuryOrPhase(mainInjuryId))
-                return false;
-
-            if (!InjuryManager.IsSeriousMainInjuryId(mainInjuryId))
-                return false;
-
-            int today = GameUtils.Today();
-
-            if (string.Equals(mainInjuryId, "buffInfectedWound", StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            if (_injuryManager.HasSeriousMainInjuryWithDirtyWound())
-            {
-                if (mainInjuryId is "buffBurnWounds" or "buffShrapnelWounds" or "buffSurgicalWound")
-                    return true;
-            }
-
-            return mainInjuryId switch
-            {
-                "buffConcussion" => true,
-                "buffFracturedBone" => true,
-                "buffBadlyHurt" => today - state.InjuryStartDay <= 1,
-                "buffShrapnelWounds" => IsShrapnelMineOrExplosionRelated(state),
-                _ => false
-            };
-        }
-
-        private bool IsShrapnelMineOrExplosionRelated(DebuffState state)
-        {
-            if (GameUtils.HasConversationTopic(ConversationTopics.MineInjuryRescue))
-                return true;
-            if (GameUtils.HasConversationTopic(ConversationTopics.ShrapnelWounds))
-                return true;
-            if (_stateManager.State.PassedOutInMineYesterday || _stateManager.State.NeedsMineRescueEvent)
-                return true;
-            if (!string.IsNullOrEmpty(_stateManager.State.PendingMineRescueEventId))
-                return true;
-            if (_stateManager.WasStoryTriggerApplied(Triggers.ShrapnelWounds))
-                return true;
-
-            return false;
-        }
-
-        private static string GetTreatmentHospitalizationReason(string injuryId, DebuffState state)
-        {
-            if (injuryId == "buffShrapnelWounds"
-                && GameUtils.HasConversationTopic(ConversationTopics.MineInjuryRescue))
-            {
-                return "mine_rescue";
-            }
-
-            return injuryId switch
-            {
-                "buffConcussion" => "concussion_observation",
-                "buffInfectedWound" => "infection_fever",
-                "buffFracturedBone" => "fracture_stabilization",
-                _ => "general"
-            };
         }
 
         /// <summary>

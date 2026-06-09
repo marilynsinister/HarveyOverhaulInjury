@@ -29,6 +29,12 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// Был ли разговор с Харви о лечении этой травмы
         /// </summary>
         public bool HarveyConversationHappened { get; set; } = false;
+
+        /// <summary>CP topic HarveyMod_TreatmentNeeded_* показан ($action в диалоге).</summary>
+        public bool TreatmentIntroShown { get; set; } = false;
+
+        /// <summary>ApplyTreatmentForInjury успешно выполнен для этой травмы.</summary>
+        public bool TreatmentApplied { get; set; } = false;
         
         // ============================================================================
         // ИНФОРМАЦИЯ О ФАЗАХ
@@ -179,6 +185,8 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
                 InjuryStartDay = InjuryStartDay,
                 TreatmentStarted = TreatmentStarted,
                 HarveyConversationHappened = HarveyConversationHappened,
+                TreatmentIntroShown = TreatmentIntroShown,
+                TreatmentApplied = TreatmentApplied,
                 TotalPhases = TotalPhases,
                 CurrentPhase = CurrentPhase,
                 PhaseStartDay = PhaseStartDay,

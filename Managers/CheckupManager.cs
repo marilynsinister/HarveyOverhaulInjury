@@ -222,16 +222,25 @@ namespace HarveyOverhaul.InjuryCare.Managers
             debuffState.CheckupOverduePenaltyApplied = false;
         }
 
-        private void RemoveCheckupTopics(string injuryId, DebuffState debuffState)
+        public void RemoveAllCheckupTopicsForInjury(string injuryId, int totalPhases = 0)
         {
+            if (totalPhases <= 0)
+            {
+                var debuffState = _stateManager.GetDebuffState(injuryId);
+                totalPhases = debuffState?.TotalPhases ?? InjurySets.InferDefaultTotalPhases(injuryId);
+            }
+
             _dialogueManager.RemoveTopic(CheckupTopics.CheckupDue);
             _dialogueManager.RemoveTopic(CheckupTopics.GetCheckupDueInjury(injuryId));
             _dialogueManager.RemoveTopic(CheckupTopics.RecoveryCheckupDue);
             _dialogueManager.RemoveTopic(CheckupTopics.GetRecoveryCheckupDueInjury(injuryId));
 
-            for (int phase = 1; phase <= Math.Max(1, debuffState.TotalPhases); phase++)
+            for (int phase = 1; phase <= Math.Max(1, totalPhases); phase++)
                 _dialogueManager.RemoveTopic(CheckupTopics.GetCheckupPhase(phase));
         }
+
+        private void RemoveCheckupTopics(string injuryId, DebuffState debuffState) =>
+            RemoveAllCheckupTopicsForInjury(injuryId, debuffState.TotalPhases);
 
         private static string GetInjuryDisplayName(string injuryId) =>
             injuryId.Replace("buff", "", StringComparison.OrdinalIgnoreCase);

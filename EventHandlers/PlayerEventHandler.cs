@@ -1106,7 +1106,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             // === ПРОМОКАНИЕ ПОВЯЗКИ ===
             if (!bandageLogic)
+            {
+                if (!_complicationManager.HasAnyActiveBandagedInjuryInTreatment())
+                    _monitor.Log("[Rain] WetBandage skipped: no active bandaged injury.", LogLevel.Debug);
                 return;
+            }
 
             // Проверка промокания раз в 10 секунд, чтобы повязка не роллилась слишком часто
             if (secondsUnderRain % 10 == 0)

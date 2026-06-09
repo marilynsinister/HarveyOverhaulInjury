@@ -675,6 +675,84 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// Добавить HarveyMod_TreatmentNeeded_* для нелеченной HarveyTreatable травмы (CP dialogue + $action).
+        /// </summary>
+        public void TryAddTreatmentNeededTopic(string buffId, int days)
+        {
+            if (string.IsNullOrEmpty(buffId))
+                return;
+
+            if (!InjurySets.HarveyTreatable.Contains(buffId))
+                return;
+
+            string topicId = TopicIds.GetTreatmentNeededTopic(buffId);
+            if (HasTopic(topicId))
+            {
+                _monitor.Log($"[TreatmentStart] topic лечения уже активен: {topicId}", LogLevel.Debug);
+                return;
+            }
+
+            AddTopic(topicId, Math.Max(1, days));
+            _monitor.Log(
+                $"[TreatmentStart] topic лечения добавлен: {topicId} на {Math.Max(1, days)} дн. (травма {buffId})",
+                LogLevel.Info);
+        }
+
+        /// <summary>Удалить HarveyMod_TreatmentNeeded_* после успешного старта лечения.</summary>
+        public void ClearTreatmentNeededTopic(string buffId, string reason)
+        {
+            if (string.IsNullOrEmpty(buffId))
+                return;
+
+            string topicId = TopicIds.GetTreatmentNeededTopic(buffId);
+            if (!HasTopic(topicId))
+                return;
+
+            RemoveTopic(topicId);
+            _monitor.Log(
+                $"[TreatmentStart] topic лечения удалён: {topicId} ({buffId}): {reason}",
+                LogLevel.Info);
+        }
+
+        /// <summary>Добавить HarveyMod_TreatmentNeeded_* для активного осложнения (CP + TreatComplication $action).</summary>
+        public void TryAddTreatmentNeededComplicationTopic(string complicationBuffId, int days)
+        {
+            if (string.IsNullOrEmpty(complicationBuffId))
+                return;
+
+            if (!InjurySets.KnownComplicationBuffIds.Contains(complicationBuffId))
+                return;
+
+            string topicId = TopicIds.GetTreatmentNeededComplicationTopic(complicationBuffId);
+            if (HasTopic(topicId))
+            {
+                _monitor.Log($"[ComplicationTreatment] topic уже активен: {topicId}", LogLevel.Debug);
+                return;
+            }
+
+            AddTopic(topicId, Math.Max(1, days));
+            _monitor.Log(
+                $"[ComplicationTreatment] topic добавлен: {topicId} на {Math.Max(1, days)} дн. ({complicationBuffId})",
+                LogLevel.Info);
+        }
+
+        /// <summary>Удалить HarveyMod_TreatmentNeeded_* осложнения после TreatComplication $action.</summary>
+        public void ClearTreatmentNeededComplicationTopic(string complicationBuffId, string reason)
+        {
+            if (string.IsNullOrEmpty(complicationBuffId))
+                return;
+
+            string topicId = TopicIds.GetTreatmentNeededComplicationTopic(complicationBuffId);
+            if (!HasTopic(topicId))
+                return;
+
+            RemoveTopic(topicId);
+            _monitor.Log(
+                $"[ComplicationTreatment] topic удалён: {topicId} ({complicationBuffId}): {reason}",
+                LogLevel.Info);
+        }
+
+        /// <summary>
         /// Проверить наличие топика
         /// </summary>
         public bool HasTopic(string topic)

@@ -314,6 +314,8 @@ namespace HarveyOverhaul.InjuryCare.Testing
                 Prop("seconds_today", "integer", "TotalTimeUnderRainToday"),
                 Prop("continuous_seconds", "integer", "TimeUnderRainTicks")),
             Tool("injury_debug_mine_rescue", "Arm mine rescue flags for next DayStarted."),
+            Tool("injury_cleanup",
+                "Safe cleanup of lingering medical tails (treatment buffs, DoctorVisit, WetBandage) without injury_reset."),
             Tool("injury_cleanup_invalid_complications", "Remove stale/invalid complications from save."),
             Tool("injury_foreign_topic_add", "Add foreign conversation topic for conflict tests.",
                 Prop("topic_id", "string", "Topic key"),

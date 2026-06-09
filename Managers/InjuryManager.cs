@@ -108,6 +108,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             {
                 applyAction();
                 _stateManager.SetMainInjury(newInjuryId);
+                EnsureTreatmentNeededTopic(newInjuryId);
                 return true;
             }
 
@@ -129,6 +130,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
                 if (string.Equals(newInjuryId, "buffInfectedWound", StringComparison.OrdinalIgnoreCase))
                     _complicationManager?.ClearWoundRelatedComplicationsAfterInfection();
+
+                EnsureTreatmentNeededTopic(newInjuryId);
 
                 _monitor.Log(
                     $"[MainInjury] Основная травма заменена: {oldInjuryId} -> {newInjuryId}",
@@ -621,7 +624,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
             {
                 restored += EnsureTreatmentBuffForInjury(buffId);
                 if (debuffState.TreatmentStarted && InjurySets.HarveyTreatable.Contains(buffId))
+                {
                     _dialogueManager.ClearUntreatedInjuryTopic(buffId, "синхронизация: лечение уже идёт");
+                    _dialogueManager.ClearTreatmentNeededTopic(buffId, "синхронизация: лечение уже идёт");
+                }
+                else if (!debuffState.TreatmentStarted && InjurySets.HarveyTreatable.Contains(buffId))
+                {
+                    EnsureTreatmentNeededTopic(buffId);
+                }
             }
 
             foreach (string compId in _stateManager.State.ActiveComplications.Keys.ToList())
@@ -639,6 +649,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     _buffManager.AddBuff(compId, -2);
                     restored++;
                 }
+
+                if (InjurySets.KnownComplicationBuffIds.Contains(compId))
+                    _dialogueManager.TryAddTreatmentNeededComplicationTopic(compId, 7);
             }
 
             if (stateDirty)
@@ -820,6 +833,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private void RemoveMainInjuryTopics(string injuryId)
         {
             _dialogueManager.ClearUntreatedInjuryTopic(injuryId, "снятие основной травмы");
+            _dialogueManager.ClearTreatmentNeededTopic(injuryId, "снятие основной травмы");
             _dialogueManager.RemoveTopic(TopicIds.GetTreatmentTopic(injuryId));
             for (int phase = 1; phase <= 3; phase++)
                 _dialogueManager.RemoveTopic(GetPhaseTopicId(injuryId, phase));
@@ -842,6 +856,22 @@ namespace HarveyOverhaul.InjuryCare.Managers
             {
                 _dialogueManager.RemoveTopic(ConversationTopics.PostOperativeCare);
             }
+        }
+
+        private void EnsureTreatmentNeededTopic(string injuryId)
+        {
+            if (!InjurySets.HarveyTreatable.Contains(injuryId))
+                return;
+
+            var debuffState = _stateManager.GetDebuffState(injuryId);
+            if (debuffState == null || debuffState.TreatmentStarted)
+                return;
+
+            int days = debuffState.GetTotalDuration();
+            if (days <= 0)
+                days = Math.Max(debuffState.Phase1Duration, 7);
+
+            _dialogueManager.TryAddTreatmentNeededTopic(injuryId, days);
         }
 
         /// <summary>

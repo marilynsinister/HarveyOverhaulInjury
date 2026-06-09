@@ -69,7 +69,30 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (_buffManager.HasBuff(InjuryBuffs.WetBandage))
                 return false;
 
-            return HasBandageOrTreatmentForMainInjury();
+            return HasAnyActiveBandagedInjuryInTreatment();
+        }
+
+        /// <summary>
+        /// Есть ли хотя бы одна травма в активном лечении с реальной повязкой/обработкой раны.
+        /// </summary>
+        public bool HasAnyActiveBandagedInjuryInTreatment()
+        {
+            foreach (var (injuryId, debuffState) in _stateManager.State.ActiveDebuffs)
+            {
+                if (!InjurySets.HarveyTreatable.Contains(injuryId))
+                    continue;
+
+                if (InjurySets.KnownComplicationBuffIds.Contains(injuryId))
+                    continue;
+
+                if (!debuffState.TreatmentStarted)
+                    continue;
+
+                if (HasBandageForInjury(injuryId, debuffState))
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -82,6 +105,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public bool CanReceiveWetBandageFromWater()
         {
+            if (!HasAnyActiveBandagedInjuryInTreatment())
+            {
+                LogWetBandageSkip("none", false, "no active bandaged injury");
+                return false;
+            }
+
             string? mainInjuryId = GetActiveMainInjuryId();
             DebuffState? mainDebuff = !string.IsNullOrEmpty(mainInjuryId)
                 ? _stateManager.GetDebuffState(mainInjuryId)
@@ -113,7 +142,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return false;
             }
 
-            if (!HasActiveBandageOrWoundDressing())
+            if (!HasBandageForInjury(mainInjuryId, mainDebuff))
             {
                 LogWetBandageSkip(mainInjuryId, treatmentStarted, "no active bandage/treatment");
                 return false;
@@ -126,27 +155,73 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return true;
         }
 
-        private bool HasCureBandageBuff() =>
-            _buffManager.HasBuff(CureBuffs.Treatment)
-            || _buffManager.HasBuff(CureBuffs.IntensiveCare)
-            || _buffManager.HasBuff(CureBuffs.PostSurgical)
-            || _buffManager.HasBuff(CureBuffs.BadlyHurtOutpatientCare);
+        /// <summary>Снять мокрую повязку, если больше нет травм с активной повязкой в лечении.</summary>
+        public void CleanupWetBandageIfNoBandagedInjuries()
+        {
+            if (HasAnyActiveBandagedInjuryInTreatment())
+                return;
+
+            bool hadBuff = _buffManager.HasBuff(InjuryBuffs.WetBandage);
+            bool hadComplication = _stateManager.State.ActiveComplications.Remove(InjuryBuffs.WetBandage);
+            string wetTopic = TopicIds.GetComplicationTopic(InjuryBuffs.WetBandage);
+            bool hadTopic = _dialogueManager.HasTopic(wetTopic);
+
+            if (hadBuff)
+            {
+                _buffManager.RemoveBuff(InjuryBuffs.WetBandage);
+                _monitor.Log($"[RecoveryCleanup] Removed lingering buff {InjuryBuffs.WetBandage}", LogLevel.Info);
+            }
+
+            if (hadTopic)
+            {
+                _dialogueManager.RemoveTopic(wetTopic);
+                _monitor.Log($"[RecoveryCleanup] Removed lingering topic {wetTopic}", LogLevel.Info);
+            }
+
+            if (hadBuff || hadComplication || hadTopic)
+                _stateManager.Save();
+        }
 
         private bool HasBandageOrTreatmentForMainInjury()
         {
-            if (HasCureBandageBuff())
-                return true;
-
             string? mainInjuryId = GetActiveMainInjuryId();
             if (string.IsNullOrEmpty(mainInjuryId))
                 return false;
 
             DebuffState? mainDebuff = _stateManager.GetDebuffState(mainInjuryId);
-            if (mainDebuff == null || !mainDebuff.TreatmentStarted || mainDebuff.CurrentPhase <= 0)
+            if (mainDebuff == null || !mainDebuff.TreatmentStarted)
                 return false;
 
-            string phaseBuff = _injuryManager.GetPhaseBuffId(mainInjuryId, mainDebuff.CurrentPhase);
-            return _buffManager.HasBuff(phaseBuff);
+            return HasBandageForInjury(mainInjuryId, mainDebuff);
+        }
+
+        private bool HasBandageForInjury(string injuryId, DebuffState debuffState)
+        {
+            if (!debuffState.TreatmentStarted)
+                return false;
+
+            if (TreatmentManager.IsSimpleTreatmentInjury(injuryId))
+                return HasCureBandageBuffForInjury(injuryId);
+
+            if (!debuffState.IsPhasedInjury || debuffState.CurrentPhase <= 0)
+                return false;
+
+            string phaseBuff = _injuryManager.GetPhaseBuffId(injuryId, debuffState.CurrentPhase);
+            return !string.IsNullOrEmpty(phaseBuff) && _buffManager.HasBuff(phaseBuff);
+        }
+
+        private bool HasCureBandageBuffForInjury(string injuryId)
+        {
+            if (string.Equals(injuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
+            {
+                return _buffManager.HasBuff(CureBuffs.IntensiveCare)
+                    || _buffManager.HasBuff(CureBuffs.BadlyHurtOutpatientCare);
+            }
+
+            if (SimpleInjuryCures.Map.TryGetValue(injuryId, out string? cureBuffId))
+                return _buffManager.HasBuff(cureBuffId);
+
+            return false;
         }
 
         /// <summary>
@@ -516,9 +591,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
 
             _lastWetBandageSkipLogKey = key;
-            _monitor.Log(
-                $"[WetBandage] skip: {reason}, main={mainInjuryId}, treatmentStarted={treatmentStarted}",
-                LogLevel.Debug);
+            string message = reason == "no active bandaged injury"
+                ? "[Rain] WetBandage skipped: no active bandaged injury."
+                : $"[WetBandage] skip: {reason}, main={mainInjuryId}, treatmentStarted={treatmentStarted}";
+            _monitor.Log(message, LogLevel.Debug);
         }
 
         private void LogDirtyWoundEligibility(string? mainInjuryId, bool allowed, string reason)
@@ -580,6 +656,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.State.ActiveComplications[complicationId] = today;
             _stateManager.CreateComplicationState(complicationId, today);
             _dialogueManager.AddTopic(GetComplicationTopic(complicationId), topicDays);
+            _dialogueManager.TryAddTreatmentNeededComplicationTopic(complicationId, topicDays);
 
             if (hudMessage != null)
                 Game1.addHUDMessage(hudMessage);

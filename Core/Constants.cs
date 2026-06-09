@@ -304,12 +304,36 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const double DefaultRollChance = 0.35;
     }
 
+    /// <summary>Custom trigger actions для dialogue $action.</summary>
+    public static class TreatmentStartActions
+    {
+        public const string StartTreatment = "HarveyOverhaulInjury_StartTreatment";
+        public const string TreatComplication = "HarveyOverhaulInjury_TreatComplication";
+
+        // TODO: HarveyOverhaulInjury_AdvancePhase — фазовый переход через CP topic + $action
+        // TODO: HarveyOverhaulInjury_CompleteRecovery — выздоровление через CP topic + $action
+    }
+
+    /// <summary>Осложнения с CP topic HarveyMod_TreatmentNeeded_* + TreatComplication $action.</summary>
+    public static class TreatableComplicationBuffIds
+    {
+        public static readonly HashSet<string> All = InjurySets.KnownComplicationBuffIds;
+    }
+
     /// <summary>
     /// Единый источник правды для динамически генерируемых topic ID (см. id-naming-standard.md §7).
     /// </summary>
     public static class TopicIds
     {
         public static string GetInjuryTopic(string buffId) => buffId.Replace("buff", "topic");
+
+        /// <summary>CP conversation topic для старта лечения через $action (HarveyMod_TreatmentNeeded_DeepCuts).</summary>
+        public static string GetTreatmentNeededTopic(string buffId) =>
+            $"HarveyMod_TreatmentNeeded_{buffId.Replace("buff", "")}";
+
+        /// <summary>CP conversation topic для лечения осложнения (HarveyMod_TreatmentNeeded_WetBandage).</summary>
+        public static string GetTreatmentNeededComplicationTopic(string complicationBuffId) =>
+            $"HarveyMod_TreatmentNeeded_{complicationBuffId.Replace("HarveyMod_", "")}";
 
         public static string GetTreatmentTopic(string buffId) => buffId.Replace("buff", "topicTreatment");
 
@@ -365,6 +389,7 @@ namespace HarveyOverhaul.InjuryCare.Core
             foreach (string buffId in InjurySets.HarveyTreatable)
             {
                 ids.Add(TopicIds.GetInjuryTopic(buffId));
+                ids.Add(TopicIds.GetTreatmentNeededTopic(buffId));
                 ids.Add(TopicIds.GetTreatmentTopic(buffId));
                 ids.Add(TopicIds.GetCuredTopic(buffId));
                 int totalPhases = InjurySets.InferDefaultTotalPhases(buffId);
@@ -376,7 +401,10 @@ namespace HarveyOverhaul.InjuryCare.Core
             }
 
             foreach (string compId in InjurySets.KnownComplicationBuffIds)
+            {
                 ids.Add(TopicIds.GetComplicationTopic(compId));
+                ids.Add(TopicIds.GetTreatmentNeededComplicationTopic(compId));
+            }
 
             ids.Add(StormComfortIds.StormStressTopic);
             ids.Add(StormComfortIds.LegacyStressTopic);

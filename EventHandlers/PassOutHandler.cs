@@ -24,6 +24,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly DialogueManager _dialogueManager;
         private readonly InjuryManager _injuryManager;
         private readonly TreatmentManager _treatmentManager;
+        private TreatmentStartHandler? _treatmentStartHandler;
         private RecoveryPlanManager? _recoveryPlanManager;
 
         public PassOutHandler(
@@ -47,6 +48,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         public void SetRecoveryPlanManager(RecoveryPlanManager recoveryPlanManager)
         {
             _recoveryPlanManager = recoveryPlanManager;
+        }
+
+        public void SetTreatmentStartHandler(TreatmentStartHandler treatmentStartHandler)
+        {
+            _treatmentStartHandler = treatmentStartHandler;
         }
 
         /// <summary>
@@ -948,6 +954,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (debuffState?.TreatmentStarted == true)
             {
                 _monitor.Log("[MineRescue] Авто-лечение пропущено: TreatmentStarted уже true", LogLevel.Debug);
+                return;
+            }
+
+            if (_treatmentStartHandler != null)
+            {
+                _treatmentStartHandler.TryStartTreatment(injuryId, fromDialogueAction: false, out _);
                 return;
             }
 

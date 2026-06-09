@@ -32,6 +32,7 @@ namespace HarveyOverhaul.InjuryCare
         private DialogueManager _dialogueManager = null!;
         private InjuryManager _injuryManager = null!;
         private TreatmentManager _treatmentManager = null!;
+        private TreatmentStartHandler _treatmentStartHandler = null!;
         private HarveyReactionManager _harveyReactionManager = null!;
         private HospitalizationManager _hospitalizationManager = null!;
         private HospitalActivityManager _hospitalActivityManager = null!;
@@ -275,6 +276,11 @@ namespace HarveyOverhaul.InjuryCare
                 "injury_hospital_discharge",
                 "[QA] Принудительная выписка (HospitalizationManager.Discharge).",
                 (_, _) => CmdHospitalDischarge());
+
+            helper.ConsoleCommands.Add(
+                "injury_cleanup",
+                "Безопасная очистка зависших медицинских хвостов (лечебные баффы, DoctorVisit, WetBandage) без injury_reset.",
+                (_, _) => CmdCleanupLingeringMedical());
 
             helper.ConsoleCommands.Add(
                 "injury_cleanup_invalid_complications",
@@ -698,6 +704,7 @@ namespace HarveyOverhaul.InjuryCare
             if (string.Equals(trauma.BuffId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
                 _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 4);
             _dialogueManager.TryAddHarveyNeedsFirstTreatmentTopic(trauma.BuffId);
+            _dialogueManager.TryAddTreatmentNeededTopic(trauma.BuffId, topicDays);
 
             if (string.Equals(trauma.BuffId, "buffConcussion", StringComparison.OrdinalIgnoreCase)
                 && _config.ForceHospitalization)
@@ -717,6 +724,23 @@ namespace HarveyOverhaul.InjuryCare
             }
 
             _stateManager.DebugClearMainInjuryId();
+        }
+
+        private void CmdCleanupLingeringMedical()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            int cleaned = _treatmentManager.CleanupLingeringMedicalState();
+            Monitor.Log(
+                $"[RecoveryCleanup] injury_cleanup завершён: изменений={cleaned}. Проверьте: injury_phase_list, injury_buff_dump",
+                LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage(
+                $"[RecoveryCleanup] Очищено элементов: {cleaned}",
+                HUDMessage.health_type));
         }
 
         private void CmdCleanupInvalidComplications()
@@ -2798,6 +2822,10 @@ namespace HarveyOverhaul.InjuryCare
                     CmdDebugMineRescue();
                     return BuildPhaseListReport();
 
+                case "injury_cleanup":
+                    CmdCleanupLingeringMedical();
+                    return BuildPhaseListReport();
+
                 case "injury_cleanup_invalid_complications":
                     CmdCleanupInvalidComplications();
                     return BuildPhaseListReport();
@@ -3274,6 +3302,22 @@ namespace HarveyOverhaul.InjuryCare
                 _selfCareManager
             );
             _injuryManager.SetComplicationManager(_complicationManager);
+            _treatmentManager.SetComplicationManager(_complicationManager);
+            _treatmentManager.SetDoctorVisitReminderManager(_doctorVisitReminderManager);
+
+            _treatmentStartHandler = new TreatmentStartHandler(
+                Monitor,
+                _config,
+                _stateManager,
+                _buffManager,
+                _injuryManager,
+                _dialogueManager,
+                _treatmentManager,
+                _hospitalizationManager,
+                _complicationManager,
+                _complianceManager,
+                _doctorVisitReminderManager,
+                _recoveryPlanManager);
 
             Monitor.Log("Все менеджеры инициализированы", LogLevel.Debug);
         }
@@ -3341,8 +3385,8 @@ namespace HarveyOverhaul.InjuryCare
                 _selfCareManager,
                 _complicationManager,
                 _doctorVisitReminderManager,
-                _recoveryPlanManager
-            );
+                _recoveryPlanManager,
+                _treatmentStartHandler);
 
             _timeEventHandler = new TimeEventHandler(
                 Monitor,
@@ -3367,6 +3411,7 @@ namespace HarveyOverhaul.InjuryCare
                 _treatmentManager
             );
             _passOutHandler.SetRecoveryPlanManager(_recoveryPlanManager);
+            _passOutHandler.SetTreatmentStartHandler(_treatmentStartHandler);
 
             _homeCareEventLauncher = new HarveyHomeCareEventLauncher(
                 Monitor,
@@ -3488,7 +3533,7 @@ namespace HarveyOverhaul.InjuryCare
         private string GetClickExpectationForDebuff(DebuffState d)
         {
             if (!d.TreatmentStarted && _buffManager.HasBuff(d.BuffId))
-                return "CLICK: start treatment";
+                return $"TALK: {TopicIds.GetTreatmentNeededTopic(d.BuffId)}";
             if (d.TreatmentStarted && d.ReadyForRecovery)
                 return "CLICK: complete recovery";
             if (d.TreatmentStarted && d.IsPhasedInjury && d.ReadyForNextPhase
@@ -4112,6 +4157,7 @@ namespace HarveyOverhaul.InjuryCare
         private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
         {
             _recoveryPlanMenu.TryInitialize(Helper);
+            _treatmentStartHandler.RegisterTriggerActions();
         }
 
         private void OnRecoveryPlanKeyPressed(object? sender, ButtonPressedEventArgs e)

@@ -229,6 +229,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return false;
             }
 
+            var sourceDebuff = _stateManager.GetDebuffState(prescription.SourceInjuryId);
+            if (sourceDebuff != null && !sourceDebuff.TreatmentStarted)
+            {
+                _monitor.Log(
+                    $"TryMarkViolation пропущено: лечение {prescription.SourceInjuryId} ещё не начато (TreatmentStarted=false)",
+                    LogLevel.Debug);
+                return false;
+            }
+
             int today = (int)Game1.stats.DaysPlayed;
             if (prescription.IsExpired(today))
                 return false;

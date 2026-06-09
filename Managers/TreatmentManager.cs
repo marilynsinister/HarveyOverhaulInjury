@@ -23,6 +23,22 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly ComplianceManager _complianceManager;
         private readonly CheckupManager _checkupManager;
         private readonly TreatmentPlanManager _treatmentPlanManager;
+        private ComplicationManager? _complicationManager;
+        private DoctorVisitReminderManager? _doctorVisitReminderManager;
+
+        /// <summary>Лечебные/служебные баффы, снимаемые при полном выздоровлении (не buffHarveyCare).</summary>
+        private static readonly string[] RecoveryCleanupBuffIds =
+        {
+            CureBuffs.Treatment,
+            CureBuffs.IntensiveCare,
+            CureBuffs.BadlyHurtOutpatientCare,
+            CureBuffs.PostSurgical,
+            CureBuffs.Protection,
+            CureBuffs.Recovery,
+            CureBuffs.Teracitin,
+            CureBuffs.Antibiotics,
+            CureBuffs.ForcedSedation,
+        };
 
         // Маппинг травм к лечебным баффам (только для простых травм БЕЗ фаз)
         public static readonly Dictionary<string, string> CureByInjury = new()
@@ -78,6 +94,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _checkupManager = checkupManager;
             _treatmentPlanManager = treatmentPlanManager;
         }
+
+        public void SetComplicationManager(ComplicationManager complicationManager) =>
+            _complicationManager = complicationManager;
+
+        public void SetDoctorVisitReminderManager(DoctorVisitReminderManager doctorVisitReminderManager) =>
+            _doctorVisitReminderManager = doctorVisitReminderManager;
 
         /// <summary>
         /// Получить ID фазового баффа травмы (используется для восстановления)
@@ -273,24 +295,197 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
         
         /// <summary>
-        /// Механическое завершение фазовой травмы без диалога (канон для игрового клика).
+        /// Механическое завершение травмы без диалога (канон для игрового клика и debug-cure).
         /// </summary>
         public void ApplyMechanicalPhasedRecovery(string injuryId, int careDurationMs = 2880000)
         {
-            _injuryManager.RemoveAllTreatmentBuffs(injuryId);
+            ApplyFullRecoveryCleanup(injuryId);
+
+            _buffManager.AddBuff(CureBuffs.Care, careDurationMs);
+            _complianceManager.ApplyHighComplianceRecoveryBonuses();
+            _doctorVisitReminderManager?.SyncReminderBuff();
+            _monitor.Log($"Механическое выздоровление применено: {injuryId}, Care={careDurationMs}ms", LogLevel.Debug);
+        }
+
+        /// <summary>
+        /// Централизованная финальная очистка после полного выздоровления от травмы.
+        /// </summary>
+        public void ApplyFullRecoveryCleanup(string injuryId)
+        {
+            _injuryManager.RemoveAllPhaseBuffs(injuryId);
+            RemoveRecoveryTreatmentBuffs(injuryId);
+
             _stateManager.CompleteMainInjury(injuryId);
             _stateManager.RemoveDebuffState(injuryId);
             _injuryManager.NotifyInjuryRecovered(injuryId);
 
-            _dialogueManager.ClearUntreatedInjuryTopic(injuryId, "механическое выздоровление");
-            _dialogueManager.RemoveTopic(TopicIds.GetTreatmentTopic(injuryId));
-            _dialogueManager.RemoveTopic(TopicIds.GetCuredTopic(injuryId));
-            for (int phase = 1; phase <= 3; phase++)
-                _dialogueManager.RemoveTopic(_injuryManager.GetPhaseTopicId(injuryId, phase));
+            RemoveRecoveryTopics(injuryId);
+            _complicationManager?.CleanupWetBandageIfNoBandagedInjuries();
 
-            _buffManager.AddBuff(CureBuffs.Care, careDurationMs);
-            _complianceManager.ApplyHighComplianceRecoveryBonuses();
-            _monitor.Log($"Механическое выздоровление применено: {injuryId}, Care={careDurationMs}ms", LogLevel.Debug);
+            if (_stateManager.State.TimeUnderRainTicks != 0)
+                _stateManager.State.TimeUnderRainTicks = 0;
+
+            _stateManager.Save();
+        }
+
+        /// <summary>
+        /// Безопасная очистка зависших медицинских хвостов без полного injury_reset.
+        /// </summary>
+        public int CleanupLingeringMedicalState()
+        {
+            int cleaned = 0;
+
+            foreach (string buffId in RecoveryCleanupBuffIds)
+            {
+                if (!_buffManager.HasBuff(buffId))
+                    continue;
+
+                if (HasActiveTreatmentDebuffForBuff(buffId))
+                    continue;
+
+                if (RemoveLingeringBuff(buffId))
+                    cleaned++;
+            }
+
+            if (_buffManager.HasBuff(ReminderBuffs.DoctorVisitNeeded)
+                && _doctorVisitReminderManager?.IsVisitNeeded() == false)
+            {
+                if (RemoveLingeringBuff(ReminderBuffs.DoctorVisitNeeded))
+                    cleaned++;
+            }
+
+            _complicationManager?.CleanupWetBandageIfNoBandagedInjuries();
+
+            foreach (string buffId in InjurySets.HarveyTreatable)
+            {
+                if (_stateManager.HasDebuffState(buffId))
+                    continue;
+
+                cleaned += RemoveOrphanRecoveryTopics(buffId);
+            }
+
+            if (_stateManager.State.TimeUnderRainTicks != 0
+                && _complicationManager?.HasAnyActiveBandagedInjuryInTreatment() == false)
+            {
+                _stateManager.State.TimeUnderRainTicks = 0;
+                cleaned++;
+            }
+
+            if (cleaned > 0)
+                _stateManager.Save();
+
+            _doctorVisitReminderManager?.SyncReminderBuff();
+            return cleaned;
+        }
+
+        private void RemoveRecoveryTreatmentBuffs(string injuryId)
+        {
+            foreach (string buffId in RecoveryCleanupBuffIds)
+                RemoveLingeringBuff(buffId);
+
+            if (!IsSimpleTreatmentInjury(injuryId))
+                return;
+
+            string? cureBuffId = CureByInjury.GetValueOrDefault(injuryId);
+            if (cureBuffId != null)
+                RemoveLingeringBuff(cureBuffId);
+        }
+
+        private void RemoveRecoveryTopics(string injuryId)
+        {
+            _dialogueManager.ClearUntreatedInjuryTopic(injuryId, "механическое выздоровление");
+
+            RemoveLingeringTopic(TopicIds.GetInjuryTopic(injuryId));
+            RemoveLingeringTopic(TopicIds.GetTreatmentTopic(injuryId));
+            RemoveLingeringTopic(TopicIds.GetCuredTopic(injuryId));
+            RemoveLingeringTopic(TreatmentPlanTopics.GetInjuryTopic(injuryId));
+
+            int totalPhases = InjurySets.InferDefaultTotalPhases(injuryId);
+            for (int phase = 1; phase <= 3; phase++)
+                RemoveLingeringTopic(_injuryManager.GetPhaseTopicId(injuryId, phase));
+
+            if (totalPhases == 2)
+            {
+                string injuryName = injuryId.Replace("buff", "", StringComparison.OrdinalIgnoreCase);
+                RemoveLingeringTopic($"topic{injuryName}PhaseHealing");
+            }
+
+            _checkupManager.RemoveAllCheckupTopicsForInjury(injuryId, totalPhases);
+        }
+
+        private int RemoveOrphanRecoveryTopics(string injuryId)
+        {
+            int removed = 0;
+            string[] orphanCandidates =
+            {
+                TopicIds.GetInjuryTopic(injuryId),
+                TopicIds.GetTreatmentTopic(injuryId),
+                TopicIds.GetCuredTopic(injuryId),
+                TreatmentPlanTopics.GetInjuryTopic(injuryId),
+            };
+
+            foreach (string topicId in orphanCandidates)
+            {
+                if (RemoveLingeringTopic(topicId))
+                    removed++;
+            }
+
+            for (int phase = 1; phase <= 3; phase++)
+            {
+                if (RemoveLingeringTopic(_injuryManager.GetPhaseTopicId(injuryId, phase)))
+                    removed++;
+            }
+
+            return removed;
+        }
+
+        private bool HasActiveTreatmentDebuffForBuff(string buffId)
+        {
+            foreach (var (injuryId, debuffState) in _stateManager.State.ActiveDebuffs)
+            {
+                if (!debuffState.TreatmentStarted)
+                    continue;
+
+                if (string.Equals(buffId, CureBuffs.Treatment, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(injuryId, "buffHurt", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                if (string.Equals(buffId, CureBuffs.IntensiveCare, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(injuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                if (string.Equals(buffId, CureBuffs.PostSurgical, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(injuryId, "buffSurgicalWound", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                if (string.Equals(buffId, CureBuffs.BadlyHurtOutpatientCare, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(injuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private bool RemoveLingeringBuff(string buffId)
+        {
+            if (!_buffManager.HasBuff(buffId))
+                return false;
+
+            _buffManager.RemoveBuff(buffId);
+            _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
+                string.Equals(id, buffId, StringComparison.OrdinalIgnoreCase));
+            _monitor.Log($"[RecoveryCleanup] Removed lingering buff {buffId}", LogLevel.Info);
+            return true;
+        }
+
+        private bool RemoveLingeringTopic(string topicId)
+        {
+            if (!_dialogueManager.HasTopic(topicId))
+                return false;
+
+            _dialogueManager.RemoveTopic(topicId);
+            _monitor.Log($"[RecoveryCleanup] Removed lingering topic {topicId}", LogLevel.Info);
+            return true;
         }
 
         /// <summary>
@@ -352,6 +547,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (treatmentStarted)
             {
                 _dialogueManager.ClearUntreatedInjuryTopic(injuryId, "лечение начато");
+                _dialogueManager.ClearTreatmentNeededTopic(injuryId, "лечение начато");
+                var dsAfter = _stateManager.GetDebuffState(injuryId);
+                if (dsAfter != null)
+                    dsAfter.TreatmentApplied = true;
                 _injuryManager.EnsureTreatmentBuffForInjury(injuryId);
                 _prescriptionManager.AssignPrescriptionsForInjury(injuryId);
                 _complianceManager.ApplyTreatmentComplianceTopics();
@@ -680,9 +879,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _stateManager.RemoveDebuffState(compId);
                 _stateManager.State.TopicMemory.Remove(compId);
 
-                // Диалоговый топик убираем тоже
-                string topicId = TopicIds.GetComplicationTopic(compId);
-                _dialogueManager.RemoveTopic(topicId);
+                // Диалоговые топики убираем тоже
+                _dialogueManager.RemoveTopic(TopicIds.GetComplicationTopic(compId));
+                _dialogueManager.ClearTreatmentNeededComplicationTopic(compId, "осложнение снято");
 
                 _monitor.Log($"Осложнение вылечено и удалено из state: {compId}", LogLevel.Info);
             }
