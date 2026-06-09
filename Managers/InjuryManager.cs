@@ -875,6 +875,18 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// Синхронизировать HarveyMod_TreatmentNeeded_* для активных осложнений (после StartTreatment main).
+        /// </summary>
+        public void EnsureTreatmentNeededComplicationTopics()
+        {
+            if (_complicationManager == null)
+                return;
+
+            foreach (string compId in _complicationManager.GetActiveTreatableComplicationIds())
+                _dialogueManager.TryAddTreatmentNeededComplicationTopic(compId, 7);
+        }
+
+        /// <summary>
         /// Получить активную основную травму (базовый buffId, не фазовый бафф).
         /// </summary>
         public string? GetActiveInjury()

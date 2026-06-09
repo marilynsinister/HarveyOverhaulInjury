@@ -238,9 +238,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.MarkHarveyConversation(injuryId, true);
             _dialogueManager.ClearTreatmentNeededTopic(injuryId, "лечение успешно начато");
 
-            var stillActiveComplications = _complicationManager.GetActiveTreatableComplicationIds().ToList();
-            if (stillActiveComplications.Count > 0)
-                _treatmentManager.TreatAllComplications(stillActiveComplications);
+            _injuryManager.EnsureTreatmentNeededComplicationTopics();
+            int activeComplicationCount = _complicationManager.GetActiveTreatableComplicationIds().Count;
 
             GrantMedicalFriendship(10);
             ShowHarveyEmote(HarveyHelper.GetCaringEmote());
@@ -264,7 +263,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
 
             _monitor.Log(
-                $"[TreatmentStart] applied injury={injuryId} fromDialogue={fromDialogueAction} complications={stillActiveComplications.Count}",
+                $"[TreatmentStart] applied injury={injuryId} fromDialogue={fromDialogueAction} " +
+                $"activeComplications={activeComplicationCount} (осложнения не лечатся автоматически)",
                 LogLevel.Info);
             _doctorVisitReminderManager.SyncReminderBuff();
             _recoveryPlanManager.RefreshPlanForToday(notifyCreated: true);
