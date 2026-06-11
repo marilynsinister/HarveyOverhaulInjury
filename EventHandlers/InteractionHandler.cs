@@ -13,7 +13,8 @@ using StardewValley.Menus;
 namespace HarveyOverhaul.InjuryCare.EventHandlers
 {
     /// <summary>
-    /// Обработчик взаимодействий с Харви (клики): диалог → закрытие DialogueBox → применение лечения.
+    /// Обработчик взаимодействий с Харви (клики). Старт лечения/осложнений — только CP $action;
+    /// фазовые переходы и выздоровление — programmatic диалог → закрытие DialogueBox.
     /// </summary>
     public class InteractionHandler
     {
@@ -160,6 +161,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
 
             var pending = _pendingMedicalAction;
+
+            if (pending.Type is MedicalActionType.StartTreatment or MedicalActionType.TreatComplications)
+            {
+                HandleActionOnlyPendingCleanup(pending);
+                return;
+            }
 
             if (pending.Applied)
             {
@@ -994,8 +1001,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             return action.Type switch
             {
-                MedicalActionType.StartTreatment => ApplyPendingStartTreatment(action),
-                MedicalActionType.TreatComplications => ApplyPendingTreatComplications(action),
+                MedicalActionType.StartTreatment or MedicalActionType.TreatComplications
+                    => LogActionOnlyPendingStale(action),
                 MedicalActionType.AdvancePhase => ApplyPendingAdvancePhase(action),
                 MedicalActionType.CompleteRecovery => ApplyPendingCompleteRecovery(action),
                 MedicalActionType.SimpleCompletionTopic => ApplyPendingSimpleCompletionTopic(action),
@@ -1279,6 +1286,49 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             _pendingMedicalAction = null;
             _pendingSawDialogueBox = false;
+        }
+
+        /// <summary>
+        /// StartTreatment / TreatComplications — только через CP $action, не после закрытия DialogueBox.
+        /// </summary>
+        private void HandleActionOnlyPendingCleanup(PendingMedicalAction pending)
+        {
+            if (Game1.activeClickableMenu is DialogueBox)
+            {
+                _pendingSawDialogueBox = true;
+                return;
+            }
+
+            if (!pending.DialogueWasShown)
+                return;
+
+            int elapsed = Game1.ticks - pending.StartedTick;
+            if (!_pendingSawDialogueBox && elapsed < 60)
+                return;
+
+            string expectedAction = pending.Type == MedicalActionType.StartTreatment
+                ? TreatmentStartActions.StartTreatment
+                : TreatmentStartActions.TreatComplication;
+            string target = pending.InjuryId
+                ?? pending.Complications.FirstOrDefault()
+                ?? "(none)";
+
+            _monitor.Log(
+                $"[MedicalAction] ⚠️ {pending.Type} dialogue closed without $action {expectedAction} " +
+                $"(target={target}) — pending cleared, treatment unchanged",
+                LogLevel.Warn);
+            ClearPendingMedicalAction();
+        }
+
+        private bool LogActionOnlyPendingStale(PendingMedicalAction action)
+        {
+            string expectedAction = action.Type == MedicalActionType.StartTreatment
+                ? TreatmentStartActions.StartTreatment
+                : TreatmentStartActions.TreatComplication;
+            _monitor.Log(
+                $"[MedicalAction] ⚠️ stale pending {action.Type} ignored — use $action {expectedAction}",
+                LogLevel.Warn);
+            return false;
         }
 
         /// <summary>

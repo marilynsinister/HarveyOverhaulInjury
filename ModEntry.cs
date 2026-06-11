@@ -208,6 +208,21 @@ namespace HarveyOverhaul.InjuryCare
                 (_, _) => CmdDebugDump());
 
             helper.ConsoleCommands.Add(
+                "injury_debug_state",
+                "[QA] Краткий снимок injury + Harvey click gate + stress interaction guard.",
+                (_, _) => CmdInjuryDebugState());
+
+            helper.ConsoleCommands.Add(
+                "injury_force_debuff",
+                "[QA] Нелеченая травма вчера: injury_force_debuff <buffId> (e.g. buffDeepCuts).",
+                (_, args) => CmdInjuryForceDebuff(args));
+
+            helper.ConsoleCommands.Add(
+                "injury_clear_treatment",
+                "[QA] Сбросить лечение травмы на debuff-only: injury_clear_treatment <buffId>.",
+                (_, args) => CmdInjuryClearTreatment(args));
+
+            helper.ConsoleCommands.Add(
                 "injury_state_dump",
                 "[QA] Машиночитаемый снимок InjuryState (read-only).",
                 (_, _) => CmdStateDump());
@@ -1437,6 +1452,103 @@ namespace HarveyOverhaul.InjuryCare
             }
 
             Monitor.Log(BuildDebugReport(full: true), LogLevel.Info);
+        }
+
+        private void CmdInjuryDebugState()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine("=== Injury Harvey Interaction ===");
+            sb.AppendLine($"click={_interactionHandler.LastClickDebug ?? "(none)"}");
+            sb.AppendLine($"gate={_interactionHandler.GetStandardDialogueGateReason()}");
+            sb.AppendLine($"pending={_interactionHandler.GetPendingMedicalActionSummary() ?? "none"}");
+            sb.AppendLine($"harveyDecision={_interactionHandler.BuildDebugTreatmentDecision()}");
+            Monitor.Log(sb.ToString().TrimEnd(), LogLevel.Info);
+        }
+
+        private void CmdInjuryForceDebuff(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log("Использование: injury_force_debuff <buffId> (e.g. buffDeepCuts)", LogLevel.Info);
+                return;
+            }
+
+            string id = args[0].Trim();
+            CmdDebuffAdd(new[] { "--force", id });
+
+            var state = _stateManager.GetDebuffState(id);
+            if (state != null)
+            {
+                state.TreatmentStarted = false;
+                state.TreatmentApplied = false;
+                state.TreatmentIntroShown = false;
+                state.CurrentPhase = 0;
+                state.InjuryStartDay = Math.Max(1, (int)Game1.stats.DaysPlayed - 1);
+                _stateManager.Save();
+            }
+
+            _injuryManager.EnsureActiveTreatmentBuffs();
+            _dialogueManager.TryAddTreatmentNeededTopic(id, 7);
+            Monitor.Log(
+                $"[QA] injury_force_debuff: {id} untreated, InjuryStartDay=yesterday, TreatmentNeeded topic set",
+                LogLevel.Info);
+        }
+
+        private void CmdInjuryClearTreatment(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log("Использование: injury_clear_treatment <buffId>", LogLevel.Info);
+                return;
+            }
+
+            string id = args[0].Trim();
+            var state = _stateManager.GetDebuffState(id);
+            if (state == null)
+            {
+                Monitor.Log($"DebuffState не найден: {id}", LogLevel.Warn);
+                return;
+            }
+
+            state.TreatmentStarted = false;
+            state.TreatmentApplied = false;
+            state.TreatmentIntroShown = false;
+            state.CurrentPhase = 0;
+            state.ReadyForNextPhase = false;
+            state.ReadyForRecovery = false;
+
+            foreach (var staleId in _injuryManager.GetStalePhaseBuffIds(id))
+                _buffManager.RemoveBuff(staleId);
+
+            string? cureId = _injuryManager.GetExpectedCureBuffId(id);
+            if (!string.IsNullOrEmpty(cureId))
+                _buffManager.RemoveBuff(cureId);
+
+            if (!_buffManager.HasBuff(id))
+                _buffManager.AddBuff(id, -2);
+
+            _dialogueManager.TryAddTreatmentNeededTopic(id, 7);
+            _injuryManager.EnsureActiveTreatmentBuffs();
+            _stateManager.Save();
+            Monitor.Log($"[QA] injury_clear_treatment: {id} reset to untreated debuff", LogLevel.Info);
         }
 
         private void CmdStateDump() => LogQaReport("injury_state_dump", BuildStateDumpReport);
