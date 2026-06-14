@@ -40,16 +40,18 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
         var injuries = CollectMainInjuries(state);
         var complications = CollectComplications(state);
         bool hasAnyInjury = injuries.Count > 0 || complications.Count > 0;
-        bool pendingReview = injuries.Any(NeedsHarveyTalk) || state.RecoveryPlanNeedsHarveyVisit;
 
         var recoveryVm = _recoveryPlanManager.BuildViewModel();
         var (hasPlan, planFields, planSections) = InjuryRecoveryPlanSections.Build(recoveryVm);
+
+        bool pendingReview = ComputePendingHarveyReview(state, injuries, complications, recoveryVm);
 
         return new HarveyPanelContribution
         {
             ProviderId = ProviderId,
             HasActiveRecoveryPlan = hasPlan,
             HasPendingHarveyReview = pendingReview,
+            HasPriorityAppointment = pendingReview,
             OverviewFields = BuildOverviewFields(injuries, complications, hasAnyInjury, pendingReview),
             OverviewSections = BuildOverviewSections(injuries, complications, hasAnyInjury, pendingReview),
             InjurySections = BuildInjurySections(injuries, complications, hasAnyInjury),
@@ -163,8 +165,13 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
         return new HarveyPanelOverviewFields
         {
             StateLine = pendingReview ? "Харви ждёт контрольный разговор" : "Травма требует внимания.",
-            AssignmentLine = injuries.FirstOrDefault()?.AdviceText ?? "",
+            AssignmentLine = pendingReview
+                ? (injuries.FirstOrDefault(i => NeedsHarveyTalk(i))?.AdviceText
+                   ?? complications.FirstOrDefault()?.AdviceText
+                   ?? "Поговорите с Харви.")
+                : injuries.FirstOrDefault()?.AdviceText ?? "",
             InjuriesLine = complications.Count > 0 ? $"Осложнения: {complications.Count}" : "",
+            AdviceLine = pendingReview ? "Харви ждёт вас — сначала осмотр, потом дела." : "",
         };
     }
 
@@ -331,6 +338,43 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
 
     private static bool NeedsHarveyTalk(InjuryPanelEntry entry) =>
         entry.ReadyForNextPhase || entry.ReadyForRecovery;
+
+    private static bool ComputePendingHarveyReview(
+        InjuryState state,
+        IReadOnlyList<InjuryPanelEntry> injuries,
+        IReadOnlyList<InjuryPanelEntry> complications,
+        RecoveryPlanViewModel recoveryVm)
+    {
+        if (injuries.Any(NeedsHarveyTalk))
+            return true;
+
+        foreach (var (buffId, debuff) in state.ActiveDebuffs)
+        {
+            if (debuff == null || InjurySets.KnownComplicationBuffIds.Contains(buffId))
+                continue;
+
+            if (!debuff.TreatmentStarted
+                && (InjurySets.HarveyTreatable.Contains(buffId) || IsDisplayableInjuryBuff(buffId)))
+            {
+                return true;
+            }
+        }
+
+        if (complications.Count > 0 || state.ActiveComplications.Count > 0)
+            return true;
+
+        if (state.RecoveryPlanNeedsHarveyVisit)
+            return true;
+
+        var dailyPlan = state.RecoveryPlan;
+        if (dailyPlan.IsActive && (dailyPlan.NeedsHarveyVisit || dailyPlan.TodayFailed))
+            return true;
+
+        if (recoveryVm.RequiresHarveyTalk)
+            return true;
+
+        return false;
+    }
 
     private static void AppendEntry(StringBuilder sb, InjuryPanelEntry entry)
     {

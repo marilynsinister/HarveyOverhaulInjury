@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Text;
+using HarveyOverhaul.Core.Api;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
@@ -26,6 +27,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly DialogueManager _dialogueManager;
         private readonly InjuryManager _injuryManager;
         private readonly HospitalizationManager _hospitalizationManager;
+        private IHarveyCoreApi? _coreApi;
 
         private DomesticSpouseState _state = new();
 
@@ -46,6 +48,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _injuryManager = injuryManager;
             _hospitalizationManager = hospitalizationManager;
         }
+
+        public void SetCoreApi(IHarveyCoreApi? coreApi)
+            => _coreApi = coreApi;
 
         public void Load()
         {
@@ -397,6 +402,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private bool IsCriticalMedicalBlocking(DomesticContext ctx)
         {
+            if (_coreApi?.HasPriorityHarveyInteraction() == true)
+                return true;
+
             if (_hospitalizationManager.IsHospitalized)
                 return true;
 
@@ -438,7 +446,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         /// <summary>
         /// Блокирует бытовые реплики, когда важнее медицинский осмотр или recovery plan.
-        /// TODO: при появлении read-only флага в Core учитывать stress HasPendingHarveyReview без обратной зависимости Injury→Stress.
+        /// Stress/Injury priority приходит через HarveyOverhaul.Core API.
         /// </summary>
         private bool HasActiveMedicalReviewPriority(InjuryState injuryState)
         {

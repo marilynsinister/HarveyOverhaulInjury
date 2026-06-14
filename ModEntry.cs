@@ -4340,6 +4340,7 @@ namespace HarveyOverhaul.InjuryCare
             else
             {
                 coreApi.RegisterPanelProvider(_injuryPanelProvider);
+                _domesticSpouseCareManager.SetCoreApi(coreApi);
                 Monitor.Log("[HarveyOverhaulInjury] Injury panel provider registered with HarveyOverhaul.Core.", LogLevel.Debug);
             }
 
