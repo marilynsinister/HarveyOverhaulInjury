@@ -430,6 +430,40 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return true;
             }
 
+            if (HasActiveMedicalReviewPriority(injuryState))
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Блокирует бытовые реплики, когда важнее медицинский осмотр или recovery plan.
+        /// TODO: при появлении read-only флага в Core учитывать stress HasPendingHarveyReview без обратной зависимости Injury→Stress.
+        /// </summary>
+        private bool HasActiveMedicalReviewPriority(InjuryState injuryState)
+        {
+            if (injuryState.RecoveryPlanNeedsHarveyVisit)
+                return true;
+
+            var dailyPlan = injuryState.RecoveryPlan;
+            if (dailyPlan.IsActive && (dailyPlan.NeedsHarveyVisit || dailyPlan.TodayFailed))
+                return true;
+
+            if (injuryState.ActiveComplications.Count > 0)
+                return true;
+
+            foreach (var (buffId, debuff) in injuryState.ActiveDebuffs)
+            {
+                if (debuff == null)
+                    continue;
+
+                if (debuff.ReadyForNextPhase || debuff.ReadyForRecovery)
+                    return true;
+
+                if (!debuff.TreatmentStarted && InjurySets.HarveyTreatable.Contains(buffId))
+                    return true;
+            }
+
             return false;
         }
 

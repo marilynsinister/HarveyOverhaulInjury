@@ -9,6 +9,11 @@
   "UpdateKeys": [],
   "Dependencies": [
     {
+      "UniqueID": "marilynsinister.HarveyOverhaul.Core",
+      "IsRequired": true,
+      "MinimumVersion": "1.0.0"
+    },
+    {
       "UniqueID": "Pathoschild.ContentPatcher",
       "MinimumVersion": "2.0.0",
       "IsRequired": true

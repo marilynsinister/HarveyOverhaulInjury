@@ -5,12 +5,14 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using HarveyOverhaul.Core.Api;
 using HarveyOverhaul.InjuryCare.Api;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Managers;
 using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.EventHandlers;
+using HarveyOverhaul.InjuryCare.Services;
 using HarveyOverhaul.InjuryCare.Testing;
 using HarveyOverhaul.InjuryCare.UI.RecoveryPlan;
 using Microsoft.Xna.Framework;
@@ -46,7 +48,7 @@ namespace HarveyOverhaul.InjuryCare
         private RecoveryPlanManager _recoveryPlanManager = null!;
         private MineEntryCoordinator _mineEntryCoordinator = null!;
         private RecoveryPlanMenu _recoveryPlanMenu = null!;
-        private HarveyInjuryApi _harveyInjuryApi = null!;
+        private InjuryPanelProvider _injuryPanelProvider = null!;
         private TreatmentPlanManager _treatmentPlanManager = null!;
         private SelfCareManager _selfCareManager = null!;
         private DoctorVisitReminderManager _doctorVisitReminderManager = null!;
@@ -3410,7 +3412,11 @@ namespace HarveyOverhaul.InjuryCare
                 _checkupManager,
                 _treatmentPlanManager);
 
-            _harveyInjuryApi = new HarveyInjuryApi(_stateManager, _injuryManager, _recoveryPlanManager);
+            _injuryPanelProvider = new InjuryPanelProvider(
+                _stateManager,
+                _injuryManager,
+                _recoveryPlanManager,
+                _careTrustManager);
             _hospitalizationManager.SetTreatmentManager(_treatmentManager);
 
             _doctorVisitReminderManager = new DoctorVisitReminderManager(
@@ -3626,7 +3632,7 @@ namespace HarveyOverhaul.InjuryCare
             else
             {
                 Monitor.Log(
-                    "[HarveyOverhaulInjury] Standalone RecoveryPlan UI disabled. Shared Harvey panel is expected to be opened by HarveyStressMeter.",
+                    "[HarveyOverhaulInjury] Standalone RecoveryPlan UI disabled. Shared Harvey panel is opened by HarveyOverhaul.Core (H).",
                     LogLevel.Info);
             }
 
@@ -4326,6 +4332,17 @@ namespace HarveyOverhaul.InjuryCare
             if (_config.EnableStandaloneRecoveryPlanWindow)
                 _recoveryPlanMenu.TryInitialize(Helper);
 
+            var coreApi = Helper.ModRegistry.GetApi<IHarveyCoreApi>("marilynsinister.HarveyOverhaul.Core");
+            if (coreApi == null)
+            {
+                Monitor.Log("[HarveyOverhaulInjury] HarveyOverhaul.Core API not found — injury panel provider not registered.", LogLevel.Error);
+            }
+            else
+            {
+                coreApi.RegisterPanelProvider(_injuryPanelProvider);
+                Monitor.Log("[HarveyOverhaulInjury] Injury panel provider registered with HarveyOverhaul.Core.", LogLevel.Debug);
+            }
+
             _treatmentStartHandler.RegisterTriggerActions();
         }
 
@@ -4460,11 +4477,6 @@ namespace HarveyOverhaul.InjuryCare
         private void OnDayEndingPassOutCheck(object? sender, DayEndingEventArgs e)
         {
             _passOutHandler.TrackPassOut();
-        }
-
-        public override object? GetApi()
-        {
-            return _harveyInjuryApi;
         }
     }
 }
