@@ -36,7 +36,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private InteractionHandler? _interactionHandler;
         private PassOutHandler? _passOutHandler;
         private HarveyHomeCareEventLauncher? _homeCareLauncher;
-
         public GameEventHandler(
             IMonitor monitor,
             ModConfig config,
@@ -114,7 +113,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         SanitizeOrphanMineForbiddenBuff();
                         _hospitalizationManager.SanitizeOrphanHospitalizedBuff();
                         _stateManager.State.DischargedToday = false;
-
                         // 1. Восстанавливаем баффы из снапшота конца прошлого дня
                         RestoreBuffsFromSnapshot();
 

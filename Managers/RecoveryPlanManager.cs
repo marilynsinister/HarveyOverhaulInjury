@@ -735,11 +735,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
             plan.LastMorningHudDay = today;
             _stateManager.Save();
 
-            string message = string.Format(
-                "План восстановления активен: день {0}/{1}. Нажми {2}, чтобы посмотреть предписания Харви.",
-                currentDay,
-                totalDays,
-                FormatRecoveryPlanKey());
+            string message = _config.EnableStandaloneRecoveryPlanWindow
+                ? string.Format(
+                    "План восстановления активен: день {0}/{1}. Нажми {2}, чтобы посмотреть предписания Харви.",
+                    currentDay,
+                    totalDays,
+                    FormatRecoveryPlanKey())
+                : string.Format(
+                    "План восстановления активен: день {0}/{1}. Откройте вкладку «План» в окне «План Харви» (H).",
+                    currentDay,
+                    totalDays);
 
             Game1.addHUDMessage(new HUDMessage(message, HUDMessage.health_type));
             _monitor.Log(
@@ -2283,9 +2288,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private string FormatRecoveryPlanKey()
         {
-            string key = _config.OpenRecoveryPlanKey?.Trim() ?? "";
-            if (string.IsNullOrEmpty(key))
+            if (!_config.EnableStandaloneRecoveryPlanWindow)
                 return "H";
+
+            string key = _config.StandaloneRecoveryPlanKey?.Trim() ?? "";
+            if (string.IsNullOrEmpty(key))
+                return "(не назначена)";
 
             return key.ToUpperInvariant();
         }

@@ -121,15 +121,30 @@ namespace HarveyOverhaul.InjuryCare.Core
         public int SkillThresholdBonusPerTwoLevels { get; set; } = 1;
         public int MaxSkillThresholdBonus { get; set; } = 5;
 
-        /// <summary>Клавиша открытия окна «План восстановления» (StardewUI). Пример: H, F6.</summary>
-        public string OpenRecoveryPlanKey { get; set; } = "H";
+        /// <summary>
+        /// Устарело: hotkey H теперь у HarveyStressMeter (общее окно «План Харви»).
+        /// Используйте EnableStandaloneRecoveryPlanWindow + StandaloneRecoveryPlanKey для fallback UI.
+        /// </summary>
+        public string OpenRecoveryPlanKey { get; set; } = "";
 
-        /// <summary>Устарело: используйте OpenRecoveryPlanKey.</summary>
+        /// <summary>Устарело: используйте EnableStandaloneRecoveryPlanWindow + StandaloneRecoveryPlanKey.</summary>
         public string RecoveryPlanKey
         {
-            get => OpenRecoveryPlanKey;
-            set => OpenRecoveryPlanKey = value;
+            get => StandaloneRecoveryPlanKey;
+            set => StandaloneRecoveryPlanKey = value;
         }
+
+        /// <summary>
+        /// Отдельное StardewUI-окно RecoveryPlan в Injury (fallback для тестов).
+        /// По умолчанию выключено — окно открывает HarveyStressMeter по H.
+        /// </summary>
+        public bool EnableStandaloneRecoveryPlanWindow { get; set; } = false;
+
+        /// <summary>
+        /// Клавиша fallback-окна RecoveryPlan (только если EnableStandaloneRecoveryPlanWindow=true).
+        /// Пустая строка = hotkey не назначен.
+        /// </summary>
+        public string StandaloneRecoveryPlanKey { get; set; } = "";
 
         /// <summary>Авто-показ окна плана утром после начала лечения (требует StardewUI).</summary>
         public bool AutoShowRecoveryPlanMorning { get; set; } = false;
@@ -142,6 +157,29 @@ namespace HarveyOverhaul.InjuryCare.Core
 
         /// <summary>Severe-нарушение может добавить +1 день к плану (в пределах MaxRecoveryPlanExtensions).</summary>
         public bool SevereViolationExtendsRecoveryPlan { get; set; } = true;
+
+        // Домашняя забота супруга (married romance, не лечение)
+        public bool EnableSpouseDomesticCare { get; set; } = true;
+        public bool EnableSpouseProximityLines { get; set; } = true;
+        public bool AllowDomesticCareWhenEngaged { get; set; } = true;
+        public bool RequireMarriedForIntimateLines { get; set; } = true;
+        public double MorningSpouseLineChance { get; set; } = 0.35;
+        public double EveningSpouseLineChance { get; set; } = 0.35;
+        public double LateNightSpouseLineChance { get; set; } = 0.40;
+        public double FarmProximityLineChance { get; set; } = 0.20;
+        public int SpouseProximityCooldownMinutes { get; set; } = 120;
+        public int MaxDomesticReactionsPerDay { get; set; } = 2;
+        public int MorningDomesticStartTime { get; set; } = 600;
+        public int MorningDomesticEndTime { get; set; } = 1000;
+        public int EveningDomesticStartTime { get; set; } = 1800;
+        public int EveningDomesticEndTime { get; set; } = 2200;
+        public int LateNightDomesticStartTime { get; set; } = 2200;
+        public int LateNightDomesticEndTime { get; set; } = 2600;
+        public int FarmDomesticStartTime { get; set; } = 900;
+        public int FarmDomesticEndTime { get; set; } = 1800;
+        public int DomesticProximityTiles { get; set; } = 4;
+        /// <summary>Устарело: используйте AllowDomesticCareWhenEngaged.</summary>
+        public bool AllowDomesticCareWhenDating { get; set; } = false;
     }
 }
 

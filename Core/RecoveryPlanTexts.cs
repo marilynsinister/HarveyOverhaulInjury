@@ -95,20 +95,20 @@ namespace HarveyOverhaul.InjuryCare.Core
 
         public static class HarveyTone
         {
-            public const string SectionLabel = "Тон Харви";
-            public const string CalmTitle = "Харви спокоен.";
-            public const string CalmDescription = "Ты соблюдаешь режим, и он видит, что тебе можно доверять.";
-            public const string WorriedTitle = "Харви тревожится.";
-            public const string WorriedDescription = "Сегодня было нарушение. Он попросит тебя зайти на осмотр.";
-            public const string StrictTitle = "Харви строг.";
-            public const string StrictDescription = "Ты рисковала здоровьем. Следующий разговор будет серьёзным.";
-            public const string NoActivePlan = "Сейчас режима восстановления нет.";
+            public const string SectionLabel = "Сейчас";
+            public const string CalmTitle = "Харви спокоен";
+            public const string CalmDescription = "Ты соблюдаешь режим, и он это видит.";
+            public const string WorriedTitle = "Харви волнуется";
+            public const string WorriedDescription = "Сегодня был риск. Лучше сбавить темп.";
+            public const string StrictTitle = "Харви строг";
+            public const string StrictDescription = "Ты рисковала здоровьем. Разговор будет серьёзным, но не злым.";
+            public const string NoActivePlan = "Сейчас нет строгого режима. Просто берегите себя.";
         }
 
         public static class RegimeStatus
         {
             public const string Calm = "режим соблюдается";
-            public const string Concerned = "есть нарушения";
+            public const string Concerned = "были тревожные моменты";
             public const string NeedsHarveyTalk = "нужен осмотр";
             public const string Urgent = "состояние тревожное";
         }
@@ -116,15 +116,13 @@ namespace HarveyOverhaul.InjuryCare.Core
         public static class Completion
         {
             public const string Perfect =
-                "Я хотел бы сказать, что теперь буду меньше волноваться. Но это была бы ложь.$l#$b#"
-                + "Зато теперь я знаю: когда ты обещаешь беречь себя — ты правда стараешься.$h";
+                "Идеальное соблюдение. Харви хотел бы меньше волноваться. Получается не очень, но он гордится тобой.";
 
             public const string WithWarnings =
-                "Ты справилась. Не идеально, но справилась.$s#$b#"
-                + "И я вижу, что ты старалась. В следующий раз — чуть меньше героизма и чуть больше отдыха, договорились?$h";
+                "План почти выполнен. Были тревожные моменты, но день ещё можно спасти.";
 
             public const string Normal =
-                "Режим можно завершать. Но я всё равно хочу, чтобы ты ещё пару дней была осторожнее.$s";
+                "День не засчитан. Организму нужен отдых, а не подвиги через силу.";
         }
 
         public static class WhyImportant

@@ -91,6 +91,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return PhaseTransitionFallback;
         }
 
+        /// <summary>CP: HarveyMod_SpouseMorning_* / HarveyMod_SpouseEvening_* / HarveyMod_SpouseProximity_*</summary>
+        public string PickDomesticSpouseLineByPrefix(string prefix, string fallback = "…")
+        {
+            string? line = TryPickHarveyDialogueByPrefix(prefix);
+            if (!string.IsNullOrWhiteSpace(line))
+                return line;
+
+            _monitor.Log(
+                $"[DomesticCare] Диалоги с префиксом '{prefix}' не найдены, fallback",
+                LogLevel.Warn);
+            return fallback;
+        }
+
         public const int CareTrustFriendlyFriendshipPoints = 1000;
         public const int CareTrustDatingFriendshipPoints = 2000;
 

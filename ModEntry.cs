@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using HarveyOverhaul.InjuryCare.Api;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Managers;
@@ -45,6 +46,7 @@ namespace HarveyOverhaul.InjuryCare
         private RecoveryPlanManager _recoveryPlanManager = null!;
         private MineEntryCoordinator _mineEntryCoordinator = null!;
         private RecoveryPlanMenu _recoveryPlanMenu = null!;
+        private HarveyInjuryApi _harveyInjuryApi = null!;
         private TreatmentPlanManager _treatmentPlanManager = null!;
         private SelfCareManager _selfCareManager = null!;
         private DoctorVisitReminderManager _doctorVisitReminderManager = null!;
@@ -56,6 +58,7 @@ namespace HarveyOverhaul.InjuryCare
         private TimeEventHandler _timeEventHandler = null!;
         private PassOutHandler _passOutHandler = null!;
         private HarveyHomeCareEventLauncher _homeCareEventLauncher = null!;
+        private DomesticSpouseCareManager _domesticSpouseCareManager = null!;
 
         // Конфигурация
         private ModConfig _config = null!;
@@ -461,6 +464,30 @@ namespace HarveyOverhaul.InjuryCare
                 "recovery_plan_status",
                 "[QA] Статус плана восстановления.",
                 (_, _) => CmdRecoveryPlanStatus());
+
+            helper.ConsoleCommands.Add(
+                "domestic_spouse_status",
+                "[QA] Контекст Domestic Spouse Care: локация, погода, prefix, cooldown.",
+                (_, _) => Monitor.Log(_domesticSpouseCareManager.BuildDebugStatusReport(), LogLevel.Info));
+
+            helper.ConsoleCommands.Add(
+                "domestic_spouse_test",
+                "[QA] Показать реплику по prefix без изменения state: domestic_spouse_test <prefix>",
+                (_, args) =>
+                {
+                    if (args.Length < 1)
+                    {
+                        Monitor.Log("Usage: domestic_spouse_test <prefix>", LogLevel.Error);
+                        return;
+                    }
+
+                    _domesticSpouseCareManager.TestPrefix(string.Join(" ", args));
+                });
+
+            helper.ConsoleCommands.Add(
+                "domestic_spouse_reset",
+                "[QA] Сбросить DomesticSpouseState.",
+                (_, _) => _domesticSpouseCareManager.ResetState());
 
             helper.ConsoleCommands.Add(
                 "recovery_plan_clear",
@@ -3382,6 +3409,8 @@ namespace HarveyOverhaul.InjuryCare
                 _complianceManager,
                 _checkupManager,
                 _treatmentPlanManager);
+
+            _harveyInjuryApi = new HarveyInjuryApi(_stateManager, _injuryManager, _recoveryPlanManager);
             _hospitalizationManager.SetTreatmentManager(_treatmentManager);
 
             _doctorVisitReminderManager = new DoctorVisitReminderManager(
@@ -3401,6 +3430,15 @@ namespace HarveyOverhaul.InjuryCare
                 _prescriptionManager,
                 _dialogueManager,
                 _rehabManager);
+
+            _domesticSpouseCareManager = new DomesticSpouseCareManager(
+                Monitor,
+                Helper,
+                _config,
+                _stateManager,
+                _dialogueManager,
+                _injuryManager,
+                _hospitalizationManager);
 
             // ComplicationManager - управление осложнениями
             _complicationManager = new ComplicationManager(
@@ -3553,6 +3591,10 @@ namespace HarveyOverhaul.InjuryCare
             _playerEventHandler.SetHomeCareLauncher(_homeCareEventLauncher);
             _timeEventHandler.SetHomeCareLauncher(_homeCareEventLauncher);
 
+            events.GameLoop.DayStarted += _domesticSpouseCareManager.OnDayStarted;
+            events.GameLoop.TimeChanged += _domesticSpouseCareManager.OnTimeChanged;
+            events.GameLoop.UpdateTicked += _domesticSpouseCareManager.OnUpdateTicked;
+
             // События игрока
             events.Player.Warped += _playerEventHandler.OnWarped;
             events.GameLoop.UpdateTicked += _playerEventHandler.OnUpdateTicked;
@@ -3573,7 +3615,20 @@ namespace HarveyOverhaul.InjuryCare
             // Дебаг: вывод _state на экран (переключение по F10)
             events.Display.RenderedHud += OnRenderedHudDebugState;
             events.Input.ButtonPressed += OnDebugHudToggleKeyPressed;
-            events.Input.ButtonPressed += OnRecoveryPlanKeyPressed;
+
+            if (_config.EnableStandaloneRecoveryPlanWindow)
+            {
+                events.Input.ButtonPressed += OnRecoveryPlanKeyPressed;
+                Monitor.Log(
+                    "[HarveyOverhaulInjury] Standalone RecoveryPlan UI enabled (StandaloneRecoveryPlanKey).",
+                    LogLevel.Info);
+            }
+            else
+            {
+                Monitor.Log(
+                    "[HarveyOverhaulInjury] Standalone RecoveryPlan UI disabled. Shared Harvey panel is expected to be opened by HarveyStressMeter.",
+                    LogLevel.Info);
+            }
 
             // Без цветного свечения персонажа от модовых баффов/дебаффов
             events.Content.AssetRequested += OnAssetRequested;
@@ -4268,25 +4323,30 @@ namespace HarveyOverhaul.InjuryCare
 
         private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
         {
-            _recoveryPlanMenu.TryInitialize(Helper);
+            if (_config.EnableStandaloneRecoveryPlanWindow)
+                _recoveryPlanMenu.TryInitialize(Helper);
+
             _treatmentStartHandler.RegisterTriggerActions();
         }
 
         private void OnRecoveryPlanKeyPressed(object? sender, ButtonPressedEventArgs e)
         {
+            if (!_config.EnableStandaloneRecoveryPlanWindow)
+                return;
+
             if (!Context.IsWorldReady)
                 return;
 
-            if (!MatchesRecoveryPlanKey(e.Button))
+            if (!MatchesStandaloneRecoveryPlanKey(e.Button))
                 return;
 
             Helper.Input.Suppress(e.Button);
             _recoveryPlanMenu.TryOpen(_recoveryPlanManager);
         }
 
-        private bool MatchesRecoveryPlanKey(SButton button)
+        private bool MatchesStandaloneRecoveryPlanKey(SButton button)
         {
-            string configured = _config.OpenRecoveryPlanKey?.Trim() ?? "";
+            string configured = _config.StandaloneRecoveryPlanKey?.Trim() ?? "";
             if (string.IsNullOrEmpty(configured))
                 return false;
 
@@ -4330,6 +4390,7 @@ namespace HarveyOverhaul.InjuryCare
         private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
         {
             _stateManager.Load();
+            _domesticSpouseCareManager.Load();
             
             // Перезагрузить данные баффов после того, как Content Patcher загрузил все патчи
             _buffManager.LoadBuffData();
@@ -4399,6 +4460,11 @@ namespace HarveyOverhaul.InjuryCare
         private void OnDayEndingPassOutCheck(object? sender, DayEndingEventArgs e)
         {
             _passOutHandler.TrackPassOut();
+        }
+
+        public override object? GetApi()
+        {
+            return _harveyInjuryApi;
         }
     }
 }

@@ -401,6 +401,27 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         // Свойство для миграции старых сохранений (тип определяется динамически)
         [System.Obsolete("Используйте ActiveDebuffs вместо ActivePhases")]
         public Dictionary<string, dynamic> ActivePhases { get; set; } = new();
+
+        /// <summary>День последней утренней domestic-реплики супруга. -1 = ещё не было.</summary>
+        public int LastSpouseMorningLineDay { get; set; } = -1;
+
+        /// <summary>День последней вечерней domestic-реплики супруга. -1 = ещё не было.</summary>
+        public int LastSpouseEveningLineDay { get; set; } = -1;
+
+        /// <summary>День последней domestic proximity-реплики. -1 = ещё не было.</summary>
+        public int LastSpouseProximityLineDay { get; set; } = -1;
+
+        /// <summary>Игровое время (минуты с полуночи) последней domestic proximity-реплики.</summary>
+        public int LastSpouseProximityGameTime { get; set; } = -1;
+
+        /// <summary>Число domestic-реакций (утро/вечер/proximity) за текущий день.</summary>
+        public int DomesticReactionsShownToday { get; set; } = 0;
+
+        /// <summary>Последний показанный ключ domestic-реакции (debug / антиповтор).</summary>
+        public string LastDomesticReactionKey { get; set; } = "";
+
+        /// <summary>День последней domestic cutscene-сцены (если будет добавлена позже). -1 = не было.</summary>
+        public int LastDomesticEventDay { get; set; } = -1;
     }
 }
 
