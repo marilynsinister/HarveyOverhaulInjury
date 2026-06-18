@@ -354,6 +354,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             string? injuryId = ResolvePrimaryInjury(injuries);
             var debuffState = injuryId != null ? _stateManager.GetDebuffState(injuryId) : null;
 
+            if (debuffState != null && !HarveyInjuryAwarenessHelper.IsInjuryHarveyAware(debuffState))
+                return null;
+
             if (debuffState?.ReadyForRecovery == true)
             {
                 return new ResolvedContext

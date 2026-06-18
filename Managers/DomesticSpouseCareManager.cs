@@ -338,49 +338,28 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private bool CanShowDomesticLine(DomesticContext ctx)
         {
             if (!_config.EnableSpouseDomesticCare)
-            {
-                LogSkip("config disabled");
                 return false;
-            }
 
             if (!Context.IsWorldReady || !Context.IsPlayerFree)
-            {
-                LogSkip("world/player not ready");
                 return false;
-            }
 
             if (Game1.activeClickableMenu != null || Game1.eventUp || Game1.dialogueUp)
                 return false;
 
             if (!ctx.IsFarmHouse && !ctx.IsFarm)
-            {
-                LogSkip("not FarmHouse/Farm");
                 return false;
-            }
 
             if (!HasEligibleSpouseRelationship(ctx))
-            {
-                LogSkip("not married/engaged");
                 return false;
-            }
 
             if (_state.DomesticReactionsShownToday >= Math.Max(0, _config.MaxDomesticReactionsPerDay))
-            {
-                LogSkip("daily cap");
                 return false;
-            }
 
             if (IsCriticalMedicalBlocking(ctx))
-            {
-                LogSkip("critical medical context");
                 return false;
-            }
 
             if (ctx.HasAfterMineTopic && ctx.HasSevereInjury)
-            {
-                LogSkip("mine rescue + severe injury");
                 return false;
-            }
 
             return true;
         }
@@ -782,9 +761,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             return Utility.isFestivalDay(day, season);
         }
-
-        private void LogSkip(string reason) =>
-            _monitor.Log($"{LogTag} Skip: {reason}", LogLevel.Trace);
     }
 
     public enum DomesticTimeBucket

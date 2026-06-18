@@ -60,12 +60,19 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             if (!_recoveryPlanManager.HasActiveRecoveryContext())
                 return false;
 
+            string? injuryId = _injuryManager.GetActiveInjury();
+            if (!string.IsNullOrEmpty(injuryId))
+            {
+                DebuffState? ds = _stateManager.GetDebuffState(injuryId);
+                if (!HarveyInjuryAwarenessHelper.IsInjuryHarveyAware(ds))
+                    return false;
+            }
+
             var plan = _stateManager.GetRecoveryPlan();
             if (plan.IsActive
                 && plan.Tasks.Exists(t => t.Id == RecoveryPlanTaskIds.AvoidMines))
                 return true;
 
-            string? injuryId = _injuryManager.GetActiveInjury();
             return injuryId != null && RecoveryPlanManager.ShouldAvoidMinesForPlan(injuryId, _stateManager.State);
         }
 

@@ -4,6 +4,7 @@ using System.Linq;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
+using HarveyOverhaul.InjuryCare.Services;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -22,6 +23,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly InjuryManager _injuryManager;
         private readonly ComplianceManager _complianceManager;
         private readonly SelfCareManager _selfCareManager;
+        private readonly MedicalLetterScheduler? _medicalLetterScheduler;
 
         private int _lastStormPainFlareGameHour = -1;
         private int _lastOverworkComplicationGameHour = -1;
@@ -36,7 +38,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             DialogueManager dialogueManager,
             InjuryManager injuryManager,
             ComplianceManager complianceManager,
-            SelfCareManager selfCareManager)
+            SelfCareManager selfCareManager,
+            MedicalLetterScheduler? medicalLetterScheduler = null)
         {
             _monitor = monitor;
             _config = config;
@@ -46,6 +49,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _injuryManager = injuryManager;
             _complianceManager = complianceManager;
             _selfCareManager = selfCareManager;
+            _medicalLetterScheduler = medicalLetterScheduler;
         }
 
         public string? GetActiveMainInjuryId() =>
@@ -305,6 +309,40 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 requiredMainInjurySet: null,
                 topicDays: 2,
                 new HUDMessage("Удар или нагрузка обострили боль от травмы.", HUDMessage.health_type));
+        }
+
+        /// <summary>
+        /// Скрытая травма: повышенный риск осложнения при длительном сокрытии от Харви.
+        /// </summary>
+        public void TryRollHiddenInjuryComplicationRisk(string injuryId)
+        {
+            DebuffState? ds = _stateManager.GetDebuffState(injuryId);
+            if (ds == null || !ds.HiddenFromHarvey)
+                return;
+
+            if (HasComplication(InjuryBuffs.DirtyWound) || HasComplication(InjuryBuffs.Neglect))
+                return;
+
+            double chance = 0.08 + Math.Min(0.2, ds.HiddenDays * 0.03) + ds.SuspicionLevel * 0.02;
+            if (Game1.random.NextDouble() >= chance)
+                return;
+
+            if (InjurySets.BandageSensitive.Contains(injuryId)
+                || string.Equals(injuryId, "buffDeepCuts", StringComparison.OrdinalIgnoreCase))
+            {
+                TryApplyComplication(
+                    InjuryBuffs.DirtyWound,
+                    requiredMainInjurySet: null,
+                    topicDays: 2,
+                    new HUDMessage("Скрытая рана ухудшилась без осмотра.", HUDMessage.error_type));
+                _monitor.Log($"[InjuryVisibility] DirtyWound roll from hidden {injuryId}", LogLevel.Warn);
+                return;
+            }
+
+            TryApplyNeglectComplication(
+                injuryId,
+                new HUDMessage("Травма без наблюдения врача даёт о себе знать.", HUDMessage.error_type));
+            _monitor.Log($"[InjuryVisibility] Neglect roll from hidden {injuryId}", LogLevel.Warn);
         }
 
         /// <summary>
@@ -655,8 +693,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _buffManager.AddBuff(complicationId, -2);
             _stateManager.State.ActiveComplications[complicationId] = today;
             _stateManager.CreateComplicationState(complicationId, today);
-            _dialogueManager.AddTopic(GetComplicationTopic(complicationId), topicDays);
-            _dialogueManager.TryAddTreatmentNeededComplicationTopic(complicationId, topicDays);
+            _dialogueManager.EnsureComplicationDialogueTopics(complicationId, topicDays);
 
             if (hudMessage != null)
                 Game1.addHUDMessage(hudMessage);
@@ -821,6 +858,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager.RemoveTopic(GetComplicationTopic(complicationId));
             _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
                 string.Equals(id, complicationId, StringComparison.OrdinalIgnoreCase));
+            _medicalLetterScheduler?.CancelLettersForState(complicationId);
+        }
+
+        private void QueueComplicationMail(string mailId, string reason, string stateId)
+        {
+            _medicalLetterScheduler?.TryQueueTieredMail(
+                mailId,
+                reason,
+                stateId,
+                critical: false);
         }
 
         /// <summary>
@@ -936,8 +983,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 if (!wasAlreadyInfected && escalated)
                 {
                     Game1.addHUDMessage(new HUDMessage(InfectionEscalationHudMessage, HUDMessage.error_type));
-                    if (_config.SendLetters)
-                        Game1.addMailForTomorrow(mailId);
+                    string infectionReason = string.Equals(sourceComplicationId, InjuryBuffs.DirtyWound, StringComparison.OrdinalIgnoreCase)
+                        ? MedicalLetterReasons.InfectionDirty
+                        : MedicalLetterReasons.InfectionWet;
+                    QueueComplicationMail(mailId, infectionReason, sourceComplicationId);
                     _complianceManager.AddCompliance(-2, complianceReason);
                     return true;
                 }
@@ -971,8 +1020,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
 
             _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 3);
-            if (_config.SendLetters)
-                Game1.addMailForTomorrow(MailIds.TreatmentUrgentReminder);
+            QueueComplicationMail(
+                MailIds.TreatmentUrgentReminder,
+                MedicalLetterReasons.TreatmentUrgent,
+                GetActiveMainInjuryId() ?? "");
 
             Game1.addHUDMessage(new HUDMessage(InfectionEscalationHudMessage, HUDMessage.error_type));
             _complianceManager.AddCompliance(-2, "infection_escalation_fallback");
@@ -1160,8 +1211,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     if (!sentStrongWarning)
                     {
                         sentStrongWarning = true;
-                        if (_config.SendLetters)
-                            Game1.addMailForTomorrow(MailIds.TreatmentFinalWarning);
+                        QueueComplicationMail(
+                            MailIds.TreatmentFinalWarning,
+                            MedicalLetterReasons.TreatmentFinal,
+                            injuryId);
                     }
                 }
                 else
@@ -1177,8 +1230,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     if (!sentUrgentReminder)
                     {
                         sentUrgentReminder = true;
-                        if (_config.SendLetters)
-                            Game1.addMailForTomorrow(MailIds.TreatmentUrgentReminder);
+                        QueueComplicationMail(
+                            MailIds.TreatmentUrgentReminder,
+                            MedicalLetterReasons.UntreatedInjury,
+                            injuryId);
                     }
                 }
             }
@@ -1315,8 +1370,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     if (!sentUrgentReminder)
                     {
                         sentUrgentReminder = true;
-                        if (_config.SendLetters)
-                            Game1.addMailForTomorrow(MailIds.TreatmentUrgentReminder);
+                        QueueComplicationMail(
+                            MailIds.TreatmentUrgentReminder,
+                            MedicalLetterReasons.TreatmentUrgent,
+                            injuryId);
                         Game1.addHUDMessage(new HUDMessage("Харви настаивает на осмотре!", HUDMessage.health_type));
                     }
                 }
@@ -1330,8 +1387,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     if (!sentFinalWarning)
                     {
                         sentFinalWarning = true;
-                        if (_config.SendLetters)
-                            Game1.addMailForTomorrow(MailIds.TreatmentFinalWarning);
+                        QueueComplicationMail(
+                            MailIds.TreatmentFinalWarning,
+                            MedicalLetterReasons.TreatmentFinal,
+                            injuryId);
                         Game1.addHUDMessage(new HUDMessage("СРОЧНО! Необходим осмотр!", HUDMessage.error_type));
                     }
                 }
@@ -1353,8 +1412,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     if (!sentNeglect)
                     {
                         sentNeglect = true;
-                        if (_config.SendLetters)
-                            Game1.addMailForTomorrow(MailIds.NeglectWarning);
+                        QueueComplicationMail(
+                            MailIds.NeglectWarning,
+                            MedicalLetterReasons.NeglectWarning,
+                            injuryId);
                     }
                 }
             }

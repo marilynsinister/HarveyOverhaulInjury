@@ -2,6 +2,7 @@ using System;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
+using HarveyOverhaul.InjuryCare.Services;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -26,19 +27,22 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly StateManager _stateManager;
         private readonly DialogueManager _dialogueManager;
         private readonly ComplianceManager _complianceManager;
+        private readonly MedicalLetterScheduler? _medicalLetterScheduler;
 
         public CheckupManager(
             IMonitor monitor,
             ModConfig config,
             StateManager stateManager,
             DialogueManager dialogueManager,
-            ComplianceManager complianceManager)
+            ComplianceManager complianceManager,
+            MedicalLetterScheduler? medicalLetterScheduler = null)
         {
             _monitor = monitor;
             _config = config;
             _stateManager = stateManager;
             _dialogueManager = dialogueManager;
             _complianceManager = complianceManager;
+            _medicalLetterScheduler = medicalLetterScheduler;
         }
 
         /// <summary>Первичная готовность к смене фазы — topics и счётчики.</summary>
@@ -94,16 +98,18 @@ namespace HarveyOverhaul.InjuryCare.Managers
                         $"Харви ждёт тебя на контрольный осмотр ({injuryName}). Не откладывай лечение.",
                         HUDMessage.health_type));
                     _monitor.Log($"[Checkup] Soft reminder day 2: {injuryId}", LogLevel.Info);
-                    if (HarveyMailHelper.TryScheduleTieredMail(
-                        _config,
-                        _stateManager,
-                        _monitor,
-                        MailIds.CheckupReminder,
-                        MailIds.CheckupReminder))
+                    if (_medicalLetterScheduler != null
+                        && HarveyMailHelper.TryScheduleTieredMail(
+                            _medicalLetterScheduler,
+                            MailIds.CheckupReminder,
+                            MedicalLetterReasons.CheckupReminder,
+                            injuryId,
+                            critical: false,
+                            MailIds.CheckupReminder))
                     {
                         _monitor.Log($"[Checkup] Reminder mail scheduled ({injuryId})", LogLevel.Debug);
                     }
-                    else if (_config.SendLetters
+                    else if (_config.MedicalLetters != MedicalLetterMode.Off
                         && HarveyMailHelper.WasSentToday(_stateManager, MailIds.CheckupReminder))
                     {
                         _monitor.Log(
@@ -115,12 +121,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 if (debuffState.MissedCheckupDays == 4 && !debuffState.CheckupLateLetterSent)
                 {
                     debuffState.CheckupLateLetterSent = true;
-                    HarveyMailHelper.TryScheduleTieredMail(
-                        _config,
-                        _stateManager,
-                        _monitor,
-                        MailIds.CheckupOverdue,
-                        $"{MailIds.CheckupOverdue}:{injuryId}");
+                    if (_medicalLetterScheduler != null)
+                    {
+                        HarveyMailHelper.TryScheduleTieredMail(
+                            _medicalLetterScheduler,
+                            MailIds.CheckupOverdue,
+                            MedicalLetterReasons.CheckupOverdue,
+                            injuryId,
+                            critical: false,
+                            $"{MailIds.CheckupOverdue}:{injuryId}");
+                    }
                     _monitor.Log($"[Checkup] Overdue letter scheduled: {injuryId}", LogLevel.Info);
                 }
 
@@ -155,6 +165,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             RemoveCheckupTopics(injuryId, debuffState);
             ClearCheckupTracking(debuffState);
+            _medicalLetterScheduler?.CancelLettersForState(injuryId);
             _stateManager.Save();
             _monitor.Log($"[Checkup] Completed for {injuryId}", LogLevel.Debug);
         }

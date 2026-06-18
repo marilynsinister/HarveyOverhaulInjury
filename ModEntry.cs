@@ -36,6 +36,8 @@ namespace HarveyOverhaul.InjuryCare
         private InjuryManager _injuryManager = null!;
         private TreatmentManager _treatmentManager = null!;
         private TreatmentStartHandler _treatmentStartHandler = null!;
+        private HiddenInjuryDialogueFlow _hiddenInjuryDialogueFlow = null!;
+        private InjuryMedicalIntentProvider _injuryMedicalIntentProvider = null!;
         private HarveyReactionManager _harveyReactionManager = null!;
         private HospitalizationManager _hospitalizationManager = null!;
         private HospitalActivityManager _hospitalActivityManager = null!;
@@ -46,12 +48,15 @@ namespace HarveyOverhaul.InjuryCare
         private CheckupManager _checkupManager = null!;
         private RehabManager _rehabManager = null!;
         private RecoveryPlanManager _recoveryPlanManager = null!;
+        private HarveyRecoveryPlanApi _harveyRecoveryPlanApi = null!;
         private MineEntryCoordinator _mineEntryCoordinator = null!;
         private RecoveryPlanMenu _recoveryPlanMenu = null!;
         private InjuryPanelProvider _injuryPanelProvider = null!;
+        private InjuryCareDirectiveProvider _injuryCareDirectiveProvider = null!;
         private TreatmentPlanManager _treatmentPlanManager = null!;
         private SelfCareManager _selfCareManager = null!;
         private DoctorVisitReminderManager _doctorVisitReminderManager = null!;
+        private MedicalLetterScheduler _medicalLetterScheduler = null!;
 
         // Обработчики событий
         private GameEventHandler _gameEventHandler = null!;
@@ -61,6 +66,7 @@ namespace HarveyOverhaul.InjuryCare
         private PassOutHandler _passOutHandler = null!;
         private HarveyHomeCareEventLauncher _homeCareEventLauncher = null!;
         private DomesticSpouseCareManager _domesticSpouseCareManager = null!;
+        private DomesticHiddenInjuryManager _domesticHiddenInjuryManager = null!;
 
         // Конфигурация
         private ModConfig _config = null!;
@@ -211,6 +217,11 @@ namespace HarveyOverhaul.InjuryCare
                 "injury_debug_dump",
                 "Полный диагностический отчёт в SMAPI log (то же, что full debug HUD, без обрезки).",
                 (_, _) => CmdDebugDump());
+
+            helper.ConsoleCommands.Add(
+                "injury_mail_dump",
+                "[QA] Pending medical letters, mailForTomorrow, MedicalLetters config.",
+                (_, _) => CmdMailDump());
 
             helper.ConsoleCommands.Add(
                 "injury_debug_state",
@@ -532,6 +543,13 @@ namespace HarveyOverhaul.InjuryCare
                 (_, _) => CmdInjuryPlanClear());
 
             helper.ConsoleCommands.Add(
+                "injury_panel_dump",
+                "Что Injury-провайдер отдаёт во вкладку «План» Harvey Panel (H).",
+                (_, _) => CmdInjuryPanelDump());
+
+            RegisterHarveyPlanConsoleCommands(helper);
+
+            helper.ConsoleCommands.Add(
                 "recovery_violate",
                 "[QA] Типизированное нарушение: recovery_violate mine|stamina|health|night|rain",
                 (_, args) => CmdRecoveryViolate(args));
@@ -590,6 +608,9 @@ namespace HarveyOverhaul.InjuryCare
 
             Monitor.Log("Harvey Overhaul: Injury & Care загружен", LogLevel.Info);
         }
+
+        public override object GetApi()
+            => _harveyRecoveryPlanApi;
 
         /// <summary>Травмы мода: buffId, топик, фазы (p1, p2, p3) дней.</summary>
         private static readonly (string BuffId, string TopicId, int P1, int P2, int P3)[] KnownTraumas =
@@ -681,8 +702,8 @@ namespace HarveyOverhaul.InjuryCare
                 _buffManager.AddBuff(comp.BuffId, minutes);
                 _stateManager.State.ActiveComplications[comp.BuffId] = today;
                 _stateManager.CreateComplicationState(comp.BuffId, today);
-                _dialogueManager.AddTopic(comp.TopicId, 4);
-                Monitor.Log($"Применено осложнение: {comp.BuffId}, топик {comp.TopicId}.", LogLevel.Info);
+                _dialogueManager.EnsureComplicationDialogueTopics(comp.BuffId, 4);
+                Monitor.Log($"Применено осложнение: {comp.BuffId}, топики action+{comp.TopicId}.", LogLevel.Info);
                 Game1.addHUDMessage(new HUDMessage($"[ДЕБАГ] Осложнение: {comp.BuffId}", HUDMessage.achievement_type));
                 return;
             }
@@ -1481,6 +1502,32 @@ namespace HarveyOverhaul.InjuryCare
             }
 
             Monitor.Log(BuildDebugReport(full: true), LogLevel.Info);
+        }
+
+        private void CmdMailDump()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("=== Medical Letters ===");
+            sb.AppendLine($"MedicalLetters={_config.MedicalLetters} SendStoryLetters={_config.SendStoryLetters} SendRomanticCareLetters={_config.SendRomanticCareLetters}");
+            sb.AppendLine($"Pending ({_stateManager.State.PendingMedicalLetters.Count}):");
+            foreach (var letter in _stateManager.State.PendingMedicalLetters)
+            {
+                sb.AppendLine(
+                    $"  mail={letter.MailId} reason={letter.Reason} state={letter.StateId} critical={letter.Critical} deliverDay={letter.DeliverAfterDay}");
+            }
+
+            sb.AppendLine($"mailForTomorrow ({Game1.player.mailForTomorrow.Count}):");
+            foreach (string mailId in Game1.player.mailForTomorrow)
+                sb.AppendLine($"  {mailId}");
+
+            Monitor.Log(sb.ToString(), LogLevel.Info);
+            Game1.addHUDMessage(new HUDMessage("Medical mail dump → SMAPI log", HUDMessage.newQuest_type));
         }
 
         private void CmdInjuryDebugState()
@@ -2501,14 +2548,161 @@ namespace HarveyOverhaul.InjuryCare
 
             var plan = _recoveryPlanManager.GetDailyPlan();
             Monitor.Log("=== RECOVERY PLAN (daily) ===", LogLevel.Info);
+            Monitor.Log($"  IsActive: {plan.IsActive}  Source: {plan.Source}  PlanId: {ValueOrEmpty(plan.PlanId)}", LogLevel.Info);
+            Monitor.Log($"  HarveyTone: {plan.HarveyTone}", LogLevel.Info);
             Monitor.Log($"  active injury: {plan.ActiveInjuryId ?? "(none)"}", LogLevel.Info);
             Monitor.Log($"  day: {plan.CurrentDay}/{plan.TotalDays}  phase: {plan.CurrentPhase}/{plan.TotalPhases}", LogLevel.Info);
             Monitor.Log($"  status: {plan.Status}  concern: {plan.ConcernScore}", LogLevel.Info);
-            Monitor.Log($"  needsHarvey: {plan.NeedsHarveyVisit}  active: {plan.IsActive}", LogLevel.Info);
+            Monitor.Log($"  needsHarvey: {plan.NeedsHarveyVisit}", LogLevel.Info);
+            Monitor.Log($"  ActiveAssignments: [{string.Join(", ", plan.ActiveAssignments)}]", LogLevel.Info);
+            Monitor.Log($"  CompletedToday: [{string.Join(", ", plan.CompletedAssignmentsToday)}]", LogLevel.Info);
+            foreach (var id in plan.Progress.Keys.Union(plan.Goals.Keys))
+            {
+                plan.Progress.TryGetValue(id, out int progress);
+                plan.Goals.TryGetValue(id, out int goal);
+                Monitor.Log($"  progress {id}: {progress}/{goal}", LogLevel.Info);
+            }
+            foreach (string warning in plan.TodayWarnings)
+                Monitor.Log($"  warning: {warning}", LogLevel.Info);
             foreach (var task in plan.Tasks)
                 Monitor.Log($"  task {task.Id}: {task.Title} failed={task.IsFailed}", LogLevel.Info);
             foreach (var v in plan.TodayViolations)
                 Monitor.Log($"  violation {v.Id} day={v.Day} time={v.TimeOfDay}", LogLevel.Info);
+            foreach (string reason in plan.TodayViolationReasons)
+                Monitor.Log($"  reason: {reason}", LogLevel.Info);
+        }
+
+        private static string ValueOrEmpty(string? value) =>
+            string.IsNullOrWhiteSpace(value) ? "(none)" : value;
+
+        private void RegisterHarveyPlanConsoleCommands(IModHelper helper)
+        {
+            helper.ConsoleCommands.Add("harvey_plan_show", "Показать RecoveryPlan (save-state).", (_, _) => CmdInjuryPlanShow());
+            helper.ConsoleCommands.Add("harvey_plan_reset", "Сбросить RecoveryPlan.", (_, _) => CmdHarveyPlanReset());
+            helper.ConsoleCommands.Add(
+                "harvey_plan_add",
+                "Добавить назначение: harvey_plan_add <assignmentId> [goal]",
+                (_, args) => CmdHarveyPlanAdd(args));
+            helper.ConsoleCommands.Add(
+                "harvey_plan_complete",
+                "Завершить назначение: harvey_plan_complete <assignmentId>",
+                (_, args) => CmdHarveyPlanComplete(args));
+            helper.ConsoleCommands.Add(
+                "harvey_plan_violate",
+                "Нарушение плана: harvey_plan_violate <type>",
+                (_, args) => CmdHarveyPlanViolate(args));
+            helper.ConsoleCommands.Add("harvey_plan_debug", "Debug HUD блок RecoveryPlan.", (_, _) => CmdHarveyPlanDebug());
+        }
+
+        private void CmdInjuryPanelDump()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            _recoveryPlanManager.EnsurePlanFreshForDisplay();
+            var contribution = _injuryPanelProvider.GetPanelContribution();
+            var directives = _injuryCareDirectiveProvider.GetCareDirectives();
+            Monitor.Log("=== Injury → Harvey Panel (flags) + Care Directives ===", LogLevel.Info);
+            Monitor.Log($"HasActiveRecoveryPlan={contribution.HasActiveRecoveryPlan}", LogLevel.Info);
+            Monitor.Log($"CareDirectives={directives.Count} (Plan tab renders in Core)", LogLevel.Info);
+            foreach (var directive in directives)
+            {
+                Monitor.Log(
+                    $"  id={directive.Id} type={directive.Type} pri={directive.Priority} title={directive.Title}",
+                    LogLevel.Info);
+            }
+
+            string? activeId = _injuryManager.GetActiveInTreatmentInjuryId();
+            Monitor.Log($"GetActiveInTreatmentInjuryId={ValueOrEmpty(activeId)}", LogLevel.Info);
+            foreach (var (injuryId, debuff) in _injuryManager.GetInjuriesForHarveyPanel())
+            {
+                Monitor.Log(
+                    $"  injury={injuryId} phase={debuff.CurrentPhase}/{debuff.TotalPhases} "
+                    + $"TreatmentStarted={debuff.TreatmentStarted} IsInTreatment={debuff.IsInTreatment}",
+                    LogLevel.Info);
+            }
+        }
+
+        private void CmdHarveyPlanReset()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            _recoveryPlanManager.ClearDailyPlan();
+            Monitor.Log("[RecoveryPlan] Plan reset.", LogLevel.Info);
+        }
+
+        private void CmdHarveyPlanAdd(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log("Использование: harvey_plan_add <assignmentId> [goal]", LogLevel.Info);
+                return;
+            }
+
+            int goal = args.Length > 1 && int.TryParse(args[1], out int parsed) ? parsed : 0;
+            _recoveryPlanManager.AddAssignment(args[0], goal);
+            Monitor.Log($"[RecoveryPlan] Added assignment {args[0]} goal={goal}", LogLevel.Info);
+        }
+
+        private void CmdHarveyPlanComplete(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log("Использование: harvey_plan_complete <assignmentId>", LogLevel.Info);
+                return;
+            }
+
+            bool ok = _recoveryPlanManager.CompleteAssignment(args[0]);
+            Monitor.Log($"[RecoveryPlan] CompleteAssignment {args[0]} => {ok}", LogLevel.Info);
+        }
+
+        private void CmdHarveyPlanViolate(string[] args)
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Monitor.Log("Использование: harvey_plan_violate mine|stamina|health|sleep|rain|...", LogLevel.Info);
+                return;
+            }
+
+            _recoveryPlanManager.RegisterViolation(args[0], $"Тестовое нарушение: {args[0]}");
+            Monitor.Log($"[RecoveryPlan] Violation registered: {args[0]}", LogLevel.Info);
+        }
+
+        private void CmdHarveyPlanDebug()
+        {
+            if (!Context.IsWorldReady)
+            {
+                Monitor.Log("Сначала загрузите сохранение.", LogLevel.Warn);
+                return;
+            }
+
+            foreach (string line in _recoveryPlanManager.GetDebugHudBlock().Split('\n'))
+                Monitor.Log(line, LogLevel.Info);
         }
 
         private void CmdInjuryPlanRefresh()
@@ -3351,26 +3545,44 @@ namespace HarveyOverhaul.InjuryCare
             
             // TreatmentManager
             _complianceManager = new ComplianceManager(Monitor, _stateManager, _dialogueManager, _buffManager);
+
+            _doctorVisitReminderManager = new DoctorVisitReminderManager(
+                Monitor,
+                _buffManager,
+                _stateManager,
+                _hospitalizationManager);
+            _hospitalizationManager.SetDoctorVisitReminderManager(_doctorVisitReminderManager);
+
+            _medicalLetterScheduler = new MedicalLetterScheduler(
+                _config,
+                _stateManager,
+                _buffManager,
+                Monitor,
+                _doctorVisitReminderManager);
+
             _checkupManager = new CheckupManager(
                 Monitor,
                 _config,
                 _stateManager,
                 _dialogueManager,
-                _complianceManager);
+                _complianceManager,
+                _medicalLetterScheduler);
             _prescriptionManager = new PrescriptionManager(
                 Monitor,
                 _config,
                 _stateManager,
                 _dialogueManager,
                 _buffManager,
-                _complianceManager);
+                _complianceManager,
+                _medicalLetterScheduler);
             _rehabManager = new RehabManager(
                 Monitor,
                 _config,
                 _stateManager,
                 _dialogueManager,
                 _buffManager,
-                _complianceManager);
+                _complianceManager,
+                _medicalLetterScheduler);
             _recoveryPlanManager = new RecoveryPlanManager(
                 Monitor,
                 _config,
@@ -3378,6 +3590,7 @@ namespace HarveyOverhaul.InjuryCare
                 _buffManager,
                 _injuryManager,
                 _dialogueManager);
+            _harveyRecoveryPlanApi = new HarveyRecoveryPlanApi(_recoveryPlanManager);
             _mineEntryCoordinator = new MineEntryCoordinator(
                 Monitor,
                 _config,
@@ -3392,7 +3605,8 @@ namespace HarveyOverhaul.InjuryCare
                 Monitor,
                 _config,
                 _stateManager,
-                _dialogueManager);
+                _dialogueManager,
+                _medicalLetterScheduler);
             _selfCareManager = new SelfCareManager(
                 Monitor,
                 _stateManager,
@@ -3417,14 +3631,12 @@ namespace HarveyOverhaul.InjuryCare
                 _injuryManager,
                 _recoveryPlanManager,
                 _careTrustManager);
-            _hospitalizationManager.SetTreatmentManager(_treatmentManager);
-
-            _doctorVisitReminderManager = new DoctorVisitReminderManager(
-                Monitor,
-                _buffManager,
+            _injuryCareDirectiveProvider = new InjuryCareDirectiveProvider(
+                _config,
                 _stateManager,
-                _hospitalizationManager);
-            _hospitalizationManager.SetDoctorVisitReminderManager(_doctorVisitReminderManager);
+                _injuryManager,
+                _recoveryPlanManager);
+            _hospitalizationManager.SetTreatmentManager(_treatmentManager);
             _hospitalizationManager.SetRecoveryPlanManager(_recoveryPlanManager);
 
             _harveyReactionManager = new HarveyReactionManager(
@@ -3455,8 +3667,8 @@ namespace HarveyOverhaul.InjuryCare
                 _dialogueManager,
                 _injuryManager,
                 _complianceManager,
-                _selfCareManager
-            );
+                _selfCareManager,
+                _medicalLetterScheduler);
             _injuryManager.SetComplicationManager(_complicationManager);
             _treatmentManager.SetComplicationManager(_complicationManager);
             _treatmentManager.SetDoctorVisitReminderManager(_doctorVisitReminderManager);
@@ -3473,7 +3685,40 @@ namespace HarveyOverhaul.InjuryCare
                 _complicationManager,
                 _complianceManager,
                 _doctorVisitReminderManager,
-                _recoveryPlanManager);
+                _recoveryPlanManager,
+                _checkupManager,
+                _rehabManager,
+                _selfCareManager);
+
+            _treatmentStartHandler.SetMedicalLetterScheduler(_medicalLetterScheduler);
+
+            _injuryMedicalIntentProvider = new InjuryMedicalIntentProvider(
+                Monitor,
+                _config,
+                _stateManager,
+                _injuryManager,
+                _dialogueManager,
+                _complicationManager,
+                _hospitalizationManager);
+            _injuryMedicalIntentProvider.SetRecoveryPlanManager(_recoveryPlanManager);
+
+            _hiddenInjuryDialogueFlow = new HiddenInjuryDialogueFlow(
+                Monitor,
+                _config,
+                _stateManager,
+                _dialogueManager,
+                _treatmentStartHandler,
+                _injuryManager,
+                _buffManager,
+                _complicationManager);
+
+            _domesticHiddenInjuryManager = new DomesticHiddenInjuryManager(
+                Monitor,
+                _config,
+                _stateManager,
+                _buffManager,
+                _injuryManager,
+                _hiddenInjuryDialogueFlow);
 
             Monitor.Log("Все менеджеры инициализированы", LogLevel.Debug);
         }
@@ -3501,7 +3746,8 @@ namespace HarveyOverhaul.InjuryCare
                 _rehabManager,
                 _recoveryPlanManager,
                 _selfCareManager,
-                _doctorVisitReminderManager
+                _doctorVisitReminderManager,
+                _medicalLetterScheduler
             );
 
             _playerEventHandler = new PlayerEventHandler(
@@ -3520,7 +3766,8 @@ namespace HarveyOverhaul.InjuryCare
                 _rehabManager,
                 _recoveryPlanManager,
                 _complicationManager,
-                _mineEntryCoordinator
+                _mineEntryCoordinator,
+                _hiddenInjuryDialogueFlow
             );
 
             _interactionHandler = new InteractionHandler(
@@ -3542,7 +3789,9 @@ namespace HarveyOverhaul.InjuryCare
                 _complicationManager,
                 _doctorVisitReminderManager,
                 _recoveryPlanManager,
-                _treatmentStartHandler);
+                _treatmentStartHandler,
+                _injuryMedicalIntentProvider,
+                _hiddenInjuryDialogueFlow);
 
             _timeEventHandler = new TimeEventHandler(
                 Monitor,
@@ -3568,6 +3817,7 @@ namespace HarveyOverhaul.InjuryCare
             );
             _passOutHandler.SetRecoveryPlanManager(_recoveryPlanManager);
             _passOutHandler.SetTreatmentStartHandler(_treatmentStartHandler);
+            _passOutHandler.SetMedicalLetterScheduler(_medicalLetterScheduler);
 
             _homeCareEventLauncher = new HarveyHomeCareEventLauncher(
                 Monitor,
@@ -3599,6 +3849,8 @@ namespace HarveyOverhaul.InjuryCare
 
             events.GameLoop.DayStarted += _domesticSpouseCareManager.OnDayStarted;
             events.GameLoop.TimeChanged += _domesticSpouseCareManager.OnTimeChanged;
+            events.GameLoop.DayStarted += _domesticHiddenInjuryManager.OnDayStarted;
+            events.GameLoop.TimeChanged += _domesticHiddenInjuryManager.OnTimeChanged;
             events.GameLoop.UpdateTicked += _domesticSpouseCareManager.OnUpdateTicked;
 
             // События игрока
@@ -3614,6 +3866,8 @@ namespace HarveyOverhaul.InjuryCare
             // События взаимодействия
             events.Input.ButtonPressed += _interactionHandler.OnButtonPressed;
             events.GameLoop.UpdateTicked += _interactionHandler.OnUpdateTicked;
+            events.GameLoop.UpdateTicked += _injuryMedicalIntentProvider.OnUpdateTicked;
+            events.GameLoop.UpdateTicked += _hiddenInjuryDialogueFlow.OnUpdateTicked;
 
             // События времени
             events.GameLoop.TimeChanged += _timeEventHandler.OnTimeChanged;
@@ -4085,7 +4339,7 @@ namespace HarveyOverhaul.InjuryCare
                 bool hasPhaseBuff = !string.IsNullOrEmpty(phaseBuffExpected) && _buffManager.HasBuff(phaseBuffExpected);
                 var issues = CollectDebuffIssues(d, hasBaseBuff, phaseBuffExpected, hasPhaseBuff);
                 string status = issues.Count == 0 ? "OK" : "WARN";
-                sb.AppendLine($"  [{status}] {buffId} | {GetInjuryStateLabel(d)} | {GetClickExpectationForDebuff(d)}");
+                sb.AppendLine($"  [{status}] {buffId} | {GetInjuryStateLabel(d)} | {InjuryVisibilityHelper.FormatVisibilityDebugLine(d)} | {GetClickExpectationForDebuff(d)}");
             }
         }
 
@@ -4332,25 +4586,43 @@ namespace HarveyOverhaul.InjuryCare
             if (_config.EnableStandaloneRecoveryPlanWindow)
                 _recoveryPlanMenu.TryInitialize(Helper);
 
+            RegisterCoreProviders("GameLaunched");
+
+            _treatmentStartHandler.RegisterTriggerActions();
+            _recoveryPlanManager.RegisterTriggerActions();
+        }
+
+        private void RegisterCoreProviders(string phase)
+        {
             var coreApi = Helper.ModRegistry.GetApi<IHarveyCoreApi>("marilynsinister.HarveyOverhaul.Core");
             if (coreApi == null)
             {
-                Monitor.Log("[HarveyOverhaulInjury] HarveyOverhaul.Core API not found — injury panel provider not registered.", LogLevel.Error);
-            }
-            else
-            {
-                coreApi.RegisterPanelProvider(_injuryPanelProvider);
-                _domesticSpouseCareManager.SetCoreApi(coreApi);
-                Monitor.Log("[HarveyOverhaulInjury] Injury panel provider registered with HarveyOverhaul.Core.", LogLevel.Debug);
+                Monitor.Log(
+                    $"[HarveyOverhaulInjury] ({phase}) HarveyOverhaul.Core API not found — panel/care providers not registered.",
+                    LogLevel.Error);
+                return;
             }
 
-            _treatmentStartHandler.RegisterTriggerActions();
+            coreApi.RegisterPanelProvider(_injuryPanelProvider);
+            coreApi.RegisterCareDirectiveProvider(_injuryCareDirectiveProvider);
+            _domesticSpouseCareManager.SetCoreApi(coreApi);
+            _treatmentStartHandler.SetCoreApi(coreApi);
+            _injuryMedicalIntentProvider.SetCoreApi(coreApi);
+
+            int directiveCount = _injuryCareDirectiveProvider.GetCareDirectives().Count;
+            Monitor.Log(
+                $"[HarveyOverhaulInjury] ({phase}) Injury providers registered with Core. CareDirectives={directiveCount}",
+                LogLevel.Info);
         }
 
         private void OnRecoveryPlanKeyPressed(object? sender, ButtonPressedEventArgs e)
         {
             if (!_config.EnableStandaloneRecoveryPlanWindow)
                 return;
+
+            Monitor.Log(
+                "[HarveyPlan/Injury] WARNING: legacy plan hotkey pressed (StandaloneRecoveryPlanKey). Use HarveyOverhaul.Core panel (H).",
+                LogLevel.Warn);
 
             if (!Context.IsWorldReady)
                 return;
@@ -4434,6 +4706,7 @@ namespace HarveyOverhaul.InjuryCare
 
                     _hospitalizationManager.SanitizeOrphanHospitalizedBuff();
                     _hospitalizationManager.RestoreHospitalizedBuffIfActive();
+                    _recoveryPlanManager.SyncHarveyTalkTopic();
                 }
                 catch (Exception ex)
                 {
@@ -4441,6 +4714,7 @@ namespace HarveyOverhaul.InjuryCare
                 }
             }));
             
+            RegisterCoreProviders("SaveLoaded");
             Monitor.Log("Состояние загружено из сохранения", LogLevel.Info);
         }
 
@@ -4469,7 +4743,6 @@ namespace HarveyOverhaul.InjuryCare
         private void OnSaving(object? sender, SavingEventArgs e)
         {
             _stateManager.Save();
-            Monitor.Log("Состояние сохранено", LogLevel.Debug);
         }
 
         /// <summary>

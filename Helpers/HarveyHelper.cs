@@ -44,6 +44,17 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             return false;
         }
 
+        /// <summary>Dating, Engaged или Married с Харви (для domestic hidden-injury).</summary>
+        public static bool IsRomanticPartnerWithHarvey()
+        {
+            var friendship = Game1.player?.friendshipData;
+            if (friendship == null)
+                return false;
+
+            return friendship.TryGetValue("Harvey", out var data)
+                && (data.IsMarried() || data.IsDating() || data.IsEngaged());
+        }
+
         /// <summary>
         /// Уровень отношений для писем: LowHearts (0–3), MidHearts (4–7), HighHearts (8+), Dating, Married.
         /// </summary>
@@ -132,6 +143,42 @@ namespace HarveyOverhaul.InjuryCare.Helpers
         {
             var npc = location.isCharacterAtTile(tile);
             return npc?.Name?.Equals("Harvey", StringComparison.OrdinalIgnoreCase) == true ? npc : null;
+        }
+
+        /// <summary>
+        /// Надёжный поиск Харви при action-клике: курсор → grab игрока → соседние тайлы.
+        /// </summary>
+        public static NPC? TryGetInteractedHarvey(
+            GameLocation location,
+            Vector2 cursorGrabTile,
+            bool lenientDistance = false)
+        {
+            var harvey = GetHarveyAtTile(location, cursorGrabTile);
+            if (harvey != null)
+                return harvey;
+
+            harvey = GetHarveyAtTile(location, Game1.player.GetGrabTile());
+            if (harvey != null)
+                return harvey;
+
+            float maxDistance = lenientDistance ? 3f : 2f;
+            NPC? nearest = null;
+            float nearestDist = float.MaxValue;
+
+            foreach (var character in location.characters)
+            {
+                if (!character.Name.Equals("Harvey", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                float distance = Vector2.Distance(character.Tile, Game1.player.Tile);
+                if (distance <= maxDistance && distance < nearestDist)
+                {
+                    nearest = character;
+                    nearestDist = distance;
+                }
+            }
+
+            return nearest;
         }
 
         /// <summary>

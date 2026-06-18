@@ -30,6 +30,33 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// </summary>
         public bool HarveyConversationHappened { get; set; } = false;
 
+        /// <summary>Харви знает о травме (осмотр, спасение, лечение — не телепатия по баффу).</summary>
+        public bool HarveyAware { get; set; } = false;
+
+        /// <summary>Травма скрыта от Харви (получена без его присутствия).</summary>
+        public bool HiddenFromHarvey { get; set; } = true;
+
+        /// <summary>Дней травма скрывалась от Харви.</summary>
+        public int HiddenDays { get; set; } = 0;
+
+        /// <summary>Накопленный уровень подозрений (поза, дыхание, усталость).</summary>
+        public int SuspicionLevel { get; set; } = 0;
+
+        /// <summary>Игрок сегодня отрицал травму при контакте с Харви.</summary>
+        public bool PlayerDeniedInjuryToday { get; set; } = false;
+
+        /// <summary>Почему Харви обнаружил скрытую травму (talk, proximity, farmhouse, …).</summary>
+        public string DiscoveryReason { get; set; } = "";
+
+        /// <summary>Уровень видимости травмы (см. InjuryVisibilityLevel).</summary>
+        public int VisibilityLevel { get; set; } = 0;
+
+        /// <summary>Почему Харви узнал о травме (conversation, start_treatment, mine_rescue, …).</summary>
+        public string AwarenessReason { get; set; } = "";
+
+        /// <summary>День, когда Харви узнал о травме (-1 = ещё не знает).</summary>
+        public int HarveyAwareDay { get; set; } = -1;
+
         /// <summary>CP topic HarveyMod_TreatmentNeeded_* показан ($action в диалоге).</summary>
         public bool TreatmentIntroShown { get; set; } = false;
 
@@ -185,6 +212,15 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
                 InjuryStartDay = InjuryStartDay,
                 TreatmentStarted = TreatmentStarted,
                 HarveyConversationHappened = HarveyConversationHappened,
+                HarveyAware = HarveyAware,
+                HiddenFromHarvey = HiddenFromHarvey,
+                HiddenDays = HiddenDays,
+                SuspicionLevel = SuspicionLevel,
+                PlayerDeniedInjuryToday = PlayerDeniedInjuryToday,
+                DiscoveryReason = DiscoveryReason,
+                VisibilityLevel = VisibilityLevel,
+                AwarenessReason = AwarenessReason,
+                HarveyAwareDay = HarveyAwareDay,
                 TreatmentIntroShown = TreatmentIntroShown,
                 TreatmentApplied = TreatmentApplied,
                 TotalPhases = TotalPhases,

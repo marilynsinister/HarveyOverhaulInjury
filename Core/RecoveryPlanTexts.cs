@@ -97,11 +97,11 @@ namespace HarveyOverhaul.InjuryCare.Core
         {
             public const string SectionLabel = "Сейчас";
             public const string CalmTitle = "Харви спокоен";
-            public const string CalmDescription = "Ты соблюдаешь режим, и он это видит.";
-            public const string WorriedTitle = "Харви волнуется";
-            public const string WorriedDescription = "Сегодня был риск. Лучше сбавить темп.";
+            public const string CalmDescription = "Ты соблюдаешь режим, он доверяет тебе.";
+            public const string WorriedTitle = "Харви тревожится";
+            public const string WorriedDescription = "Сегодня было предупреждение.";
             public const string StrictTitle = "Харви строг";
-            public const string StrictDescription = "Ты рисковала здоровьем. Разговор будет серьёзным, но не злым.";
+            public const string StrictDescription = "Сегодня режим был нарушен.";
             public const string NoActivePlan = "Сейчас нет строгого режима. Просто берегите себя.";
         }
 

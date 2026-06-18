@@ -651,7 +651,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 }
 
                 if (InjurySets.KnownComplicationBuffIds.Contains(compId))
-                    _dialogueManager.TryAddTreatmentNeededComplicationTopic(compId, 7);
+                    _dialogueManager.EnsureComplicationDialogueTopics(compId, 7);
             }
 
             if (stateDirty)
@@ -883,7 +883,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
 
             foreach (string compId in _complicationManager.GetActiveTreatableComplicationIds())
-                _dialogueManager.TryAddTreatmentNeededComplicationTopic(compId, 7);
+                _dialogueManager.EnsureComplicationDialogueTopics(compId, 7);
         }
 
         /// <summary>
@@ -1223,6 +1223,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _lastInjuryGameTime = Helpers.GameUtils.CurrentTimeInMinutes();
         }
 
+        private void CreateInjuryDebuffState(string buffId, int currentDay, int p1, int p2, int p3)
+        {
+            bool harveySawIt = InjuryVisibilityHelper.IsHarveyPresent(_config);
+            _stateManager.CreateDebuffState(
+                buffId,
+                currentDay,
+                p1,
+                p2,
+                p3,
+                harveySawIt,
+                harveySawIt ? "witnessed" : "");
+        }
+
         private void ApplyInjurySafe(string injuryId, Action applyFunc, string triggerConst)
         {
             try
@@ -1317,7 +1330,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager.AddTopic(ConversationTopics.Hurt, 2);
             Game1.playSound("debuffHit");
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffHurt", currentDay, 2, 0, 0);
+            CreateInjuryDebuffState("buffHurt", currentDay, 2, 0, 0);
         }
 
         public void ApplyHurt()
@@ -1337,7 +1350,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager.AddTopic(ConversationTopics.HealthDamageCritical, 4);
             Game1.playSound("debuffHit");
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffBadlyHurt", currentDay, 4, 0, 0);
+            CreateInjuryDebuffState("buffBadlyHurt", currentDay, 4, 0, 0);
 
             // Примечание: Прямая госпитализация УБРАНА!
             // Харви заметит травму через proximity detection и запустит госпитализацию
@@ -1402,7 +1415,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             // Инициализируем состояние дебаффа (2 фазы: 3 + 4 = 7 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffSprainedAnkle", currentDay, 3, 4, 0);
+            CreateInjuryDebuffState("buffSprainedAnkle", currentDay, 3, 4, 0);
         }
 
         public void ApplySprainedAnkle()
@@ -1423,7 +1436,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             
             // Инициализируем состояние дебаффа (2 фазы: 4 + 5 = 9 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffBruisedRibs", currentDay, 4, 5, 0);
+            CreateInjuryDebuffState("buffBruisedRibs", currentDay, 4, 5, 0);
         }
 
         public void ApplyBruisedRibs()
@@ -1444,7 +1457,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             
             // Инициализируем состояние дебаффа (2 фазы: 2 + 4 = 6 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffBackStrain", currentDay, 2, 4, 0);
+            CreateInjuryDebuffState("buffBackStrain", currentDay, 2, 4, 0);
         }
 
         public void ApplyBackStrain()
@@ -1494,7 +1507,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             // Инициализируем состояние дебаффа (3 фазы: 2 + 3 + 2 = 7 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffDeepCuts", currentDay, 2, 3, 2);
+            CreateInjuryDebuffState("buffDeepCuts", currentDay, 2, 3, 2);
         }
 
         public void ApplyDeepCuts(string source = "generic")
@@ -1520,7 +1533,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             // Инициализируем состояние дебаффа (2 фазы: 3 + 5 = 8 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffBurnWounds", currentDay, 3, 5, 0);
+            CreateInjuryDebuffState("buffBurnWounds", currentDay, 3, 5, 0);
         }
 
         public void ApplyBurnWounds()
@@ -1541,7 +1554,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             // Инициализируем состояние дебаффа (2 фазы: 3 + 11 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffInfectedWound", currentDay, 3, 11, 0);
+            CreateInjuryDebuffState("buffInfectedWound", currentDay, 3, 11, 0);
         }
 
         public void ApplyInfectedWound()
@@ -1615,7 +1628,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             // Инициализируем состояние дебаффа (3 фазы: 3 + 5 + 3 = 11 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffTornMuscles", currentDay, 3, 5, 3);
+            CreateInjuryDebuffState("buffTornMuscles", currentDay, 3, 5, 3);
         }
 
         public void ApplyTornMuscles()
@@ -1637,7 +1650,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             // Инициализируем состояние дебаффа (3 фазы: 2 + 4 + 3 = 9 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffConcussion", currentDay, 2, 4, 3);
+            CreateInjuryDebuffState("buffConcussion", currentDay, 2, 4, 3);
 
             if (_config.ForceHospitalization)
             {
@@ -1666,7 +1679,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             // Инициализируем состояние дебаффа (3 фазы: 4 + 10 + 4 = 18 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffFracturedBone", currentDay, 4, 10, 4);
+            CreateInjuryDebuffState("buffFracturedBone", currentDay, 4, 10, 4);
         }
 
         public void ApplyFracturedBone()
@@ -1689,7 +1702,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             // Инициализируем состояние дебаффа (3 фазы: 3 + 5 + 3 = 11 дней)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffShrapnelWounds", currentDay, 3, 5, 3);
+            CreateInjuryDebuffState("buffShrapnelWounds", currentDay, 3, 5, 3);
         }
 
         public void ApplyShrapnelWounds()
@@ -1711,7 +1724,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager.AddTopic(ConversationTopics.PostOperativeCare, 7);
             Game1.playSound("debuffHit");
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState("buffSurgicalWound", currentDay, 7, 0, 0);
+            CreateInjuryDebuffState("buffSurgicalWound", currentDay, 7, 0, 0);
         }
 
         public void ApplySurgicalWound()
@@ -1735,7 +1748,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             
             // Инициализируем состояние дебаффа (2 фазы: 2 + 2 = 4 дня)
             int currentDay = (int)Game1.stats.DaysPlayed;
-            _stateManager.CreateDebuffState(InjuryBuffs.Cold, currentDay, 2, 2, 0);
+            CreateInjuryDebuffState(InjuryBuffs.Cold, currentDay, 2, 2, 0);
             
             Game1.addHUDMessage(new HUDMessage("Простуда! Температура, слабость...", HUDMessage.error_type));
         }
@@ -1751,6 +1764,198 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyColdSafe()
         {
             ApplyInjurySafe(InjuryBuffs.Cold, ApplyColdCore, Triggers.Cold);
+        }
+
+        /// <summary>ID основной травмы в активном лечении (DebuffState, фазовый бафф или MainInjuryId).</summary>
+        public string? GetActiveInTreatmentInjuryId()
+        {
+            var inTreatment = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (id, state) in _stateManager.State.ActiveDebuffs)
+            {
+                if (!InjurySets.HarveyTreatable.Contains(id))
+                    continue;
+
+                if (state.TreatmentStarted || state.IsInTreatment || state.CurrentPhase > 0)
+                    inTreatment.Add(id);
+            }
+
+            string? prioritized = InjurySets.SelectMainInjuryByPriority(inTreatment);
+            if (!string.IsNullOrEmpty(prioritized))
+                return prioritized;
+
+            foreach (string buffId in _buffManager.GetActiveModBuffs())
+            {
+                string? injuryId = TryResolveInjuryIdFromPhaseBuff(buffId);
+                if (!string.IsNullOrEmpty(injuryId))
+                    return injuryId;
+            }
+
+            string? mainId = GetCurrentMainInjuryId();
+            if (!string.IsNullOrEmpty(mainId) && HasInjuryOrPhase(mainId))
+                return mainId;
+
+            return InjurySets.SelectMainInjuryByPriority(
+                _stateManager.State.ActiveDebuffs.Keys.Where(id => InjurySets.HarveyTreatable.Contains(id)));
+        }
+
+        /// <summary>Все травмы для вкладки «План» / «Травмы» (save-state + активные фазовые баффы).</summary>
+        public IReadOnlyList<(string InjuryId, DebuffState State)> GetInjuriesForHarveyPanel()
+        {
+            var results = new List<(string InjuryId, DebuffState State)>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void TryAdd(string? injuryId)
+            {
+                if (string.IsNullOrEmpty(injuryId) || !seen.Add(injuryId))
+                    return;
+
+                if (InjurySets.KnownComplicationBuffIds.Contains(injuryId))
+                    return;
+
+                if (!InjurySets.HarveyTreatable.Contains(injuryId)
+                    && !injuryId.StartsWith("buff", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                DebuffState? debuff = _stateManager.GetDebuffState(injuryId)
+                    ?? BuildPanelDebuffFallback(injuryId);
+                if (debuff == null)
+                    return;
+
+                debuff = EnrichDebuffForPanel(injuryId, debuff);
+
+                if (debuff.HiddenFromHarvey && !HarveyInjuryAwarenessHelper.IsInjuryHarveyAware(debuff))
+                    return;
+
+                results.Add((injuryId, debuff));
+            }
+
+            TryAdd(GetCurrentMainInjuryId());
+            TryAdd(_stateManager.GetMainInjuryId());
+
+            foreach (string injuryId in _stateManager.State.ActiveDebuffs.Keys.OrderBy(id => id, StringComparer.Ordinal))
+                TryAdd(injuryId);
+
+            foreach (string buffId in _buffManager.GetActiveModBuffs())
+            {
+                string? injuryId = TryResolveInjuryIdFromPhaseBuff(buffId);
+                TryAdd(injuryId);
+            }
+
+            return results;
+        }
+
+        /// <summary>Максимальная фаза по активному фазовому баффу на игроке.</summary>
+        public int ResolveCurrentPhaseFromActiveBuffs(string injuryId)
+        {
+            if (string.IsNullOrEmpty(injuryId))
+                return 0;
+
+            int bestPhase = 0;
+            for (int phase = 1; phase <= 3; phase++)
+            {
+                string phaseBuffId = GetPhaseBuffId(injuryId, phase);
+                if (!string.IsNullOrEmpty(phaseBuffId) && _buffManager.HasBuff(phaseBuffId))
+                    bestPhase = phase;
+            }
+
+            return bestPhase;
+        }
+
+        /// <summary>Синхронизирует фазу save-state с активным фазовым баффом на игроке.</summary>
+        public DebuffState EnrichDebuffForPanel(string injuryId, DebuffState debuff)
+        {
+            int buffPhase = ResolveCurrentPhaseFromActiveBuffs(injuryId);
+            if (buffPhase <= debuff.CurrentPhase)
+                return debuff;
+
+            return new DebuffState
+            {
+                BuffId = debuff.BuffId,
+                InjuryStartDay = debuff.InjuryStartDay,
+                TreatmentStarted = debuff.TreatmentStarted || buffPhase > 0,
+                HarveyConversationHappened = debuff.HarveyConversationHappened,
+                HarveyAware = debuff.HarveyAware,
+                HiddenFromHarvey = debuff.HiddenFromHarvey,
+                CurrentPhase = buffPhase,
+                TotalPhases = debuff.TotalPhases > 0
+                    ? debuff.TotalPhases
+                    : InjurySets.InferDefaultTotalPhases(injuryId),
+                PhaseStartDay = debuff.PhaseStartDay,
+                Phase1Duration = debuff.Phase1Duration,
+                Phase2Duration = debuff.Phase2Duration,
+                Phase3Duration = debuff.Phase3Duration,
+                ReadyForNextPhase = debuff.ReadyForNextPhase,
+                ReadyForRecovery = debuff.ReadyForRecovery,
+            };
+        }
+
+        /// <summary>Минимальный DebuffState для UI, если save-state потерян, но фазовый бафф на игроке.</summary>
+        public DebuffState? BuildPanelDebuffFallback(string injuryId)
+        {
+            if (string.IsNullOrEmpty(injuryId) || !InjurySets.HarveyTreatable.Contains(injuryId))
+                return null;
+
+            int activePhase = ResolveCurrentPhaseFromActiveBuffs(injuryId);
+            if (activePhase > 0)
+            {
+                int totalPhases = InjurySets.InferDefaultTotalPhases(injuryId);
+                return new DebuffState
+                {
+                    BuffId = injuryId,
+                    TreatmentStarted = true,
+                    HarveyConversationHappened = true,
+                    HarveyAware = true,
+                    CurrentPhase = activePhase,
+                    TotalPhases = totalPhases,
+                    Phase1Duration = 2,
+                    Phase2Duration = 3,
+                    Phase3Duration = totalPhases >= 3 ? 2 : 0,
+                };
+            }
+
+            if (_buffManager.HasBuff(injuryId))
+            {
+                return new DebuffState
+                {
+                    BuffId = injuryId,
+                    TreatmentStarted = false,
+                    TotalPhases = InjurySets.InferDefaultTotalPhases(injuryId),
+                };
+            }
+
+            return null;
+        }
+
+        public string? TryResolveInjuryIdFromPhaseBuff(string activeBuffId)
+        {
+            if (string.IsNullOrWhiteSpace(activeBuffId))
+                return null;
+
+            if (InjurySets.HarveyTreatable.Contains(activeBuffId)
+                && !InjurySets.KnownComplicationBuffIds.Contains(activeBuffId))
+            {
+                return activeBuffId;
+            }
+
+            foreach (string injuryId in InjurySets.HarveyTreatable)
+            {
+                if (InjurySets.KnownComplicationBuffIds.Contains(injuryId))
+                    continue;
+
+                for (int phase = 1; phase <= 3; phase++)
+                {
+                    string phaseBuffId = GetPhaseBuffId(injuryId, phase);
+                    if (!string.IsNullOrEmpty(phaseBuffId)
+                        && string.Equals(phaseBuffId, activeBuffId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return injuryId;
+                    }
+                }
+            }
+
+            return null;
         }
     }
 }

@@ -131,6 +131,9 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             if (IsMineHardBlocked(state, config, injuryManager, buffManager, today, out _))
                 return false;
 
+            if (HarveyInjuryAwarenessHelper.HasActiveUnawareMineInjury(state, injuryManager, buffManager))
+                return true;
+
             if (state.ActiveComplications.Count > 0)
                 return true;
 
@@ -157,6 +160,12 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             BuffManager buffManager)
         {
             string? mainId = injuryManager.GetActiveInjury();
+            DebuffState? mainState = mainId != null
+                ? state.ActiveDebuffs.GetValueOrDefault(mainId)
+                : null;
+
+            if (!HarveyInjuryAwarenessHelper.IsHarveyAwareForMineReaction(mainState, state, buffManager))
+                return InjuryVisibilityHelper.GetNeutralMineHudMessage(mainId);
 
             if (string.Equals(mainId, "buffInfectedWound", StringComparison.OrdinalIgnoreCase)
                 && buffManager.HasBuff("HarveyMod_InfectedWound_Treatment"))
@@ -517,6 +526,10 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 return false;
 
             DebuffState? ds = state.ActiveDebuffs.GetValueOrDefault(injuryId);
+
+            if (!IsHarveyAwareForHardBlock(ds, state, buffManager))
+                return false;
+
             int hardBlockDays = GetHardBlockDayLimit(injuryId, ds, config);
             if (hardBlockDays <= 0)
                 return false;
@@ -529,6 +542,12 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             reason = $"{injuryId} phase={phase} day={daysSinceStart + 1}/{hardBlockDays}";
             return true;
         }
+
+        private static bool IsHarveyAwareForHardBlock(
+            DebuffState? debuffState,
+            InjuryState state,
+            BuffManager buffManager) =>
+            HarveyInjuryAwarenessHelper.IsHarveyAwareForMineReaction(debuffState, state, buffManager);
 
         private static int GetHardBlockDayLimit(string injuryId, DebuffState? ds, ModConfig config)
         {

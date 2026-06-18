@@ -4,6 +4,7 @@ using System.Linq;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
+using HarveyOverhaul.InjuryCare.Services;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -28,6 +29,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly DialogueManager _dialogueManager;
         private readonly BuffManager _buffManager;
         private readonly ComplianceManager _complianceManager;
+        private readonly MedicalLetterScheduler? _medicalLetterScheduler;
 
         private static readonly Dictionary<string, (string Id, int Days)[]> InjuryPrescriptionRules =
             new(StringComparer.OrdinalIgnoreCase)
@@ -105,7 +107,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             StateManager stateManager,
             DialogueManager dialogueManager,
             BuffManager buffManager,
-            ComplianceManager complianceManager)
+            ComplianceManager complianceManager,
+            MedicalLetterScheduler? medicalLetterScheduler = null)
         {
             _monitor = monitor;
             _config = config;
@@ -113,6 +116,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager = dialogueManager;
             _buffManager = buffManager;
             _complianceManager = complianceManager;
+            _medicalLetterScheduler = medicalLetterScheduler;
         }
 
         /// <summary>Назначить предписания по правилам для травмы (после начала лечения).</summary>
@@ -259,12 +263,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 : ViolationTopicDays;
             _dialogueManager.AddTopic(PrescriptionTopics.Violation, violationTopicDays);
 
-            HarveyMailHelper.TryScheduleTieredMail(
-                _config,
-                _stateManager,
-                _monitor,
-                HarveyMailHelper.GetPrescriptionViolationMailBase(reason),
-                $"{PrescriptionTopics.Violation}:{prescriptionId}:{reason}");
+            if (_medicalLetterScheduler != null)
+            {
+                HarveyMailHelper.TryScheduleTieredMail(
+                    _medicalLetterScheduler,
+                    HarveyMailHelper.GetPrescriptionViolationMailBase(reason),
+                    MedicalLetterReasons.PrescriptionViolation,
+                    prescriptionId,
+                    critical: false,
+                    $"{PrescriptionTopics.Violation}:{prescriptionId}:{reason}");
+            }
 
             ApplyViolationEscalation(violationCount);
 

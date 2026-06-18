@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using HarveyOverhaul.InjuryCare.Core;
+using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.Managers;
 using StardewModdingAPI;
@@ -32,6 +33,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly RecoveryPlanManager _recoveryPlanManager;
         private readonly ComplicationManager _complicationManager;
         private readonly MineEntryCoordinator _mineEntryCoordinator;
+        private readonly HiddenInjuryDialogueFlow _hiddenInjuryDialogueFlow;
 
         private PassOutHandler? _passOutHandler;
         private HarveyHomeCareEventLauncher? _homeCareLauncher;
@@ -76,7 +78,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             RehabManager rehabManager,
             RecoveryPlanManager recoveryPlanManager,
             ComplicationManager complicationManager,
-            MineEntryCoordinator mineEntryCoordinator)
+            MineEntryCoordinator mineEntryCoordinator,
+            HiddenInjuryDialogueFlow hiddenInjuryDialogueFlow)
         {
             _monitor = monitor;
             _config = config;
@@ -94,6 +97,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _recoveryPlanManager = recoveryPlanManager;
             _complicationManager = complicationManager;
             _mineEntryCoordinator = mineEntryCoordinator;
+            _hiddenInjuryDialogueFlow = hiddenInjuryDialogueFlow;
         }
 
         public void SetPassOutHandler(PassOutHandler passOutHandler)
@@ -381,6 +385,19 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 state, _config, _injuryManager, _buffManager, today, out string? hardBlockReason);
             bool hasSevereInjury = MineForbiddenHelper.HasSevereMineCondition(
                 state, _injuryManager, _buffManager, out _);
+            bool harveyKnowsSevereInjury = HarveyInjuryAwarenessHelper.HasKnownSevereInjury(
+                state, _stateManager, _injuryManager, _buffManager);
+
+            string? mainInjuryId = _injuryManager.GetActiveInjury();
+            var mainDebuff = mainInjuryId != null ? _stateManager.GetDebuffState(mainInjuryId) : null;
+            _monitor.Log(
+                $"[MineLogic] hasSevere={hasSevereInjury}, harveyKnows={harveyKnowsSevereInjury}, " +
+                $"hardBlocked={hardBlocked}, main={mainInjuryId ?? "(none)"}, " +
+                $"harveyAware={mainDebuff?.HarveyAware}, treatmentStarted={mainDebuff?.TreatmentStarted}, " +
+                $"conversation={mainDebuff?.HarveyConversationHappened}, " +
+                $"mineRescueTopic={Helpers.GameUtils.HasConversationTopic(ConversationTopics.MineInjuryRescue)}, " +
+                $"knownSevereTopic={Helpers.GameUtils.HasConversationTopic(ConversationTopics.KnownSevereInjury)}",
+                LogLevel.Debug);
 
             if (hasMineForbidden)
                 _careTrustManager.PenalizeMineViolationOncePerDay(hasSevereInjury);
@@ -452,6 +469,18 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _monitor.Log("ℹ️ [Шахта] Мягкое предупреждение (MineWarningDay не ставится)", LogLevel.Debug);
         }
 
+        private void ShowFreshInjuryNeutralHudIfNeeded(int today)
+        {
+            if (_lastMineSoftHudDay == today)
+                return;
+
+            _lastMineSoftHudDay = today;
+            Game1.addHUDMessage(new HUDMessage(
+                InjuryVisibilityHelper.GetNeutralMineHudMessage(_injuryManager.GetActiveInjury()),
+                HUDMessage.health_type));
+            _monitor.Log("[MineLogic] Нейтральное HUD — Харви ещё не знает о травме", LogLevel.Debug);
+        }
+
         /// <summary>
         /// Острое окно hard block без активного MineForbidden: строгое предупреждение и MineWarningDay,
         /// повторный вход в тот же день — вынос без катсцены перехвата.
@@ -463,6 +492,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             string? hardBlockReason)
         {
             var state = _stateManager.State;
+
+            if (!HarveyInjuryAwarenessHelper.HasKnownSevereInjury(
+                    state, _stateManager, _injuryManager, _buffManager)
+                && HarveyInjuryAwarenessHelper.HasActiveUnawareMineInjury(
+                    state, _injuryManager, _buffManager))
+            {
+                ShowFreshInjuryNeutralHudIfNeeded(today);
+                return;
+            }
 
             if (state.LastMineSevereWarningDay != today)
             {
@@ -509,6 +547,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             var state = _stateManager.State;
             MineForbiddenHelper.ResetDailyRestrictionViolations(state, today);
+
+            string? mainId = _injuryManager.GetActiveInjury();
+            DebuffState? mainDs = mainId != null ? _stateManager.GetDebuffState(mainId) : null;
+            if (!HarveyInjuryAwarenessHelper.IsHarveyAwareForMineReaction(mainDs, state, _buffManager))
+            {
+                ShowFreshInjuryNeutralHudIfNeeded(today);
+                return;
+            }
 
             if (state.MineRestrictionViolationsToday == 0)
             {
@@ -1364,7 +1410,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _buffManager.AddBuff(InjuryBuffs.WetStitches, -2);
             _stateManager.State.ActiveComplications[InjuryBuffs.WetStitches] = today;
             _stateManager.CreateComplicationState(InjuryBuffs.WetStitches, today);
-            _dialogueManager.AddTopic(ConversationTopics.WetStitches, 4);
+            _dialogueManager.EnsureComplicationDialogueTopics(InjuryBuffs.WetStitches, 4);
             Game1.addHUDMessage(new HUDMessage("Швы намокли! Нельзя было купаться со швами!", HUDMessage.error_type));
             _monitor.Log(logContext, LogLevel.Warn);
             return true;
@@ -1472,6 +1518,19 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (!CanShowNormalProximityReaction())
                 return;
+
+            bool flowStarted = _hiddenInjuryDialogueFlow.TryStartDetection(
+                harvey,
+                isDirectTalk: false,
+                isProximityCheck: true,
+                triggerReason: "proximity");
+
+            if (flowStarted)
+            {
+                _proximityReactionShown = true;
+                _monitor.Log("[Proximity] Hidden injury question flow started", LogLevel.Info);
+                return;
+            }
 
             _monitor.Log(
                 $"[Proximity] Показ облачка: локация={_lastLocationName}, дистанция={distance:F1} клеток",

@@ -7,13 +7,15 @@ using HarveyOverhaul.InjuryCare.Helpers;
 using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Locations;
+using StardewValley.Delegates;
+using StardewValley.Triggers;
 
 namespace HarveyOverhaul.InjuryCare.Managers
 {
     /// <summary>
     /// План восстановления: save-state + объясняющий UI. Без новых баффов.
     /// </summary>
-    public class RecoveryPlanManager
+    public partial class RecoveryPlanManager
     {
         public const string HospitalDischargePlanId = "RecoveryPlan_HospitalDischarge";
         public const string HospitalDischargeReason = "hospital";
@@ -83,6 +85,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private int _lastHealthCheckTick;
         private int _overworkLowStaminaToolSeconds;
         private int _morningHudRetryCount;
+        private string _lastRecoveryPlanAction = "";
 
         public RecoveryPlanManager(
             IMonitor monitor,
@@ -100,6 +103,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager = dialogueManager;
         }
 
+        public void RegisterTriggerActions()
+        {
+            TriggerActionManager.RegisterAction(
+                TreatmentStartActions.RecoveryPlanTalk,
+                OnRecoveryPlanTalkAction);
+            _monitor.Log(
+                $"[RecoveryPlan] Registered trigger action: {TreatmentStartActions.RecoveryPlanTalk}",
+                LogLevel.Debug);
+        }
+
         // ============================================================================
         // Ежедневный план восстановления
         // ============================================================================
@@ -113,6 +126,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
             ClearPlanIfRecovered();
 
             var plan = _stateManager.GetRecoveryPlan();
+            if (plan.CompletionTalkPending)
+            {
+                SyncHarveyTalkTopic();
+                return;
+            }
+
             int today = GameUtils.Today();
 
             if (previousDayReset(plan, today))
@@ -132,15 +151,36 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 plan.IsActive = false;
                 plan.Status = RecoveryPlanMoodStatus.None;
                 _stateManager.Save();
+                SyncHarveyTalkTopic();
                 return;
             }
 
             if (!_stateManager.State.ActiveDebuffs.TryGetValue(injuryId, out DebuffState? debuffState)
                 || debuffState == null)
             {
+                debuffState = _injuryManager.BuildPanelDebuffFallback(injuryId);
+            }
+
+            if (debuffState != null)
+                debuffState = _injuryManager.EnrichDebuffForPanel(injuryId, debuffState);
+
+            if (debuffState == null)
+            {
                 plan.IsActive = false;
                 plan.Status = RecoveryPlanMoodStatus.None;
                 _stateManager.Save();
+                SyncHarveyTalkTopic();
+                return;
+            }
+
+            if (!HarveyInjuryAwarenessHelper.IsInjuryHarveyAware(debuffState)
+                && !debuffState.IsInTreatment
+                && !debuffState.TreatmentStarted)
+            {
+                plan.IsActive = false;
+                plan.Status = RecoveryPlanMoodStatus.None;
+                _stateManager.Save();
+                SyncHarveyTalkTopic();
                 return;
             }
 
@@ -162,6 +202,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             plan.Status = CalculateStatus(plan, debuffState);
             plan.LastUpdatedDay = today;
 
+            SyncInjuryTalkAssignments(injuryId, debuffState);
+            SyncHarveyTone(plan);
+
             _stateManager.Save();
 
             _monitor.Log(
@@ -180,6 +223,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 plan.WasShownToday = true;
                 _stateManager.Save();
             }
+
+            SyncHarveyTalkTopic();
         }
 
         public List<RecoveryPlanTask> BuildTasks(string injuryId, DebuffState debuffState)
@@ -497,6 +542,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             ShowViolationHud(severity, extended, maxExtensionsHit, hudMessage, normalizedType);
 
+            SyncHarveyTalkTopic();
             return true;
         }
 
@@ -635,15 +681,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         public void ClearPlanIfRecovered()
         {
+            var plan = _stateManager.GetRecoveryPlan();
+            if (plan.CompletionTalkPending)
+                return;
+
             if (HasRecoveryContext())
                 return;
 
-            var plan = _stateManager.GetRecoveryPlan();
             if (!plan.IsActive && string.IsNullOrEmpty(plan.ActiveInjuryId))
                 return;
 
             ResetDailyPlanState(plan);
             _stateManager.Save();
+            SyncHarveyTalkTopic();
             _monitor.Log("[RecoveryPlan] План очищен — травм и осложнений нет", LogLevel.Info);
         }
 
@@ -692,6 +742,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 EnsureTodayViolationReasons(daily);
                 daily.TodayViolationReasons.Clear();
                 daily.TodayViolationTypes.Clear();
+                daily.TodayWarnings.Clear();
+                daily.CompletedAssignmentsToday.Clear();
                 daily.HadWarningsToday = false;
                 daily.TodayViolationDialogueType = "";
                 daily.TodayViolationDialogueSeverity = 0;
@@ -1013,6 +1065,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 $"[RecoveryPlan] Stamina soft warning shown (stamina={(int)Game1.player.Stamina}/{(int)Game1.player.MaxStamina}, day={today})",
                 LogLevel.Info);
 
+            RegisterWarning(
+                RecoveryPlanViolationType.LowStaminaWarning,
+                "Низкая выносливость — сделайте паузу.");
+
             ShowRecoveryPlanWarning(
                 "stamina_soft_warning",
                 HudStaminaSoftWarning,
@@ -1024,6 +1080,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _monitor.Log(
                 $"[RecoveryPlan] Health soft warning shown (health={Game1.player.health}/{Game1.player.maxHealth}, day={today})",
                 LogLevel.Info);
+
+            RegisterWarning(
+                RecoveryPlanViolationType.LowHealthWarning,
+                "Здоровье на пределе — вернитесь в безопасное место.");
 
             ShowRecoveryPlanWarning(
                 "health_soft_warning",
@@ -1046,7 +1106,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
 
             RegisterRecoveryPlanViolation(
-                RecoveryPlanViolationType.LowStamina,
+                RecoveryPlanViolationType.LowStaminaFail,
                 ResolveDefaultViolationSeverity(RecoveryPlanViolationType.LowStamina),
                 harveyLine: RecoveryPlanTexts.Harvey.Stamina);
             RefreshPlanForToday();
@@ -1067,7 +1127,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
 
             RegisterRecoveryPlanViolation(
-                RecoveryPlanViolationType.LowHealth,
+                RecoveryPlanViolationType.LowHealthFail,
                 ResolveDefaultViolationSeverity(RecoveryPlanViolationType.LowHealth),
                 harveyLine: RecoveryPlanTexts.Harvey.Health);
             RefreshPlanForToday();
@@ -1275,17 +1335,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return true;
         }
 
-        /// <summary>Завершить план восстановления и выдать награду (один раз за план).</summary>
+        /// <summary>Завершить план восстановления; награды и снятие плана — после разговора ($action).</summary>
         public void CompleteRecoveryPlan(string? forcedResult = null)
         {
             var plan = _stateManager.GetRecoveryPlan();
             SyncPlanTotalViolations(plan);
 
-            if (plan.CompletionRewardApplied)
+            if (!string.IsNullOrWhiteSpace(plan.PendingCompletionResult))
             {
-                _monitor.Log(
-                    "[RecoveryPlan] Completion reward skipped — already applied for this plan",
-                    LogLevel.Info);
+                SyncHarveyTalkTopic();
                 return;
             }
 
@@ -1294,27 +1352,26 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             plan.WasPerfectOnCompletion = result == RecoveryPlanCompletionResult.Perfect;
             plan.LastCompletionWasPerfect = plan.WasPerfectOnCompletion;
-            plan.LastCompletionHadWarnings = result == RecoveryPlanCompletionResult.WithWarnings;
+            plan.LastCompletionHadWarnings = result == RecoveryPlanCompletionResult.WithWarnings
+                || result == RecoveryPlanCompletionResult.Normal;
+            plan.PendingCompletionResult = result;
+            plan.CompletionTalkPending = true;
+            plan.IsActive = false;
+
+            var hospital = GetActivePlan();
+            if (hospital != null)
+            {
+                hospital.IsActive = false;
+                hospital.CompletionTalkPending = true;
+                hospital.RequiresHarveyTalk = true;
+            }
 
             _monitor.Log(
-                $"[RecoveryPlan] Plan completed: result={result}, totalViolations={plan.TotalViolations}, "
+                $"[RecoveryPlan] Plan completed (talk pending): result={result}, totalViolations={plan.TotalViolations}, "
                 + $"perfectPlan={perfectPlan}, warnings={plan.HadPlanWarnings}",
                 LogLevel.Info);
 
-            switch (result)
-            {
-                case RecoveryPlanCompletionResult.Perfect:
-                    ApplyPerfectRecoveryReward();
-                    break;
-                case RecoveryPlanCompletionResult.WithWarnings:
-                    ApplyRecoveryCompletedWithWarnings();
-                    break;
-                default:
-                    ApplyRecoveryCompletedNormal();
-                    break;
-            }
-
-            plan.CompletionRewardApplied = true;
+            SyncHarveyTalkTopic();
             _stateManager.Save();
         }
 
@@ -1329,42 +1386,31 @@ namespace HarveyOverhaul.InjuryCare.Managers
             int careDays = Game1.random.Next(1, 3);
             _buffManager.AddBuff(CureBuffs.Care, careDays * 1440);
 
-            int topicDays = Game1.random.Next(PerfectTopicDaysMin, PerfectTopicDaysMax + 1);
-            AddRecoveryCompletionTopic(ConversationTopics.RecoveryPlanPerfect, topicDays);
-
             int today = GameUtils.Today();
             var plan = _stateManager.GetRecoveryPlan();
             plan.SoftToneUntilDay = today + SoftToneDays;
             _dialogueManager.RemoveTopic(ConversationTopics.RecoveryPlanSoftTone);
             _dialogueManager.AddTopic(ConversationTopics.RecoveryPlanSoftTone, SoftToneDays);
 
-            ShowCompletionDialogue(RecoveryPlanCompletionResult.Perfect);
+            plan.CompletionRewardApplied = true;
             _stateManager.Save();
 
             _monitor.Log(
                 $"[RecoveryPlan] Perfect reward applied: friendship={friendship}, careDays={careDays}, "
-                + $"topicDays={topicDays}, softToneUntil={plan.SoftToneUntilDay}",
+                + $"softToneUntil={plan.SoftToneUntilDay}",
                 LogLevel.Info);
         }
 
-        /// <summary>Завершение с предупреждениями: topic, без perfect-награды.</summary>
+        /// <summary>Завершение с предупреждениями: без perfect-награды.</summary>
         public void ApplyRecoveryCompletedWithWarnings()
         {
-            AddRecoveryCompletionTopic(
-                ConversationTopics.RecoveryPlanCompletedWithWarnings,
-                CompletedTopicDays);
-            ShowCompletionDialogue(RecoveryPlanCompletionResult.WithWarnings);
             _monitor.Log("[RecoveryPlan] Completion with warnings — no perfect reward", LogLevel.Info);
         }
 
-        /// <summary>Завершение без тяжёлых нарушений: topic + небольшой friendship.</summary>
+        /// <summary>Завершение без тяжёлых нарушений: небольшой friendship.</summary>
         public void ApplyRecoveryCompletedNormal()
         {
-            AddRecoveryCompletionTopic(
-                ConversationTopics.RecoveryPlanCompletedNormal,
-                CompletedTopicDays);
             AddHarveyFriendshipSafe(NormalCompletionFriendshipPoints);
-            ShowCompletionDialogue(RecoveryPlanCompletionResult.Normal);
             _monitor.Log(
                 $"[RecoveryPlan] Normal completion: friendship +{NormalCompletionFriendshipPoints}",
                 LogLevel.Info);
@@ -1401,6 +1447,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             ClearRecoveryPlan();
             ResetDailyPlanState(_stateManager.GetRecoveryPlan());
             _stateManager.ClearRecoveryViolationState(includeCounters: true);
+            RemoveRecoveryPlanTalkTopics();
             RemoveCompletionTopics();
             _stateManager.Save();
             _monitor.Log("[RecoveryPlan] Full recovery plan reset (injuries untouched)", LogLevel.Info);
@@ -1465,7 +1512,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (hospital is { IsActive: true } or { CompletionTalkPending: true })
                 return true;
 
-            return _stateManager.GetRecoveryPlan().IsActive;
+            var daily = _stateManager.GetRecoveryPlan();
+            return daily.IsActive
+                || daily.CompletionTalkPending
+                || daily.ActiveAssignments.Count > 0;
         }
 
         public RecoveryPlanViewModel BuildViewModel()
@@ -1474,11 +1524,28 @@ namespace HarveyOverhaul.InjuryCare.Managers
             var hospital = GetActivePlan();
             bool hasHospital = hospital is { IsActive: true } or { CompletionTalkPending: true };
 
-            if (!daily.IsActive && !hasHospital)
-                return RecoveryPlanViewModel.Empty;
-
+            bool hasAssignments = daily.ActiveAssignments.Count > 0;
             string? injuryId = daily.ActiveInjuryId ?? hospital?.InjuryId;
             DebuffState? debuff = injuryId != null ? _stateManager.GetDebuffState(injuryId) : null;
+            if (debuff != null && !string.IsNullOrEmpty(injuryId))
+                debuff = _injuryManager.EnrichDebuffForPanel(injuryId, debuff);
+            else if (debuff == null && !string.IsNullOrEmpty(injuryId))
+                debuff = _injuryManager.BuildPanelDebuffFallback(injuryId);
+
+            if (!daily.IsActive && !hasHospital && !hasAssignments)
+            {
+                if (!TryGetActiveTreatmentDebuff(out string fallbackInjuryId, out DebuffState fallbackDebuff))
+                    return RecoveryPlanViewModel.Empty;
+
+                injuryId = fallbackInjuryId;
+                debuff = fallbackDebuff;
+            }
+            else if (string.IsNullOrEmpty(injuryId)
+                     && TryGetActiveTreatmentDebuff(out string resolvedInjuryId, out DebuffState resolvedDebuff))
+            {
+                injuryId = resolvedInjuryId;
+                debuff = resolvedDebuff;
+            }
 
             string phaseLabel = debuff != null && debuff.TotalPhases > 0 && debuff.CurrentPhase > 0
                 ? TreatmentManager.GetPhaseDisplayName(injuryId!, debuff.CurrentPhase, debuff.TotalPhases)
@@ -1486,16 +1553,23 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             string dayProgress = daily.IsActive
                 ? BuildDayProgressLabel(daily, debuff)
-                : "";
+                : debuff != null && debuff.TotalPhases > 0 && debuff.CurrentPhase > 0
+                    ? $"Фаза {debuff.CurrentPhase}/{debuff.TotalPhases}"
+                    : "";
 
             bool hasComplication = _stateManager.State.ActiveComplications.Count > 0;
             bool isSevere = injuryId != null && InjurySets.Severe.Contains(injuryId);
             HarveyToneViewModel harveyTone = GetHarveyToneViewModel();
+            var assignments = BuildAssignmentViewModels();
+
+            var tasks = daily.Tasks;
+            if (tasks.Count == 0 && debuff != null && !string.IsNullOrEmpty(injuryId))
+                tasks = BuildTasks(injuryId, debuff);
 
             return new RecoveryPlanViewModel
             {
                 HasPlan = true,
-                IsActive = daily.IsActive || (hospital?.IsActive ?? false),
+                IsActive = daily.IsActive || (hospital?.IsActive ?? false) || assignments.Count > 0 || debuff != null,
                 PlanId = hospital?.PlanId ?? "",
                 Reason = hospital?.Reason ?? "treatment",
                 InjuryId = injuryId,
@@ -1523,7 +1597,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 RequiresHarveyTalk = _stateManager.State.RecoveryPlanNeedsHarveyVisit
                     || daily.NeedsHarveyVisit
                     || (hospital?.RequiresHarveyTalk ?? false),
-                CompletionTalkPending = hospital?.CompletionTalkPending ?? false,
+                CompletionTalkPending = hospital?.CompletionTalkPending ?? false
+                    || daily.CompletionTalkPending,
                 LastEvaluatedDay = hospital?.LastEvaluatedDay ?? daily.LastUpdatedDay,
                 Status = daily.IsActive ? daily.Status : RecoveryPlanMoodStatus.None,
                 StatusText = FormatStatusText(daily.Status),
@@ -1533,12 +1608,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 WhyImportant = RecoveryPlanTexts.GetWhyImportant(injuryId, hasComplication, isSevere),
                 ComplicationSummary = BuildComplicationSummaryFromState(),
                 MainInjuryId = injuryId,
-                CurrentPhase = daily.CurrentPhase,
-                TotalPhases = daily.TotalPhases,
+                CurrentPhase = daily.CurrentPhase > 0 ? daily.CurrentPhase : debuff?.CurrentPhase ?? 0,
+                TotalPhases = daily.TotalPhases > 0 ? daily.TotalPhases : debuff?.TotalPhases ?? 0,
                 ReadyForNextPhase = debuff?.ReadyForNextPhase ?? false,
                 ReadyForRecovery = debuff?.ReadyForRecovery ?? false,
                 ConcernScore = daily.ConcernScore,
-                Tasks = daily.Tasks,
+                Tasks = tasks,
+                Assignments = assignments,
+                TodayWarnings = daily.TodayWarnings.ToList(),
+                HarveyToneKind = daily.HarveyTone,
                 Violations = daily.TodayViolations,
                 HarveyTone = harveyTone,
             };
@@ -1549,7 +1627,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             var plan = _stateManager.GetRecoveryPlan();
             var hospital = GetActivePlan();
-            bool hasDisplayablePlan = plan.IsActive || hospital is { IsActive: true } or { CompletionTalkPending: true };
+            bool hasHospital = hospital is { IsActive: true } or { CompletionTalkPending: true };
+            bool hasDaily = plan.IsActive || plan.CompletionTalkPending;
+            bool hasDisplayablePlan = hasDaily || hasHospital;
 
             if (!hasDisplayablePlan)
             {
@@ -1570,6 +1650,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _stateManager.State.CareTrust,
                 needsHarveyVisitFromViolation,
                 world);
+
+            plan.HarveyTone = tone switch
+            {
+                HarveyCareTone.Strict => RecoveryPlanToneKind.Strict,
+                HarveyCareTone.Worried => RecoveryPlanToneKind.Worried,
+                _ => RecoveryPlanToneKind.Calm,
+            };
 
             return HarveyCareToneCalculator.BuildViewModel(tone, hasActivePlan: true);
         }
@@ -1603,7 +1690,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             string todayReasons = plan.TodayViolationReasons.Count > 0
                 ? string.Join("; ", RecoveryPlanViolationReasonTexts.FormatReasons(plan.TodayViolationReasons))
                 : "-";
-            string completionTopic = ResolveCompletionResult(plan);
+            string completionResult = ResolveCompletionResult(plan);
+            string activeTalkTopic = ResolveActiveCompletionTalkTopic();
             HarveyCareTone harveyTone = plan.IsActive
                 ? HarveyCareToneCalculator.Calculate(
                     plan,
@@ -1613,18 +1701,24 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 : HarveyCareTone.Calm;
 
             return
-                $"RecoveryPlan: {active}  Status={plan.Status}  "
+                $"RecoveryPlan: {active}  Status={plan.Status}  Tone={plan.HarveyTone}  "
                 + $"Day {plan.CurrentDay}/{plan.TotalDays}  "
-                + $"Tasks={plan.Tasks.Count}  Violations={plan.TodayViolations.Count}  "
-                + $"Concern={plan.ConcernScore}\n"
+                + $"Tasks={plan.Tasks.Count}  Assignments=[{string.Join(",", plan.ActiveAssignments)}]  "
+                + $"Violations={plan.TodayViolations.Count}  Concern={plan.ConcernScore}\n"
+                + $"Progress: {FormatProgressGoals(plan)}  "
+                + $"Warnings=[{string.Join("; ", plan.TodayWarnings)}]\n"
                 + $"TodayViolations={plan.TodayViolations.Count}  "
                 + $"NeedsHarveyVisit={YesNo(plan.NeedsHarveyVisit || state.RecoveryPlanNeedsHarveyVisit)}  "
                 + $"HarveyTone={harveyTone}\n"
+                + $"RecoveryPlanTalkTopic: {FormatRecoveryPlanTalkTopicStatus()}\n"
+                + $"DoctorVisitNeededBuff: {YesNo(_buffManager.HasBuff(ReminderBuffs.DoctorVisitNeeded))}\n"
+                + $"LastRecoveryPlanAction: {ValueOrDash(_lastRecoveryPlanAction)}\n"
+                + $"CompletionTopic: {activeTalkTopic}\n"
                 + $"LastViolation: {lastType}/{lastSeverity}  "
                 + $"TodayTypes=[{todayTypes}]  TodayReasons=[{todayReasons}]\n"
                 + $"WarningToday={YesNo(plan.HadWarningsToday)}  "
                 + $"PerfectDays={plan.PerfectDays}  WarningDays={plan.WarningDays}  "
-                + $"CompletionTopic={RecoveryPlanViolationTopicMap.GetCompletionTopic(completionTopic)}\n"
+                + $"ResolvedCompletion={RecoveryPlanViolationTopicMap.GetCompletionTopic(completionResult)}\n"
                 + $"Recovery violation: {ValueOrDash(state.LastRecoveryViolationType)}/{FormatViolationSeverityLabel(state.LastRecoveryViolationSeverity)}  "
                 + $"DayFailed={YesNo(state.RecoveryPlanDayFailed)}  "
                 + $"NeedsHarveyVisit={YesNo(state.RecoveryPlanNeedsHarveyVisit)}  "
@@ -2085,6 +2179,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     }
                     break;
             }
+
+            SyncHarveyTalkTopic();
         }
 
         private void TryShowMildViolationMorningReminder()
@@ -2103,7 +2199,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
             TryShowHudOnce("mild_morning_reminder", HudMildMorningReminder);
         }
 
-        public bool IsCompletionTalkPending() => GetActivePlan()?.CompletionTalkPending == true;
+        public bool IsCompletionTalkPending()
+        {
+            if (GetActivePlan()?.CompletionTalkPending == true)
+                return true;
+
+            return _stateManager.GetRecoveryPlan().CompletionTalkPending;
+        }
 
         public void NotifyHarveyClickedForCompletionTalk()
         {
@@ -2155,13 +2257,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void AcknowledgeCompletionTalk()
         {
             var plan = GetActivePlan();
-            if (plan == null || !plan.CompletionTalkPending)
+            var daily = _stateManager.GetRecoveryPlan();
+            if ((plan == null || !plan.CompletionTalkPending) && !daily.CompletionTalkPending)
                 return;
 
-            RemoveCompletionTopics();
-            _dialogueManager.RemoveTopic(ConversationTopics.RecoveryPlanStarted);
-            RemoveTypedViolationTopics();
-            ClearRecoveryPlan();
+            string result = ResolvePendingCompletionResult(daily);
+            string mode = result == RecoveryPlanCompletionResult.Perfect
+                ? RecoveryPlanTalkModes.CompletedPerfect
+                : RecoveryPlanTalkModes.CompletedWithWarnings;
+            FinishRecoveryPlanTalk(mode, applyCompletionRewards: true);
         }
 
         public void ClearRecoveryPlan()
@@ -2171,6 +2275,283 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             ResetCompletionTalkTracking();
             _stateManager.ClearActiveRecoveryPlan();
+        }
+
+        // ============================================================================
+        // Обязательный разговор с Харви (conversation topic + $action)
+        // ============================================================================
+
+        private static class RecoveryPlanTalkModes
+        {
+            public const string NeedVisit = "NeedVisit";
+            public const string CompletedWithWarnings = "CompletedWithWarnings";
+            public const string CompletedPerfect = "CompletedPerfect";
+        }
+
+        /// <summary>Синхронизировать recovery-plan talk topics и бафф напоминания с save-state.</summary>
+        public void SyncHarveyTalkTopic()
+        {
+            if (!Context.IsWorldReady)
+                return;
+
+            var plan = _stateManager.GetRecoveryPlan();
+            var hospital = GetActivePlan();
+
+            if (IsCompletionTalkPending())
+            {
+                string result = ResolvePendingCompletionResult(plan);
+                string topic = result == RecoveryPlanCompletionResult.Perfect
+                    ? ConversationTopics.RecoveryPlanTalkCompletedPerfect
+                    : ConversationTopics.RecoveryPlanTalkCompletedWithWarnings;
+
+                SetRecoveryPlanTalkTopic(topic, CompletedTopicDays);
+                return;
+            }
+
+            bool hasPlanContext = plan.IsActive
+                || hospital is { IsActive: true }
+                || HasActiveRecoveryContext();
+
+            if (!hasPlanContext && !NeedsHarveyTalkSync())
+            {
+                RemoveRecoveryPlanTalkTopics();
+                return;
+            }
+
+            if (NeedsHarveyTalkSync() && !HasPendingMedicalHarveyTalk())
+            {
+                SetRecoveryPlanTalkTopic(ConversationTopics.RecoveryPlanNeedVisit, 1);
+                if (!_buffManager.HasBuff(ReminderBuffs.DoctorVisitNeeded))
+                    _buffManager.AddBuff(ReminderBuffs.DoctorVisitNeeded, -2);
+
+                return;
+            }
+
+            RemoveRecoveryPlanTalkTopics();
+        }
+
+        public bool OnRecoveryPlanTalkAction(string[] args, TriggerActionContext context, out string error)
+        {
+            error = string.Empty;
+
+            if (!Context.IsWorldReady)
+            {
+                error = "world not ready";
+                _monitor.Log("[RecoveryPlan] $action пропущен: world not ready", LogLevel.Warn);
+                return false;
+            }
+
+            if (args == null || args.Length == 0 || string.IsNullOrWhiteSpace(args[0]))
+            {
+                error = "mode required";
+                return false;
+            }
+
+            string mode = args[0].Trim();
+            switch (mode)
+            {
+                case RecoveryPlanTalkModes.NeedVisit:
+                    FinishRecoveryPlanTalk(mode, applyCompletionRewards: false);
+                    return true;
+
+                case RecoveryPlanTalkModes.CompletedWithWarnings:
+                    ApplyCompletionRewardsIfNeeded(RecoveryPlanCompletionResult.WithWarnings);
+                    FinishRecoveryPlanTalk(mode, applyCompletionRewards: false);
+                    return true;
+
+                case RecoveryPlanTalkModes.CompletedPerfect:
+                    ApplyCompletionRewardsIfNeeded(RecoveryPlanCompletionResult.Perfect);
+                    FinishRecoveryPlanTalk(mode, applyCompletionRewards: false);
+                    return true;
+
+                default:
+                    error = $"unknown mode: {mode}";
+                    _monitor.Log($"[RecoveryPlan] $action unknown mode: {mode}", LogLevel.Warn);
+                    return false;
+            }
+        }
+
+        private void ApplyCompletionRewardsIfNeeded(string completionResult)
+        {
+            var plan = _stateManager.GetRecoveryPlan();
+            if (plan.CompletionRewardApplied)
+                return;
+
+            switch (completionResult)
+            {
+                case RecoveryPlanCompletionResult.Perfect:
+                    ApplyPerfectRecoveryReward();
+                    break;
+                case RecoveryPlanCompletionResult.WithWarnings:
+                    ApplyRecoveryCompletedWithWarnings();
+                    plan.CompletionRewardApplied = true;
+                    _stateManager.Save();
+                    break;
+                default:
+                    ApplyRecoveryCompletedNormal();
+                    plan.CompletionRewardApplied = true;
+                    _stateManager.Save();
+                    break;
+            }
+        }
+
+        private void FinishRecoveryPlanTalk(string mode, bool applyCompletionRewards)
+        {
+            _lastRecoveryPlanAction = mode;
+            var plan = _stateManager.GetRecoveryPlan();
+            var hospital = GetActivePlan();
+
+            if (applyCompletionRewards && IsCompletionTalkPending())
+                ApplyCompletionRewardsIfNeeded(ResolvePendingCompletionResult(plan));
+
+            RemoveDoctorVisitReminderBuff();
+            ClearHarveyVisitFlags(plan, hospital);
+
+            RemoveRecoveryPlanTalkTopics();
+            RemoveCompletionTopics();
+            _dialogueManager.RemoveTopic(ConversationTopics.RecoveryPlanStarted);
+            RemoveTypedViolationTopics();
+
+            plan.CompletionTalkPending = false;
+            plan.PendingCompletionResult = "";
+            if (hospital != null)
+            {
+                hospital.CompletionTalkPending = false;
+                hospital.RequiresHarveyTalk = false;
+            }
+
+            if (mode is RecoveryPlanTalkModes.CompletedPerfect or RecoveryPlanTalkModes.CompletedWithWarnings)
+            {
+                ResetDailyPlanState(plan);
+                _stateManager.ClearActiveRecoveryPlan();
+                ResetCompletionTalkTracking();
+            }
+
+            _stateManager.Save();
+            _monitor.Log($"[RecoveryPlan] RecoveryPlanTalk action handled: mode={mode}", LogLevel.Info);
+        }
+
+        private void ClearHarveyVisitFlags(RecoveryPlanState plan, HospitalDischargePlanState? hospital)
+        {
+            _stateManager.State.RecoveryPlanNeedsHarveyVisit = false;
+            plan.NeedsHarveyVisit = false;
+            if (hospital != null)
+                hospital.RequiresHarveyTalk = false;
+        }
+
+        private void RemoveDoctorVisitReminderBuff()
+        {
+            if (!_buffManager.HasBuff(ReminderBuffs.DoctorVisitNeeded))
+                return;
+
+            _buffManager.RemoveBuff(ReminderBuffs.DoctorVisitNeeded);
+            _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
+                string.Equals(id, ReminderBuffs.DoctorVisitNeeded, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void RemoveRecoveryPlanTalkTopics()
+        {
+            ClearRecoveryPlanTalkTopic(ConversationTopics.RecoveryPlanNeedVisit);
+            ClearRecoveryPlanTalkTopic(ConversationTopics.RecoveryPlanTalkCompletedPerfect);
+            ClearRecoveryPlanTalkTopic(ConversationTopics.RecoveryPlanTalkCompletedWithWarnings);
+        }
+
+        private void SetRecoveryPlanTalkTopic(string activeTopic, int days)
+        {
+            EnsureRecoveryPlanTalkTopic(activeTopic, days);
+            ClearRecoveryPlanTalkTopic(ConversationTopics.RecoveryPlanNeedVisit, activeTopic);
+            ClearRecoveryPlanTalkTopic(ConversationTopics.RecoveryPlanTalkCompletedPerfect, activeTopic);
+            ClearRecoveryPlanTalkTopic(ConversationTopics.RecoveryPlanTalkCompletedWithWarnings, activeTopic);
+        }
+
+        private void EnsureRecoveryPlanTalkTopic(string topic, int days)
+        {
+            if (!_dialogueManager.HasTopic(topic))
+                _dialogueManager.AddTopic(topic, days);
+        }
+
+        private void ClearRecoveryPlanTalkTopic(string topic, string? exceptTopic = null)
+        {
+            if (string.Equals(topic, exceptTopic, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (_dialogueManager.HasTopic(topic))
+                _dialogueManager.RemoveTopic(topic);
+        }
+
+        private bool NeedsHarveyTalkSync()
+        {
+            var plan = _stateManager.GetRecoveryPlan();
+            var state = _stateManager.State;
+            var hospital = GetActivePlan();
+
+            if (hospital?.RequiresHarveyTalk == true)
+                return true;
+
+            if (state.RecoveryPlanNeedsHarveyVisit)
+                return true;
+
+            if (plan.NeedsHarveyVisit)
+                return true;
+
+            return plan.IsActive && plan.Status == RecoveryPlanMoodStatus.NeedsHarveyTalk;
+        }
+
+        /// <summary>Медицинский интент (фаза, выписка, старт лечения) важнее recovery-plan NeedVisit.</summary>
+        private bool HasPendingMedicalHarveyTalk()
+        {
+            foreach (var debuff in _stateManager.GetAllActiveDebuffStates())
+            {
+                if (!InjurySets.HarveyTreatable.Contains(debuff.BuffId))
+                    continue;
+
+                if (!debuff.TreatmentStarted)
+                    return true;
+
+                if (debuff.ReadyForRecovery
+                    && (debuff.IsLastPhase || TreatmentManager.IsSimpleTreatmentInjury(debuff.BuffId)))
+                    return true;
+
+                if (debuff.IsPhasedInjury
+                    && debuff.TreatmentStarted
+                    && debuff.CurrentPhase > 0
+                    && debuff.CurrentPhase < debuff.TotalPhases
+                    && debuff.ReadyForNextPhase)
+                    return true;
+            }
+
+            return _stateManager.State.ActiveComplications.Count > 0;
+        }
+
+        private string ResolvePendingCompletionResult(RecoveryPlanState plan)
+        {
+            if (!string.IsNullOrWhiteSpace(plan.PendingCompletionResult))
+                return plan.PendingCompletionResult;
+
+            if (plan.LastCompletionWasPerfect || plan.WasPerfectOnCompletion)
+                return RecoveryPlanCompletionResult.Perfect;
+
+            return RecoveryPlanCompletionResult.WithWarnings;
+        }
+
+        private string ResolveActiveCompletionTalkTopic()
+        {
+            if (GameUtils.HasConversationTopic(ConversationTopics.RecoveryPlanTalkCompletedPerfect))
+                return ConversationTopics.RecoveryPlanTalkCompletedPerfect;
+
+            if (GameUtils.HasConversationTopic(ConversationTopics.RecoveryPlanTalkCompletedWithWarnings))
+                return ConversationTopics.RecoveryPlanTalkCompletedWithWarnings;
+
+            if (GameUtils.HasConversationTopic(ConversationTopics.RecoveryPlanNeedVisit))
+                return ConversationTopics.RecoveryPlanNeedVisit;
+
+            return "missing";
+        }
+
+        private string FormatRecoveryPlanTalkTopicStatus()
+        {
+            string topic = ResolveActiveCompletionTalkTopic();
+            return topic == "missing" ? "missing" : "exists";
         }
 
         // ============================================================================
@@ -2233,6 +2614,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             plan.ConsecutivePerfectDays = 0;
             plan.WasPerfectOnCompletion = false;
             plan.CompletionRewardApplied = false;
+            plan.CompletionTalkPending = false;
+            plan.PendingCompletionResult = "";
             plan.LastCompletionDialogueDay = -1;
             plan.SoftToneUntilDay = -1;
         }
@@ -2317,6 +2700,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private string? ResolveMainInjuryId()
         {
+            string? active = _injuryManager.GetActiveInTreatmentInjuryId();
+            if (!string.IsNullOrEmpty(active))
+                return active;
+
             string? main = _stateManager.GetMainInjuryId();
             if (!string.IsNullOrEmpty(main) && _stateManager.State.ActiveDebuffs.ContainsKey(main))
                 return main;

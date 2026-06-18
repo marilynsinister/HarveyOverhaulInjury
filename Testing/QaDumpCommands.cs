@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
+using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.Managers;
 using StardewValley;
 
@@ -165,6 +166,15 @@ namespace HarveyOverhaul.InjuryCare.Testing
                 sb.AppendLine($"{p}.InjuryStartDay={ds.InjuryStartDay}");
                 sb.AppendLine($"{p}.TreatmentStarted={ds.TreatmentStarted}");
                 sb.AppendLine($"{p}.HarveyConversationHappened={ds.HarveyConversationHappened}");
+                sb.AppendLine($"{p}.HarveyAware={ds.HarveyAware}");
+                sb.AppendLine($"{p}.HiddenFromHarvey={ds.HiddenFromHarvey}");
+                sb.AppendLine($"{p}.HiddenDays={ds.HiddenDays}");
+                sb.AppendLine($"{p}.VisibilityLevel={ds.VisibilityLevel}");
+                sb.AppendLine($"{p}.SuspicionLevel={ds.SuspicionLevel}");
+                sb.AppendLine($"{p}.DiscoveryReason={Fmt(ds.DiscoveryReason)}");
+                sb.AppendLine($"{p}.AwarenessReason={Fmt(ds.AwarenessReason)}");
+                sb.AppendLine($"{p}.HarveyAwareDay={ds.HarveyAwareDay}");
+                sb.AppendLine($"{p}.DetectionTopic={Fmt(ResolveDetectionTopicDump(ds))}");
                 sb.AppendLine($"{p}.TotalPhases={ds.TotalPhases}");
                 sb.AppendLine($"{p}.CurrentPhase={ds.CurrentPhase}");
                 sb.AppendLine($"{p}.PhaseStartDay={ds.PhaseStartDay}");
@@ -378,6 +388,19 @@ namespace HarveyOverhaul.InjuryCare.Testing
         {
             var list = items?.ToList() ?? new List<string>();
             return list.Count == 0 ? "(none)" : string.Join(",", list.OrderBy(x => x, StringComparer.Ordinal));
+        }
+
+        private static string ResolveDetectionTopicDump(DebuffState ds)
+        {
+            if (ds.HarveyAware || !ds.HiddenFromHarvey)
+                return "(revealed)";
+
+            var profile = InjuryVisibilityHelper.GetVisibilityProfile(ds.BuffId);
+            return InjuryVisibilityHelper.ResolveDetectionTopic(
+                ds.BuffId,
+                profile,
+                new InjuryState(),
+                hasComplicationForInjury: false);
         }
     }
 }

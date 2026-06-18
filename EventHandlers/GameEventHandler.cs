@@ -5,6 +5,7 @@ using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.Managers;
+using HarveyOverhaul.InjuryCare.Services;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
@@ -33,6 +34,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly RecoveryPlanManager _recoveryPlanManager;
         private readonly SelfCareManager _selfCareManager;
         private readonly DoctorVisitReminderManager _doctorVisitReminderManager;
+        private readonly MedicalLetterScheduler _medicalLetterScheduler;
         private InteractionHandler? _interactionHandler;
         private PassOutHandler? _passOutHandler;
         private HarveyHomeCareEventLauncher? _homeCareLauncher;
@@ -53,7 +55,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             RehabManager rehabManager,
             RecoveryPlanManager recoveryPlanManager,
             SelfCareManager selfCareManager,
-            DoctorVisitReminderManager doctorVisitReminderManager)
+            DoctorVisitReminderManager doctorVisitReminderManager,
+            MedicalLetterScheduler medicalLetterScheduler)
         {
             _monitor = monitor;
             _config = config;
@@ -72,6 +75,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _recoveryPlanManager = recoveryPlanManager;
             _selfCareManager = selfCareManager;
             _doctorVisitReminderManager = doctorVisitReminderManager;
+            _medicalLetterScheduler = medicalLetterScheduler;
         }
 
         /// <summary>
@@ -109,6 +113,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 {
                     try
                     {
+                        _medicalLetterScheduler.ScrubStaleMailForTomorrow();
+                        _medicalLetterScheduler.RemoveStalePendingLetters();
+
                         // 0. Orphan MineForbidden / Hospitalized не должны восстанавливаться из снапшота
                         SanitizeOrphanMineForbiddenBuff();
                         _hospitalizationManager.SanitizeOrphanHospitalizedBuff();
@@ -177,8 +184,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         _rehabManager.CompleteRehabIfDue(GetToday());
                         _recoveryPlanManager.OnRecoveryContextDayStarted();
                         _recoveryPlanManager.OnHospitalPlanDayStarted();
+                        InjuryVisibilityHelper.ProcessHiddenInjuryDaily(
+                            _stateManager.State,
+                            _complicationManager,
+                            _monitor);
                         _recoveryPlanManager.RefreshPlanForToday();
                         _recoveryPlanManager.ScheduleMorningPlanHud();
+                        _recoveryPlanManager.SyncHarveyTalkTopic();
 
                         // 8. Предписания: снять истёкшие, начислить TreatmentComplianceScore за вчера
                         _prescriptionManager.RemoveExpiredPrescriptions();
@@ -238,6 +250,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             RunQaCheckNeglect();
 
+            InjuryVisibilityHelper.ProcessHiddenInjuryDaily(
+                _stateManager.State,
+                _complicationManager,
+                _monitor);
+            _recoveryPlanManager.RefreshPlanForToday();
+
             _stateManager.State.SavedActiveBuffs = BuildSavedActiveBuffSnapshot();
             _stateManager.Save();
 
@@ -272,11 +290,17 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
                 // Письмо о запрете шахты — на следующий день после предупреждения в шахте
                 int todayEnd = GetToday();
-                if (_stateManager.State.MineWarningDay == todayEnd && _config.SendLetters)
+                if (_stateManager.State.MineWarningDay == todayEnd)
                 {
-                    HarveyMailHelper.TryScheduleTieredMail(_config, _stateManager, _monitor, MailIds.MineForbidden);
-                    _monitor.Log($"[Шахта] Письмо о запрете шахты запланировано на завтра (день предупреждения: {todayEnd})", LogLevel.Debug);
+                    HarveyMailHelper.TryScheduleTieredMail(
+                        _medicalLetterScheduler,
+                        MailIds.MineForbidden,
+                        MedicalLetterReasons.MineForbidden,
+                        critical: true);
+                    _monitor.Log($"[Шахта] Письмо о запрете шахты в pending (день предупреждения: {todayEnd})", LogLevel.Debug);
                 }
+
+                _medicalLetterScheduler.FlushValidLettersForTomorrow();
 
                 // Сохраняем снапшот активных баффов мода на момент конца дня
                 _stateManager.State.SavedActiveBuffs = BuildSavedActiveBuffSnapshot();

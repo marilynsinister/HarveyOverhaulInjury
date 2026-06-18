@@ -176,6 +176,9 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// <summary>День отправки медицинского письма: dedupeKey → DaysPlayed (не чаще 1×/день на повод).</summary>
         public Dictionary<string, int> SentMedicalMailDays { get; set; } = new();
 
+        /// <summary>Очередь медицинских писем — валидируется перед addMailForTomorrow.</summary>
+        public List<PendingMedicalLetter> PendingMedicalLetters { get; set; } = new();
+
         /// <summary>Последняя proximity-реакция Харви (игровые минуты с полуночи).</summary>
         public int LastProximityReactionMinute { get; set; } = -1;
 
@@ -422,6 +425,39 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
 
         /// <summary>День последней domestic cutscene-сцены (если будет добавлена позже). -1 = не было.</summary>
         public int LastDomesticEventDay { get; set; } = -1;
+
+        /// <summary>День последнего C# suspicion-flow по скрытой травме. -1 = ещё не спрашивали.</summary>
+        public int LastHiddenInjuryQuestionDay { get; set; } = -1;
+
+        /// <summary>BuffId травмы из последнего suspicion-flow за день.</summary>
+        public string LastHiddenInjuryQuestionBuffId { get; set; } = "";
+
+        /// <summary>Сколько полноценных suspicion-flow показано сегодня.</summary>
+        public int HiddenInjuryQuestionCountToday { get; set; } = 0;
+
+        /// <summary>BuffId травмы, по которой ждём ответ игрока в question dialogue.</summary>
+        public string PendingHiddenInjuryBuffId { get; set; } = "";
+
+        /// <summary>День выбора «не сейчас» (cooldown до повторного вопроса).</summary>
+        public int LastHiddenInjuryPostponeDay { get; set; } = -1;
+
+        /// <summary>Игровое время (HHMM) выбора «не сейчас».</summary>
+        public int LastHiddenInjuryPostponeTime { get; set; } = -1;
+
+        /// <summary>День последнего утреннего domestic hidden-injury check. -1 = ещё не было.</summary>
+        public int LastMorningHiddenInjuryCheckDay { get; set; } = -1;
+
+        /// <summary>День последнего вечернего domestic hidden-injury check. -1 = ещё не было.</summary>
+        public int LastEveningHiddenInjuryCheckDay { get; set; } = -1;
+
+        /// <summary>BuffId из последнего успешного утреннего domestic check.</summary>
+        public string LastMorningHiddenInjuryBuffId { get; set; } = "";
+
+        /// <summary>BuffId из последнего успешного вечернего domestic check.</summary>
+        public string LastEveningHiddenInjuryBuffId { get; set; } = "";
+
+        /// <summary>Игровое время последнего domestic hidden-injury check.</summary>
+        public int LastDomesticHiddenInjuryCheckTime { get; set; } = -1;
     }
 }
 

@@ -7,11 +7,24 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
     /// </summary>
     public class RecoveryPlanState
     {
+        /// <summary>Уникальный id текущего плана (например RecoveryPlan_HospitalDischarge).</summary>
+        public string PlanId { get; set; } = "";
+
+        /// <summary>Источник плана: травма, стресс или смешанный.</summary>
+        public RecoveryPlanSource Source { get; set; } = RecoveryPlanSource.None;
+
         /// <summary>Основная травма, к которой привязан план.</summary>
         public string? ActiveInjuryId { get; set; }
 
         /// <summary>Игровой день начала текущего плана.</summary>
         public int PlanStartDay { get; set; } = -1;
+
+        /// <summary>Alias для PlanStartDay.</summary>
+        public int StartedDay
+        {
+            get => PlanStartDay;
+            set => PlanStartDay = value;
+        }
 
         /// <summary>Текущий день плана (1-based внутри TotalDays или фазы).</summary>
         public int CurrentDay { get; set; } = 0;
@@ -51,6 +64,37 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
 
         /// <summary>Засчитанные дни плана восстановления (ежедневный план).</summary>
         public int CreditedDays { get; set; } = 0;
+
+        /// <summary>Дни плана, не засчитанные из-за нарушений.</summary>
+        public int FailedDays { get; set; } = 0;
+
+        /// <summary>План завершён без нарушений и предупреждений.</summary>
+        public bool PerfectPlan { get; set; } = false;
+
+        /// <summary>Число использованных продлений плана (alias ExtensionCount).</summary>
+        public int MaxExtensionsUsed
+        {
+            get => ExtensionCount;
+            set => ExtensionCount = value;
+        }
+
+        /// <summary>Тон Харви для UI плана.</summary>
+        public RecoveryPlanToneKind HarveyTone { get; set; } = RecoveryPlanToneKind.Calm;
+
+        /// <summary>Активные назначения (machine ids).</summary>
+        public List<string> ActiveAssignments { get; set; } = new();
+
+        /// <summary>Завершённые сегодня назначения.</summary>
+        public List<string> CompletedAssignmentsToday { get; set; } = new();
+
+        /// <summary>Мягкие предупреждения за сегодня (читаемый текст).</summary>
+        public List<string> TodayWarnings { get; set; } = new();
+
+        /// <summary>Текущий прогресс по назначениям (id → значение).</summary>
+        public Dictionary<string, int> Progress { get; set; } = new();
+
+        /// <summary>Целевые значения назначений (id → цель).</summary>
+        public Dictionary<string, int> Goals { get; set; } = new();
 
         /// <summary>Дополнительные дни плана из-за тяжёлых нарушений.</summary>
         public int PlanExtensionDays { get; set; } = 0;
@@ -144,6 +188,12 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
 
         /// <summary>Награда за завершение текущего плана уже выдана.</summary>
         public bool CompletionRewardApplied { get; set; } = false;
+
+        /// <summary>Ждёт обязательного разговора с Харви после завершения плана.</summary>
+        public bool CompletionTalkPending { get; set; } = false;
+
+        /// <summary>Исход завершения, ожидающий разговора (<see cref="RecoveryPlanCompletionResult"/>).</summary>
+        public string PendingCompletionResult { get; set; } = "";
 
         /// <summary>День показа финальной реплики Харви (не спамить каждый день).</summary>
         public int LastCompletionDialogueDay { get; set; } = -1;

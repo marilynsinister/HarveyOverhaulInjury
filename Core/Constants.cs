@@ -239,6 +239,15 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string RecoveryPlanCompletedNormal = "HarveyMod_RecoveryPlanCompleted_Normal";
         public const string RecoveryPlanSoftTone = "HarveyMod_RecoveryPlanSoftTone";
 
+        /// <summary>Обязательный разговор: нужен визит / осмотр по плану восстановления.</summary>
+        public const string RecoveryPlanNeedVisit = "HarveyMod_RecoveryPlan_NeedVisit";
+
+        /// <summary>Обязательный разговор: план завершён идеально (обрабатывается $action).</summary>
+        public const string RecoveryPlanTalkCompletedPerfect = "HarveyMod_RecoveryPlan_Completed_Perfect";
+
+        /// <summary>Обязательный разговор: план завершён с предупреждениями (обрабатывается $action).</summary>
+        public const string RecoveryPlanTalkCompletedWithWarnings = "HarveyMod_RecoveryPlan_Completed_WithWarnings";
+
         // --- Нарушения режима восстановления по тяжести (CP-диалоги) ---
         public const string RecoveryViolationMild = RecoveryViolationTopics.Mild;
         public const string RecoveryViolationMedium = RecoveryViolationTopics.Medium;
@@ -261,6 +270,8 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string MineRescuePending = "topicMineRescuePending";
         /// <summary>CP eventHarveyMineInterception — блокирует повторный показ (3 дня).</summary>
         public const string HarveyMineIntercept = "HarveyMineIntercept";
+        /// <summary>C# + CP: Харви осмотрел/узнал о тяжёлой травме — разрешает шахтные предупреждения и CP-триггеры.</summary>
+        public const string KnownSevereInjury = "HarveyMod_KnownSevereInjury";
         /// <summary>После внешнего спасения вне шахты — реакция Харви дома ночью.</summary>
         public const string ExternalRescueConcern = "topicHarvey_ExternalRescueConcern";
         /// <summary>После выписки из госпитализации — домашний визит Харви вечером.</summary>
@@ -309,9 +320,13 @@ namespace HarveyOverhaul.InjuryCare.Core
     {
         public const string StartTreatment = "HarveyOverhaulInjury_StartTreatment";
         public const string TreatComplication = "HarveyOverhaulInjury_TreatComplication";
-
-        // TODO: HarveyOverhaulInjury_AdvancePhase — фазовый переход через CP topic + $action
-        // TODO: HarveyOverhaulInjury_CompleteRecovery — выздоровление через CP topic + $action
+        public const string AdvancePhase = "HarveyOverhaulInjury_AdvancePhase";
+        public const string CompleteRecovery = "HarveyOverhaulInjury_CompleteRecovery";
+        public const string RevealAndStartTreatment = "HarveyOverhaulInjury_RevealAndStartTreatment";
+        public const string DenyHiddenInjury = "HarveyOverhaulInjury_DenyHiddenInjury";
+        public const string PostponeHiddenInjury = "HarveyOverhaulInjury_PostponeHiddenInjury";
+        public const string MarkFestivalNotice = "HarveyOverhaulInjury_MarkFestivalNotice";
+        public const string RecoveryPlanTalk = "HarveyOverhaulInjury_RecoveryPlanTalk";
     }
 
     /// <summary>Осложнения с CP topic HarveyMod_TreatmentNeeded_* + TreatComplication $action.</summary>
@@ -327,9 +342,49 @@ namespace HarveyOverhaul.InjuryCare.Core
     {
         public static string GetInjuryTopic(string buffId) => buffId.Replace("buff", "topic");
 
-        /// <summary>CP conversation topic для старта лечения через $action (HarveyMod_TreatmentNeeded_DeepCuts).</summary>
+        /// <summary>CP topic: HarveyMod_Injury_StartTreatment_buffDeepCuts</summary>
+        public static string GetStartTreatmentTopic(string buffId) =>
+            $"HarveyMod_Injury_StartTreatment_{buffId}";
+
+        /// <summary>CP topic: HarveyMod_Injury_AdvancePhase_buffDeepCuts_2</summary>
+        public static string GetAdvancePhaseTopic(string buffId, int nextPhase) =>
+            $"HarveyMod_Injury_AdvancePhase_{buffId}_{nextPhase}";
+
+        /// <summary>CP topic: HarveyMod_Injury_CompleteRecovery_buffDeepCuts</summary>
+        public static string GetCompleteRecoveryTopic(string buffId) =>
+            $"HarveyMod_Injury_CompleteRecovery_{buffId}";
+
+        /// <summary>CP topic: HarveyMod_Injury_TreatComplication_HarveyMod_WetBandage</summary>
+        public static string GetTreatComplicationTopic(string complicationBuffId) =>
+            $"HarveyMod_Injury_TreatComplication_{complicationBuffId}";
+
+        /// <summary>Короткая реплика-обещание на фестивале.</summary>
+        public static string GetFestivalDeferTopic(string buffId) =>
+            $"HarveyMod_Injury_FestivalDefer_{buffId}";
+
+        /// <summary>Legacy alias (HarveyMod_TreatmentNeeded_DeepCuts).</summary>
         public static string GetTreatmentNeededTopic(string buffId) =>
             $"HarveyMod_TreatmentNeeded_{buffId.Replace("buff", "")}";
+
+        public static string GetHiddenInjuryDetectedTopic(string buffId) =>
+            $"HarveyMod_HiddenInjury_Detected_{buffId.Replace("buff", "")}";
+
+        public static string GetHiddenInjuryComplicatedTopic(string buffId) =>
+            $"HarveyMod_HiddenInjury_Complicated_{buffId.Replace("buff", "")}";
+
+        public static string GetHiddenInjuryObviousTopic(string buffId) =>
+            $"HarveyMod_HiddenInjury_Obvious_{buffId.Replace("buff", "")}";
+
+        public static string GetHiddenInjuryUnhideableTopic(string buffId) =>
+            $"HarveyMod_HiddenInjury_Unhideable_{buffId.Replace("buff", "")}";
+
+        public static IEnumerable<string> GetAllHiddenInjuryTopicsForInjury(string buffId)
+        {
+            yield return GetHiddenInjuryDetectedTopic(buffId);
+            yield return GetHiddenInjuryComplicatedTopic(buffId);
+            yield return GetHiddenInjuryObviousTopic(buffId);
+            yield return GetHiddenInjuryUnhideableTopic(buffId);
+        }
 
         /// <summary>CP conversation topic для лечения осложнения (HarveyMod_TreatmentNeeded_WetBandage).</summary>
         public static string GetTreatmentNeededComplicationTopic(string complicationBuffId) =>
@@ -368,6 +423,104 @@ namespace HarveyOverhaul.InjuryCare.Core
             string stageName = GetPhaseStageName(phase, totalPhases);
             return $"topic{injuryName}Phase{stageName}";
         }
+
+        public static IEnumerable<string> GetAllActionTopicsForInjury(string buffId)
+        {
+            yield return GetStartTreatmentTopic(buffId);
+            yield return GetTreatmentNeededTopic(buffId);
+            yield return GetCompleteRecoveryTopic(buffId);
+
+            int totalPhases = InjurySets.InferDefaultTotalPhases(buffId);
+            for (int phase = 2; phase <= totalPhases; phase++)
+                yield return GetAdvancePhaseTopic(buffId, phase);
+        }
+
+        /// <summary>Legacy alias для StartTreatment / TreatComplication (тот же $action).</summary>
+        public static string? GetLegacyActionTopicAlias(string actionKey, string stateId)
+        {
+            if (string.Equals(actionKey, TreatmentStartActions.StartTreatment, StringComparison.Ordinal)
+                && stateId.StartsWith("buff", StringComparison.OrdinalIgnoreCase))
+            {
+                return GetTreatmentNeededTopic(stateId);
+            }
+
+            if (string.Equals(actionKey, TreatmentStartActions.TreatComplication, StringComparison.Ordinal)
+                && stateId.StartsWith("HarveyMod_", StringComparison.OrdinalIgnoreCase))
+            {
+                return GetTreatmentNeededComplicationTopic(stateId);
+            }
+
+            return null;
+        }
+
+        /// <summary>Topic с CP $action (не story/reminder без действия).</summary>
+        public static bool IsMedicalActionTopic(string topicId)
+        {
+            if (string.IsNullOrWhiteSpace(topicId))
+                return false;
+
+            if (topicId.StartsWith("HarveyMod_Injury_StartTreatment_", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (topicId.StartsWith("HarveyMod_Injury_AdvancePhase_", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (topicId.StartsWith("HarveyMod_Injury_CompleteRecovery_", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (topicId.StartsWith("HarveyMod_Injury_TreatComplication_", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (topicId.StartsWith("HarveyMod_TreatmentNeeded_", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return IsHiddenInjuryActionTopic(topicId);
+        }
+
+        /// <summary>Hidden injury topics с $action (Detected/Complicated/Obvious/Unhideable).</summary>
+        public static bool IsHiddenInjuryActionTopic(string topicId)
+        {
+            if (!topicId.StartsWith("HarveyMod_HiddenInjury_", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (topicId.StartsWith("HarveyMod_HiddenInjury_AfterReveal_", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (topicId.Contains("_MorningHome_", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (topicId.Contains("_EveningHome_", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (topicId.StartsWith("HarveyMod_HiddenInjury_Choice_", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (topicId.StartsWith("HarveyMod_HiddenInjury_Response_", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (topicId.StartsWith("HarveyMod_HiddenInjury_Suspected_", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (topicId.StartsWith("HarveyMod_HiddenInjury_Confessed_", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return topicId.StartsWith("HarveyMod_HiddenInjury_Detected_", StringComparison.OrdinalIgnoreCase)
+                || topicId.StartsWith("HarveyMod_HiddenInjury_Complicated_", StringComparison.OrdinalIgnoreCase)
+                || topicId.StartsWith("HarveyMod_HiddenInjury_Obvious_", StringComparison.OrdinalIgnoreCase)
+                || topicId.StartsWith("HarveyMod_HiddenInjury_Unhideable_", StringComparison.OrdinalIgnoreCase)
+                || topicId.StartsWith("HarveyMod_HiddenInjury_Festival_Notice_", StringComparison.OrdinalIgnoreCase)
+                || topicId.StartsWith("HarveyMod_HiddenInjury_Denied_", StringComparison.OrdinalIgnoreCase)
+                || topicId.StartsWith("HarveyMod_HiddenInjury_NotNow_", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Все известные owned medical-action topics (для sync/cleanup).</summary>
+        public static IEnumerable<string> GetAllKnownMedicalActionTopics()
+        {
+            foreach (string buffId in InjurySets.HarveyTreatable)
+            {
+                foreach (string topic in GetAllActionTopicsForInjury(buffId))
+                    yield return topic;
+
+                foreach (string topic in GetAllHiddenInjuryTopicsForInjury(buffId))
+                    yield return topic;
+            }
+
+            foreach (string compId in InjurySets.KnownComplicationBuffIds)
+            {
+                yield return GetTreatComplicationTopic(compId);
+                yield return GetTreatmentNeededComplicationTopic(compId);
+            }
+        }
     }
 
     /// <summary>
@@ -390,11 +543,20 @@ namespace HarveyOverhaul.InjuryCare.Core
             {
                 ids.Add(TopicIds.GetInjuryTopic(buffId));
                 ids.Add(TopicIds.GetTreatmentNeededTopic(buffId));
+                ids.Add(TopicIds.GetStartTreatmentTopic(buffId));
+                ids.Add(TopicIds.GetCompleteRecoveryTopic(buffId));
+                ids.Add(TopicIds.GetFestivalDeferTopic(buffId));
+                foreach (string hiddenTopic in TopicIds.GetAllHiddenInjuryTopicsForInjury(buffId))
+                    ids.Add(hiddenTopic);
                 ids.Add(TopicIds.GetTreatmentTopic(buffId));
                 ids.Add(TopicIds.GetCuredTopic(buffId));
                 int totalPhases = InjurySets.InferDefaultTotalPhases(buffId);
                 for (int phase = 1; phase <= totalPhases; phase++)
+                {
                     ids.Add(TopicIds.GetPhaseTopicId(buffId, phase, totalPhases));
+                    if (phase > 1)
+                        ids.Add(TopicIds.GetAdvancePhaseTopic(buffId, phase));
+                }
                 // Legacy: старые сейвы могли получить PhaseHealing на 2-й стадии двухфазовых травм.
                 if (totalPhases == 2)
                     ids.Add($"topic{buffId.Replace("buff", "")}PhaseHealing");
@@ -404,6 +566,7 @@ namespace HarveyOverhaul.InjuryCare.Core
             {
                 ids.Add(TopicIds.GetComplicationTopic(compId));
                 ids.Add(TopicIds.GetTreatmentNeededComplicationTopic(compId));
+                ids.Add(TopicIds.GetTreatComplicationTopic(compId));
             }
 
             ids.Add(StormComfortIds.StormStressTopic);
@@ -447,6 +610,17 @@ namespace HarveyOverhaul.InjuryCare.Core
                 ids.Add(TreatmentPlanTopics.GetInjuryTopic(buffId));
 
             return ids;
+        }
+
+        public static bool IsOwnedTopic(string topicId)
+        {
+            if (string.IsNullOrWhiteSpace(topicId))
+                return false;
+
+            if (topicId.StartsWith("HarveyMod_Injury_", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return GetAllOwnedTopicIds().Contains(topicId);
         }
     }
 

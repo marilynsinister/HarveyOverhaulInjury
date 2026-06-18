@@ -881,6 +881,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
                 // Диалоговые топики убираем тоже
                 _dialogueManager.RemoveTopic(TopicIds.GetComplicationTopic(compId));
+                _dialogueManager.RemoveTopicIfOwned(TopicIds.GetTreatComplicationTopic(compId), "осложнение снято");
                 _dialogueManager.ClearTreatmentNeededComplicationTopic(compId, "осложнение снято");
 
                 _monitor.Log($"Осложнение вылечено и удалено из state: {compId}", LogLevel.Info);

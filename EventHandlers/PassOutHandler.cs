@@ -2,6 +2,7 @@ using System;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.Managers;
+using HarveyOverhaul.InjuryCare.Services;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
@@ -26,6 +27,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly TreatmentManager _treatmentManager;
         private TreatmentStartHandler? _treatmentStartHandler;
         private RecoveryPlanManager? _recoveryPlanManager;
+        private MedicalLetterScheduler? _medicalLetterScheduler;
 
         public PassOutHandler(
             IMonitor monitor,
@@ -53,6 +55,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         public void SetTreatmentStartHandler(TreatmentStartHandler treatmentStartHandler)
         {
             _treatmentStartHandler = treatmentStartHandler;
+        }
+
+        public void SetMedicalLetterScheduler(MedicalLetterScheduler medicalLetterScheduler)
+        {
+            _medicalLetterScheduler = medicalLetterScheduler;
         }
 
         /// <summary>
@@ -178,8 +185,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _buffManager.AddBuff("buffSleepy", -2);
                 _dialogueManager.AddTopic(ConversationTopics.PassedOutInTown, 2);
 
-                if (_config.SendLetters)
-                    Game1.addMailForTomorrow(MailIds.SleepControl);
+                if (_medicalLetterScheduler != null)
+                {
+                    _medicalLetterScheduler.TryQueueTieredMail(
+                        MailIds.SleepControl,
+                        MedicalLetterReasons.SleepControl,
+                        critical: true);
+                }
 
                 Game1.playSound("debuffHit");
                 Game1.addHUDMessage(new HUDMessage("Ты упала без сил посреди города...", HUDMessage.health_type));
@@ -921,6 +933,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             if (!Helpers.GameUtils.HasConversationTopic(ConversationTopics.MineInjuryRescue))
                 _dialogueManager.AddTopic(ConversationTopics.MineInjuryRescue, 2);
+
+            HarveyInjuryAwarenessHelper.MarkAllActiveInjuriesHarveyAware(
+                _stateManager,
+                _dialogueManager,
+                _injuryManager,
+                _buffManager,
+                "mine_rescue",
+                _monitor);
         }
 
         private void ClearMineRescueState()

@@ -73,14 +73,6 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             int today = GameUtils.Today();
             int time = Game1.timeOfDay;
 
-            _monitor.Log(
-                $"[HomeCare/{source}] Проверка pending: externalRescue={state.NeedsHarveyAfterExternalRescueHomeEvent}, " +
-                $"hospitalDischarge={state.NeedsHarveyAfterHospitalDischargeHomeEvent}, " +
-                $"nightRoundFirst={state.NeedsSevereNightRoundEvent}, " +
-                $"morningExhaustion={state.NeedsHarveyMorningAfterExhaustionEvent}, " +
-                $"time={time}, day={today}",
-                LogLevel.Trace);
-
             foreach (var candidate in GetPriorityOrder())
             {
                 if (!IsEligible(candidate, state, today, time, location))
@@ -123,7 +115,6 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 }
             }
 
-            _monitor.Log($"[HomeCare/{source}] Нет подходящих pending-событий", LogLevel.Trace);
             return false;
         }
 

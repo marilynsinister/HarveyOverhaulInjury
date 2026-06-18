@@ -56,6 +56,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             MigrateComplicationsToDebuffState();
 
             MigrateMainInjuryId();
+            InjuryVisibilityHelper.MigrateInjuryVisibility(_state, _monitor);
             
             _monitor.Log($"Состояние загружено: {_state.ActiveDebuffs.Count} активных дебаффов", LogLevel.Debug);
         }
@@ -199,7 +200,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void Save()
         {
             _dataHelper.WriteSaveData(SaveKey, _state);
-            _monitor.Log($"Состояние сохранено: {_state.ActiveDebuffs.Count} активных дебаффов", LogLevel.Trace);
         }
 
         /// <summary>
@@ -305,6 +305,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private void EnsureMedicalMailState()
         {
             _state.SentMedicalMailDays ??= new Dictionary<string, int>();
+            _state.PendingMedicalLetters ??= new List<PendingMedicalLetter>();
         }
 
         private void MigrateLegacyInjuryCooldowns()
@@ -726,7 +727,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>
         /// Создать новое состояние дебаффа
         /// </summary>
-        public DebuffState CreateDebuffState(string buffId, int currentDay, int phase1Duration, int phase2Duration, int phase3Duration)
+        public DebuffState CreateDebuffState(
+            string buffId,
+            int currentDay,
+            int phase1Duration,
+            int phase2Duration,
+            int phase3Duration,
+            bool harveySawIt = false,
+            string awarenessReason = "")
         {
             if (_state.ActiveDebuffs.TryGetValue(buffId, out var existing))
             {
@@ -749,11 +757,20 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 ReadyForNextPhase = false,
                 ReadyForRecovery = false
             };
+
+            InjuryVisibilityHelper.InitializeVisibility(
+                debuffState,
+                buffId,
+                harveySawIt,
+                awarenessReason);
             
             _state.ActiveDebuffs[buffId] = debuffState;
             Save();
             
-            _monitor.Log($"Создано состояние дебаффа: {buffId} (фазы: {debuffState.TotalPhases})", LogLevel.Debug);
+            _monitor.Log(
+                $"Создано состояние дебаффа: {buffId} (фазы: {debuffState.TotalPhases}, "
+                + $"harveySawIt={harveySawIt}, hidden={debuffState.HiddenFromHarvey})",
+                LogLevel.Debug);
             return debuffState;
         }
 
@@ -934,11 +951,27 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public void MarkHarveyConversation(string buffId, bool happened = true)
         {
-            if (_state.ActiveDebuffs.TryGetValue(buffId, out var debuffState))
+            if (!_state.ActiveDebuffs.TryGetValue(buffId, out var debuffState))
+                return;
+
+            debuffState.HarveyConversationHappened = happened;
+
+            if (happened)
             {
-                debuffState.HarveyConversationHappened = happened;
-                Save();
+                int today = (int)Game1.stats.DaysPlayed;
+                if (!debuffState.HarveyAware)
+                {
+                    debuffState.HarveyAware = true;
+                    debuffState.HiddenFromHarvey = false;
+                    debuffState.AwarenessReason = "conversation";
+                    debuffState.DiscoveryReason = string.IsNullOrEmpty(debuffState.DiscoveryReason)
+                        ? "conversation"
+                        : debuffState.DiscoveryReason;
+                    debuffState.HarveyAwareDay = today;
+                }
             }
+
+            Save();
         }
 
         /// <summary>

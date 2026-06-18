@@ -656,10 +656,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void AddTopic(string id, int days)
         {
             var dict = Game1.player?.activeDialogueEvents;
-            if (dict is null) return;
-            
-            dict[id] = Math.Max(1, days);
-            _monitor.Log($"Добавлен топик {id} на {days} дней", LogLevel.Debug);
+            if (dict is null)
+                return;
+
+            int normalizedDays = Math.Max(1, days);
+            if (dict.TryGetValue(id, out int existingDays) && existingDays == normalizedDays)
+                return;
+
+            dict[id] = normalizedDays;
+            _monitor.Log($"Добавлен топик {id} на {normalizedDays} дней", LogLevel.Debug);
         }
 
         /// <summary>
@@ -667,7 +672,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public void RemoveTopic(string id)
         {
-            Game1.player?.activeDialogueEvents?.Remove(id);
+            if (Game1.player?.activeDialogueEvents?.Remove(id) != true)
+                return;
+
             _monitor.Log($"Удалён топик {id}", LogLevel.Debug);
         }
 
@@ -709,6 +716,42 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _monitor.Log(
                 $"[TreatmentStart] topic лечения добавлен: {topicId} на {Math.Max(1, days)} дн. (травма {buffId})",
                 LogLevel.Info);
+
+            string newTopicId = TopicIds.GetStartTreatmentTopic(buffId);
+            if (!string.Equals(newTopicId, topicId, StringComparison.OrdinalIgnoreCase)
+                && !HasTopic(newTopicId))
+            {
+                AddTopic(newTopicId, Math.Max(1, days));
+                _monitor.Log(
+                    $"[TreatmentStart] medical intent topic добавлен: {newTopicId}",
+                    LogLevel.Debug);
+            }
+        }
+
+        /// <summary>Добавить topic медицинского интента (HarveyMod_Injury_*).</summary>
+        public void TryAddMedicalIntentTopic(string topicId, int days)
+        {
+            if (string.IsNullOrWhiteSpace(topicId))
+                return;
+
+            if (HasTopic(topicId))
+                return;
+
+            AddTopic(topicId, Math.Max(1, days));
+            _monitor.Log($"[MedicalIntent] topic добавлен: {topicId} на {Math.Max(1, days)} дн.", LogLevel.Debug);
+        }
+
+        /// <summary>Снять topic, если он принадлежит InjuryCare.</summary>
+        public void RemoveTopicIfOwned(string topicId, string reason)
+        {
+            if (string.IsNullOrWhiteSpace(topicId) || !HasTopic(topicId))
+                return;
+
+            if (!ModTopicRegistry.IsOwnedTopic(topicId))
+                return;
+
+            RemoveTopic(topicId);
+            _monitor.Log($"[MedicalIntent] topic снят: {topicId} ({reason})", LogLevel.Debug);
         }
 
         /// <summary>Удалить HarveyMod_TreatmentNeeded_* после успешного старта лечения.</summary>
@@ -738,10 +781,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             string topicId = TopicIds.GetTreatmentNeededComplicationTopic(complicationBuffId);
             if (HasTopic(topicId))
-            {
-                _monitor.Log($"[ComplicationTreatment] topic уже активен: {topicId}", LogLevel.Debug);
                 return;
-            }
 
             AddTopic(topicId, Math.Max(1, days));
             _monitor.Log(
@@ -763,6 +803,39 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _monitor.Log(
                 $"[ComplicationTreatment] topic удалён: {topicId} ({complicationBuffId}): {reason}",
                 LogLevel.Info);
+        }
+
+        /// <summary>
+        /// Топики осложнения: сначала CP с $action, затем реакция topicHarvey_*.
+        /// SDV выбирает первый активный топик в порядке добавления в activeDialogueEvents.
+        /// </summary>
+        public void EnsureComplicationDialogueTopics(string complicationBuffId, int days)
+        {
+            if (string.IsNullOrEmpty(complicationBuffId))
+                return;
+
+            if (!InjurySets.KnownComplicationBuffIds.Contains(complicationBuffId))
+                return;
+
+            int normalizedDays = Math.Max(1, days);
+
+            TryAddTreatmentNeededComplicationTopic(complicationBuffId, normalizedDays);
+            TryAddMedicalIntentTopic(TopicIds.GetTreatComplicationTopic(complicationBuffId), normalizedDays);
+
+            string reactionTopic = TopicIds.GetComplicationTopic(complicationBuffId);
+            AddTopic(reactionTopic, normalizedDays);
+            MoveTopicToEnd(reactionTopic);
+        }
+
+        /// <summary>Сдвинуть топик в конец очереди activeDialogueEvents (последним сработает в диалоге).</summary>
+        public void MoveTopicToEnd(string topicId)
+        {
+            var dict = Game1.player?.activeDialogueEvents;
+            if (dict == null || !dict.TryGetValue(topicId, out int days))
+                return;
+
+            dict.Remove(topicId);
+            dict[topicId] = days;
         }
 
         /// <summary>
@@ -1087,6 +1160,27 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _monitor.Log($"Ошибка загрузки диалога '{key}': {ex}", LogLevel.Warn);
             }
             return null;
+        }
+
+        /// <summary>Есть ли CP-строка в Characters/Dialogue/Harvey.</summary>
+        public bool HasDialogueKey(string key) =>
+            !string.IsNullOrWhiteSpace(TryLoadHarveyDialogue(key));
+
+        /// <summary>Текст CP-реплики по ключу (с fallback).</summary>
+        public string GetDialogueText(string key, string fallback = "…")
+        {
+            string? text = TryLoadHarveyDialogue(key);
+            return string.IsNullOrWhiteSpace(text) ? fallback : text;
+        }
+
+        /// <summary>Случайная CP-реплика по префиксу ключа (включая key, key_02, …).</summary>
+        public string GetDialogueTextByPrefix(string prefix, string fallback = "…")
+        {
+            string? line = TryPickHarveyDialogueByPrefix(prefix);
+            if (!string.IsNullOrWhiteSpace(line))
+                return line;
+
+            return GetDialogueText(prefix, fallback);
         }
 
         /// <summary>

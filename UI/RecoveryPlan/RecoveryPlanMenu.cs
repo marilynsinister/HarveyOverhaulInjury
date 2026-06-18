@@ -58,6 +58,10 @@ namespace HarveyOverhaul.InjuryCare.UI.RecoveryPlan
 
         public void TryOpen(RecoveryPlanManager recoveryPlanManager)
         {
+            _monitor.Log(
+                "[HarveyPlan/Injury] WARNING: legacy plan renderer called (RecoveryPlanMenu.TryOpen). Use HarveyOverhaul.Core panel (H).",
+                LogLevel.Warn);
+
             if (!Context.IsWorldReady)
                 return;
 

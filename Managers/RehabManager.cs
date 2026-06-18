@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
+using HarveyOverhaul.InjuryCare.Services;
 using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Locations;
@@ -25,6 +26,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly DialogueManager _dialogueManager;
         private readonly BuffManager _buffManager;
         private readonly ComplianceManager _complianceManager;
+        private readonly MedicalLetterScheduler? _medicalLetterScheduler;
 
         private int _heavyWorkLowStaminaSeconds;
 
@@ -47,7 +49,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             StateManager stateManager,
             DialogueManager dialogueManager,
             BuffManager buffManager,
-            ComplianceManager complianceManager)
+            ComplianceManager complianceManager,
+            MedicalLetterScheduler? medicalLetterScheduler = null)
         {
             _monitor = monitor;
             _config = config;
@@ -55,6 +58,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager = dialogueManager;
             _buffManager = buffManager;
             _complianceManager = complianceManager;
+            _medicalLetterScheduler = medicalLetterScheduler;
         }
 
         /// <summary>
@@ -109,7 +113,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 "Харви назначил восстановительный режим на несколько дней.",
                 HUDMessage.health_type));
 
-            HarveyMailHelper.TryScheduleTieredMail(_config, _stateManager, _monitor, MailIds.RehabReminder);
+            _medicalLetterScheduler?.TryQueueTieredMail(
+                MailIds.RehabReminder,
+                MedicalLetterReasons.RehabReminder,
+                injuryId,
+                critical: false);
 
             _stateManager.Save();
             _monitor.Log(
@@ -182,8 +190,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
             bool hadViolations = state.RehabViolationCount > 0 || state.RehabViolated;
 
             _buffManager.RemoveBuff(CureBuffs.Rehab);
+            _medicalLetterScheduler?.CancelLettersForReason(MedicalLetterReasons.RehabReminder);
             _dialogueManager.AddTopic(ConversationTopics.RehabCompleted, CompletedTopicDays);
-            HarveyMailHelper.TryScheduleTieredMail(_config, _stateManager, _monitor, MailIds.RehabCompleted);
+            if (_config.SendRomanticCareLetters)
+            {
+                _medicalLetterScheduler?.TryQueueTieredMail(
+                    MailIds.RehabCompleted,
+                    MedicalLetterReasons.RehabCompleted,
+                    state.ActiveRehabInjuryId ?? "",
+                    critical: false);
+            }
 
             if (!hadViolations)
             {

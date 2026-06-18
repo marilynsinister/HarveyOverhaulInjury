@@ -12,7 +12,27 @@ namespace HarveyOverhaul.InjuryCare.Core
         public int InjuryMcpPort { get; set; } = 24843;
 
         public bool OnlyAtClinic { get; set; } = true;
-        public bool SendLetters { get; set; } = true;
+
+        public bool AllowBasicTreatmentOutsideClinic { get; set; } = true;
+        public bool AllowPhaseTransitionOutsideClinic { get; set; } = true;
+        public bool AllowRecoveryOutsideClinic { get; set; } = true;
+        public bool RequireClinicForSevereInjuries { get; set; } = true;
+        public bool BlockLongTreatmentDuringFestivals { get; set; } = true;
+        /// <summary>Устарело: используйте <see cref="MedicalLetters"/>.</summary>
+        public bool SendLetters
+        {
+            get => MedicalLetters != MedicalLetterMode.Off;
+            set => MedicalLetters = value ? MedicalLetterMode.All : MedicalLetterMode.Off;
+        }
+
+        /// <summary>Сюжетные письма (CP events / story chain). C# не блокирует CP-триггеры.</summary>
+        public bool SendStoryLetters { get; set; } = true;
+
+        /// <summary>Романтические care-письма без медицинских требований (CP triggersCare).</summary>
+        public bool SendRomanticCareLetters { get; set; } = true;
+
+        /// <summary>Политика медицинских писем из C#. По умолчанию — только критические.</summary>
+        public MedicalLetterMode MedicalLetters { get; set; } = MedicalLetterMode.CriticalOnly;
 
         // Принудительная госпитализация
         public bool ForceHospitalization { get; set; } = true;
@@ -180,6 +200,19 @@ namespace HarveyOverhaul.InjuryCare.Core
         public int DomesticProximityTiles { get; set; } = 4;
         /// <summary>Устарело: используйте AllowDomesticCareWhenEngaged.</summary>
         public bool AllowDomesticCareWhenDating { get; set; } = false;
+
+        // Domestic hidden-injury checks (morning/evening at home)
+        public bool EnableDomesticHiddenInjuryChecks { get; set; } = true;
+        public bool EnableMorningHiddenInjuryCheck { get; set; } = true;
+        public bool EnableEveningHiddenInjuryCheck { get; set; } = true;
+        public int MorningHiddenInjuryStartTime { get; set; } = 600;
+        public int MorningHiddenInjuryEndTime { get; set; } = 1000;
+        public int EveningHiddenInjuryStartTime { get; set; } = 1900;
+        public int EveningHiddenInjuryEndTime { get; set; } = 2400;
+        public int DomesticHiddenInjuryProximityTiles { get; set; } = 6;
+        public double DomesticSubtleDetectionChance { get; set; } = 0.35;
+        public double DomesticSuspiciousDetectionChance { get; set; } = 0.65;
+        public double DomesticObviousDetectionChance { get; set; } = 0.95;
     }
 }
 

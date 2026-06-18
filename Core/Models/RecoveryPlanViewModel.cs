@@ -76,6 +76,13 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
 
         public IReadOnlyList<RecoveryPlanTask> Tasks { get; init; } = new List<RecoveryPlanTask>();
 
+        public IReadOnlyList<RecoveryPlanAssignmentViewModel> Assignments { get; init; } =
+            new List<RecoveryPlanAssignmentViewModel>();
+
+        public IReadOnlyList<string> TodayWarnings { get; init; } = new List<string>();
+
+        public RecoveryPlanToneKind HarveyToneKind { get; init; } = RecoveryPlanToneKind.Calm;
+
         public IReadOnlyList<RecoveryPlanViolation> Violations { get; init; } = new List<RecoveryPlanViolation>();
 
         /// <summary>Короткий статус режима («режим соблюдается», «нужен осмотр»).</summary>

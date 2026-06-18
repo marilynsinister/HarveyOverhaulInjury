@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using HarveyOverhaul.Core.Models;
+using HarveyOverhaul.Core.Services;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
+using HarveyOverhaul.InjuryCare.Services;
 using HarveyOverhaul.InjuryCare.Managers;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
@@ -60,6 +63,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly DoctorVisitReminderManager _doctorVisitReminderManager;
         private readonly RecoveryPlanManager _recoveryPlanManager;
         private readonly TreatmentStartHandler _treatmentStartHandler;
+        private readonly InjuryMedicalIntentProvider _medicalIntentProvider;
+        private readonly HiddenInjuryDialogueFlow _hiddenInjuryDialogueFlow;
 
         private PendingMedicalAction? _pendingMedicalAction;
         private bool _pendingSawDialogueBox;
@@ -114,7 +119,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             ComplicationManager complicationManager,
             DoctorVisitReminderManager doctorVisitReminderManager,
             RecoveryPlanManager recoveryPlanManager,
-            TreatmentStartHandler treatmentStartHandler)
+            TreatmentStartHandler treatmentStartHandler,
+            InjuryMedicalIntentProvider medicalIntentProvider,
+            HiddenInjuryDialogueFlow hiddenInjuryDialogueFlow)
         {
             _monitor = monitor;
             _helper = helper;
@@ -135,6 +142,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _doctorVisitReminderManager = doctorVisitReminderManager;
             _recoveryPlanManager = recoveryPlanManager;
             _treatmentStartHandler = treatmentStartHandler;
+            _medicalIntentProvider = medicalIntentProvider;
+            _hiddenInjuryDialogueFlow = hiddenInjuryDialogueFlow;
         }
 
         /// <summary>
@@ -277,7 +286,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             }
 
             var tile = _helper.Input.GetCursorPosition().GrabTile;
-            var harvey = HarveyHelper.GetHarveyAtTile(loc, tile);
+            var harvey = HarveyHelper.TryGetInteractedHarvey(loc, tile, lenientDistance: true);
 
             if (harvey == null)
             {
@@ -285,72 +294,86 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
-            if (_pendingMedicalAction is { Applied: false } activePending)
-            {
-                SuppressHarveyClickButtons(e);
-                _monitor.Log(
-                    $"[MedicalAction] клик по Харви подавлен: pending {FormatMedicalActionLabel(activePending)} " +
-                    $"(ticks={Game1.ticks - activePending.StartedTick}, dialogueShown={activePending.DialogueWasShown})",
-                    LogLevel.Warn);
-                LastClickDebug = BuildClickDebugSnapshot(
-                    activePending,
-                    null,
-                    "BLOCKED: pending medical action in progress");
-                return;
-            }
-
             _stateManager.SanitizeNonPhasedReadyFlags();
             _injuryManager.EnsureActiveTreatmentBuffs();
+            var clickResolution = _medicalIntentProvider.SyncOnHarveyClick(logDetails: true);
 
-            var injuries = _injuryManager.CollectAllInjuries();
-            var resolved = TryResolveMedicalAction(injuries);
-            if (resolved == null)
+            bool deferHiddenForMedicalIntent = ShouldDeferHiddenInjuryForMedicalIntent(clickResolution);
+            bool flowStarted = !deferHiddenForMedicalIntent
+                && _hiddenInjuryDialogueFlow.TryStartDetection(
+                    harvey,
+                    isDirectTalk: true,
+                    isProximityCheck: false,
+                    triggerReason: "talk");
+
+            if (deferHiddenForMedicalIntent)
             {
-                if (_recoveryPlanManager.IsCompletionTalkPending())
-                    _recoveryPlanManager.NotifyHarveyClickedForCompletionTalk();
-                else if (_stateManager.State.RecoveryPlanNeedsHarveyVisit)
-                    _recoveryPlanManager.NotifyHarveyRecoveryViolationTalkAcknowledged();
+                _monitor.Log(
+                    "[HiddenInjuryFlow] skipped: selected medical intent or treatable complication has priority",
+                    LogLevel.Info);
+            }
 
-                LastClickDebug = BuildClickDebugSnapshot(
-                    null,
-                    null,
-                    "ALLOWED: untreated injury — start via HarveyMod_TreatmentNeeded topic");
+            if (flowStarted)
+            {
+                _helper.Input.Suppress(e.Button);
+                _helper.Input.Suppress(SButton.MouseLeft);
+                _helper.Input.Suppress(SButton.MouseRight);
+                LastClickDebug = "HIDDEN INJURY FLOW: question dialogue shown — treatment only after player choice";
                 return;
             }
 
-            LogResolvedMedicalAction(resolved);
+            if (TryBeginSelectedInjuryMedicalIntentDialogue(harvey, clickResolution, e))
+                return;
+
+            LastClickDebug = BuildClickDebugSnapshot(
+                null,
+                null,
+                "ALLOWED: vanilla/CP dialogue — treatment only via $action or hidden-injury choice");
+        }
+
+        /// <summary>
+        /// Фазовый переход и выписка — programmatic диалог (важно дома у супруга: MarriageDialogueHarvey не содержит PhaseTransition_*).
+        /// </summary>
+        private bool TryBeginSelectedInjuryMedicalIntentDialogue(
+            NPC harvey,
+            HarveyMedicalIntentResolution? clickResolution,
+            ButtonPressedEventArgs e)
+        {
+            var selected = clickResolution?.Selected;
+            if (selected == null
+                || !string.Equals(selected.ProviderId, HarveyProviderRegistry.InjuryProviderId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            bool started = selected.ActionKey switch
+            {
+                TreatmentStartActions.AdvancePhase => TryBeginAdvancePhase(harvey, selected.StateId),
+                TreatmentStartActions.CompleteRecovery => TryBeginCompleteRecovery(harvey, selected.StateId),
+                _ => false,
+            };
+
+            if (!started)
+                return false;
+
             SuppressHarveyClickButtons(e);
+            LastClickDebug = BuildClickDebugSnapshot(
+                _pendingMedicalAction,
+                _pendingMedicalAction,
+                $"BLOCKED: programmatic {selected.ActionKey} {selected.StateId}");
+            _monitor.Log(
+                $"[MedicalAction] programmatic dialogue started action={selected.ActionKey} injury={selected.StateId} " +
+                $"topic={selected.TopicKey}",
+                LogLevel.Info);
+            return true;
+        }
 
-            try
-            {
-                if (!BeginMedicalActionDialogue(harvey, resolved))
-                {
-                    ClearPendingMedicalAction();
-                    _monitor.Log(
-                        $"[MedicalAction] ⚠️ диалог не запущен — состояние изменилось до показа " +
-                        $"({FormatMedicalActionLabel(resolved)})",
-                        LogLevel.Warn);
-                    LastClickDebug = BuildClickDebugSnapshot(
-                        null,
-                        resolved,
-                        "BLOCKED: resolved action stale before dialogue (suppress, no vanilla)");
-                    return;
-                }
+        private bool ShouldDeferHiddenInjuryForMedicalIntent(HarveyMedicalIntentResolution? clickResolution)
+        {
+            if (_complicationManager.GetActiveTreatableComplicationIds().Count > 0)
+                return true;
 
-                LastClickDebug = BuildClickDebugSnapshot(
-                    _pendingMedicalAction,
-                    resolved,
-                    "BLOCKED: InjuryCare medical dialogue started");
-            }
-            catch (Exception ex)
-            {
-                _monitor.Log($"Ошибка BeginMedicalDialogue ({resolved.Type}): {ex}", LogLevel.Error);
-                ClearPendingMedicalAction();
-                LastClickDebug = BuildClickDebugSnapshot(
-                    null,
-                    resolved,
-                    "BLOCKED: medical dialogue error (suppress, no vanilla)");
-            }
+            return clickResolution?.Selected?.Kind == HarveyMedicalIntentKind.Complication;
         }
 
         private void SuppressHarveyClickButtons(ButtonPressedEventArgs e)
@@ -515,57 +538,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private PendingMedicalAction? TryResolveMedicalAction(InjuryCollection injuries)
         {
-            var treatableStates = GetHarveyTreatableInjuryStates().ToList();
-
-            // A. CompleteRecovery (простые травмы: TotalPhases==0, IsLastPhase может быть false при CurrentPhase>0)
-            var readyRecovery = treatableStates
-                .Where(d => d.TreatmentStarted && d.ReadyForRecovery
-                    && (d.IsLastPhase || TreatmentManager.IsSimpleTreatmentInjury(d.BuffId)))
-                .OrderByDescending(d => GetInjuryPriority(d.BuffId))
-                .FirstOrDefault();
-
-            if (readyRecovery != null)
-            {
-                return new PendingMedicalAction
-                {
-                    Type = MedicalActionType.CompleteRecovery,
-                    InjuryId = readyRecovery.BuffId
-                };
-            }
-
-            // B. AdvancePhase — только фазовые травмы в допустимом диапазоне фаз
-            var readyPhase = treatableStates
-                .Where(d => d.IsPhasedInjury
-                    && d.TreatmentStarted
-                    && d.CurrentPhase > 0
-                    && d.CurrentPhase < d.TotalPhases
-                    && d.ReadyForNextPhase)
-                .OrderByDescending(d => GetInjuryPriority(d.BuffId))
-                .FirstOrDefault();
-
-            if (readyPhase != null)
-            {
-                return new PendingMedicalAction
-                {
-                    Type = MedicalActionType.AdvancePhase,
-                    InjuryId = readyPhase.BuffId
-                };
-            }
-
-            // C. StartTreatment — только через CP topic + $action (TreatmentStartHandler), не через клик.
-            // D. TreatComplications — только через HarveyMod_TreatmentNeeded_* + $action TreatComplication.
-
-            // E. SimpleCompletionTopic
-            string? completionTopic = FindActiveCompletionTopic();
-            if (completionTopic != null)
-            {
-                return new PendingMedicalAction
-                {
-                    Type = MedicalActionType.SimpleCompletionTopic,
-                    TopicId = completionTopic
-                };
-            }
-
+            // Лечение, фазы и выздоровление — только через CP topic + $action (Core arbitration).
             return null;
         }
 
@@ -1073,28 +1046,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return false;
             }
 
-            int oldPhase = debuffState.CurrentPhase;
-            string oldBuff = _injuryManager.GetPhaseBuffId(injuryId, oldPhase);
+            if (!_treatmentStartHandler.TryAdvancePhase(injuryId, fromDialogueAction: false, out _))
+                return false;
 
-            _treatmentManager.AdvanceInjuryToNextPhase(injuryId);
-            _injuryManager.EnsureTreatmentBuffForInjury(injuryId);
-
-            var updatedState = _stateManager.GetDebuffState(injuryId);
-            int newPhase = updatedState?.CurrentPhase ?? oldPhase;
-            string newBuff = updatedState != null
-                ? _injuryManager.GetPhaseBuffId(injuryId, newPhase)
-                : "(unknown)";
-
-            GrantMedicalFriendship(10);
-            ShowHarveyEmote(HarveyHelper.GetRecoveryEmote());
-            ProcessMedicalInteractionCompliance();
-            _stateManager.Save();
-
-            _monitor.Log(
-                $"[MedicalAction] applied type=AdvancePhase injury={injuryId} oldBuff={oldBuff} newBuff={newBuff} phase={oldPhase}->{newPhase}",
-                LogLevel.Info);
-            _doctorVisitReminderManager.SyncReminderBuff();
-            _recoveryPlanManager.RefreshPlanForToday(notifyUpdated: true);
             _careTrustManager.RewardTimelyCheckupOncePerDay();
             return true;
         }
@@ -1115,22 +1069,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return false;
             }
 
-            int today = (int)Game1.stats.DaysPlayed;
-            _checkupManager.CompleteCheckup(injuryId, debuffState, today);
+            if (!_treatmentStartHandler.TryCompleteRecovery(injuryId, fromDialogueAction: false, out _))
+                return false;
 
-            _treatmentManager.ApplyMechanicalPhasedRecovery(injuryId);
-            _rehabManager.TryStartRehabAfterRecovery(injuryId);
-            Game1.addHUDMessage(new HUDMessage(
-                "Выздоровление завершено! Харви гордится тобой!",
-                HUDMessage.achievement_type));
-            GrantMedicalFriendship(15);
-            ProcessMedicalInteractionCompliance();
-            _stateManager.Save();
-
-            _monitor.Log($"[MedicalAction] applied type=CompleteRecovery injury={injuryId}", LogLevel.Info);
-            _doctorVisitReminderManager.SyncReminderBuff();
-            _recoveryPlanManager.NotifyTreatmentCompleted();
-            _recoveryPlanManager.RefreshPlanForToday();
             _careTrustManager.RewardTimelyCheckupOncePerDay();
             return true;
         }

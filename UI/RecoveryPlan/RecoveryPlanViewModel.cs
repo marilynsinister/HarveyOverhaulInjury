@@ -75,7 +75,7 @@ namespace HarveyOverhaul.InjuryCare.UI.RecoveryPlan
                 HarveyToneTitle = tone.Title,
                 HarveyToneDescription = tone.Description,
                 HarveyToneAccentColor = tone.AccentColor,
-                TasksText = BuildTasksText(dto.Tasks),
+                TasksText = BuildTasksText(dto.Tasks, dto.Assignments),
                 WhyImportant = dto.WhyImportant,
                 ComplicationLine = dto.ComplicationSummary,
                 TodayFailedSectionText = RecoveryPlanViolationReasonTexts.BuildTodayFailedSection(
@@ -86,12 +86,27 @@ namespace HarveyOverhaul.InjuryCare.UI.RecoveryPlan
             };
         }
 
-        private static string BuildTasksText(IReadOnlyList<CoreTask> tasks)
+        private static string BuildTasksText(
+            IReadOnlyList<CoreTask> tasks,
+            IReadOnlyList<HarveyOverhaul.InjuryCare.Core.Models.RecoveryPlanAssignmentViewModel> assignments)
         {
-            if (tasks.Count == 0)
+            var sb = new StringBuilder();
+
+            foreach (var assignment in assignments)
+            {
+                sb.Append("○ ");
+                sb.Append(assignment.Title);
+                if (!string.IsNullOrWhiteSpace(assignment.ProgressText))
+                {
+                    sb.Append(" — ");
+                    sb.Append(assignment.ProgressText);
+                }
+                sb.AppendLine();
+            }
+
+            if (tasks.Count == 0 && sb.Length == 0)
                 return "• Нет активных задач на сегодня";
 
-            var sb = new StringBuilder();
             foreach (CoreTask task in tasks)
             {
                 string mark = task.IsFailed ? "✗" : task.IsCompleted ? "✓" : "○";

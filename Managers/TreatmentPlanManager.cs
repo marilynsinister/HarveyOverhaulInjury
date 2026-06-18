@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Helpers;
+using HarveyOverhaul.InjuryCare.Services;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -18,6 +19,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly ModConfig _config;
         private readonly StateManager _stateManager;
         private readonly DialogueManager _dialogueManager;
+        private readonly MedicalLetterScheduler? _medicalLetterScheduler;
 
         /// <summary>
         /// Базовые mailId для tiered-пакетов в CP (mailHarveyMedicalTiered.json).
@@ -46,12 +48,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
             IMonitor monitor,
             ModConfig config,
             StateManager stateManager,
-            DialogueManager dialogueManager)
+            DialogueManager dialogueManager,
+            MedicalLetterScheduler? medicalLetterScheduler = null)
         {
             _monitor = monitor;
             _config = config;
             _stateManager = stateManager;
             _dialogueManager = dialogueManager;
+            _medicalLetterScheduler = medicalLetterScheduler;
         }
 
         public void SendTreatmentPlanForInjury(string injuryId)
@@ -65,12 +69,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager.AddTopic(TreatmentPlanTopics.GetInjuryTopic(injuryId), TopicDays);
 
             Game1.addHUDMessage(new HUDMessage(
-                "Харви составил план лечения. Завтра он пришлёт записку с рекомендациями.",
+                "Харви составил план лечения. Подробности — в Recovery Plan и при разговоре с ним.",
                 HUDMessage.health_type));
 
-            if (!_config.SendLetters)
+            if (_config.MedicalLetters == MedicalLetterMode.Off)
             {
-                _monitor.Log($"[TreatmentPlan] SendLetters=false, письмо пропущено ({injuryId})", LogLevel.Debug);
+                _monitor.Log($"[TreatmentPlan] MedicalLetters=Off, письмо пропущено ({injuryId})", LogLevel.Debug);
+            }
+            else if (_medicalLetterScheduler == null)
+            {
+                _monitor.Log($"[TreatmentPlan] scheduler missing, письмо пропущено ({injuryId})", LogLevel.Debug);
             }
             else if (HarveyMailHelper.WasSentToday(_stateManager, mailBaseId))
             {
@@ -78,7 +86,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     $"[TreatmentPlan] Письмо {mailBaseId} уже отправлено сегодня для этого типа плана — пропуск ({injuryId})",
                     LogLevel.Debug);
             }
-            else if (HarveyMailHelper.TryScheduleTieredMail(_config, _stateManager, _monitor, mailBaseId, mailBaseId))
+            else if (HarveyMailHelper.TryScheduleTieredMail(
+                _medicalLetterScheduler,
+                mailBaseId,
+                MedicalLetterReasons.TreatmentPlan,
+                injuryId,
+                critical: false,
+                mailBaseId))
             {
                 _monitor.Log(
                     $"[TreatmentPlan] Письмо {HarveyMailHelper.BuildRelationshipMailId(mailBaseId)} запланировано ({injuryId})",

@@ -1,5 +1,8 @@
 {
   "OnlyAtClinic": false,
+  "MedicalLetters": "CriticalOnly",
+  "SendStoryLetters": true,
+  "SendRomanticCareLetters": true,
   "SendLetters": true,
   "ForceHospitalization": true,
   "ProximityTiles": 3,

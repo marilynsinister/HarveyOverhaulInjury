@@ -6,13 +6,17 @@ using CoreTask = HarveyOverhaul.InjuryCare.Core.Models.RecoveryPlanTask;
 
 namespace HarveyOverhaul.InjuryCare.Services;
 
-/// <summary>Форматирование RecoveryPlan для вкладки «План» через Core sections.</summary>
+/// <summary>Устарело: план рендерится в HarveyOverhaulCore через InjuryCareDirectiveProvider.</summary>
+[Obsolete("Plan UI is built in HarveyOverhaulCore from IHarveyCareDirectiveProvider.")]
 internal static class InjuryRecoveryPlanSections
 {
     public static (bool HasPlan, HarveyPanelPlanFields? Fields, List<HarveyPanelSectionDto> Sections) Build(
         RecoveryPlanViewModel dto)
     {
-        if (!dto.HasPlan)
+        bool hasAssignments = dto.Assignments.Count > 0;
+        bool hasInjuryContext = !string.IsNullOrWhiteSpace(dto.InjuryDisplayName);
+        bool hasTasks = dto.Tasks.Count > 0;
+        if (!dto.HasPlan && !hasAssignments && !hasInjuryContext && !hasTasks && dto.TodayWarnings.Count == 0)
         {
             return (false, null, []);
         }
@@ -20,38 +24,83 @@ internal static class InjuryRecoveryPlanSections
         var sections = new List<HarveyPanelSectionDto>();
         var sb = new StringBuilder();
 
+        sections.Add(Section(
+            "План Харви",
+            BuildToneBlock(dto),
+            5,
+            dto.HarveyToneKind == RecoveryPlanToneKind.Strict
+                ? HarveyPanelSeverity.Urgent
+                : dto.HarveyToneKind == RecoveryPlanToneKind.Worried
+                    ? HarveyPanelSeverity.Warning
+                    : HarveyPanelSeverity.Info));
+        sb.AppendLine(BuildToneBlock(dto));
+
         if (!string.IsNullOrWhiteSpace(dto.InjuryDisplayName))
         {
-            sections.Add(Section(dto.InjuryDisplayName, dto.PhaseLabel, 0, HarveyPanelSeverity.Normal));
-            sb.AppendLine(dto.InjuryDisplayName);
+            string injuryLine = dto.InjuryDisplayName;
+            if (!string.IsNullOrWhiteSpace(dto.PhaseLabel))
+                injuryLine += $" — {dto.PhaseLabel}";
+
+            sections.Add(Section("Травма", injuryLine, 8, HarveyPanelSeverity.Warning));
+            sb.AppendLine(injuryLine);
         }
 
         if (!string.IsNullOrWhiteSpace(dto.DayProgressText))
         {
-            sections.Add(Section("Прогресс", dto.DayProgressText, 10, HarveyPanelSeverity.Info));
+            sections.Add(Section("Прогресс", dto.DayProgressText, 40, HarveyPanelSeverity.Info));
             sb.AppendLine(dto.DayProgressText);
         }
 
-        if (dto.HarveyTone.HasTone)
+        foreach (var assignment in dto.Assignments)
         {
-            sections.Add(Section(dto.HarveyTone.Title, dto.HarveyTone.Description, 20, HarveyPanelSeverity.Warning));
-            sb.AppendLine();
-            sb.AppendLine(dto.HarveyTone.Title);
-            sb.AppendLine(dto.HarveyTone.Description);
+            string body = assignment.Description;
+            if (!string.IsNullOrWhiteSpace(assignment.ProgressText))
+                body = string.IsNullOrWhiteSpace(body)
+                    ? assignment.ProgressText
+                    : $"{body}\n{assignment.ProgressText}";
+
+            sections.Add(new HarveyPanelSectionDto
+            {
+                Title = $"□ {assignment.Title}",
+                Body = body,
+                Status = assignment.ProgressText,
+                Priority = 20,
+                Severity = HarveyPanelSeverity.Normal,
+            });
+
+            sb.AppendLine($"□ {assignment.Title}");
+            if (!string.IsNullOrWhiteSpace(body))
+                sb.AppendLine(body);
         }
 
         string tasksText = BuildTasksText(dto.Tasks);
-        sections.Add(new HarveyPanelSectionDto
+        if (!string.IsNullOrWhiteSpace(tasksText))
         {
-            Title = "План на сегодня",
-            Body = tasksText,
-            Priority = 30,
-            Severity = dto.TodayFailed ? HarveyPanelSeverity.Urgent : HarveyPanelSeverity.Normal,
-            Status = dto.TodayFailed ? "День не засчитан" : dto.TodayCompleted ? "День засчитан" : "",
-        });
-        sb.AppendLine();
-        sb.AppendLine("План на сегодня:");
-        sb.AppendLine(tasksText);
+            sections.Add(new HarveyPanelSectionDto
+            {
+                Title = "Режим восстановления",
+                Body = tasksText,
+                Priority = 30,
+                Severity = dto.TodayFailed ? HarveyPanelSeverity.Urgent : HarveyPanelSeverity.Normal,
+                Status = dto.TodayFailed
+                    ? "День не засчитан"
+                    : dto.TodayCompleted
+                        ? "День засчитан"
+                        : dto.DayProgressText,
+            });
+            sb.AppendLine();
+            sb.AppendLine("Режим на сегодня:");
+            sb.AppendLine(tasksText);
+        }
+
+        if (dto.TodayWarnings.Count > 0)
+        {
+            string warnings = string.Join("\n", dto.TodayWarnings.Select(w => $"• {w}"));
+            sections.Add(Section("Предупреждения", warnings, 18, HarveyPanelSeverity.Warning));
+            sb.AppendLine();
+            sb.AppendLine("Предупреждения:");
+            sb.AppendLine(warnings);
+        }
 
         string todayFailed = RecoveryPlanViolationReasonTexts.BuildTodayFailedSection(
             dto.IsActive,
@@ -61,52 +110,61 @@ internal static class InjuryRecoveryPlanSections
         {
             sections.Add(new HarveyPanelSectionDto
             {
-                Title = "Нарушения",
+                Title = "День не засчитан",
                 Body = todayFailed,
-                Priority = 40,
+                Status = "Харви волнуется",
+                Priority = 15,
                 Severity = HarveyPanelSeverity.Urgent,
             });
             sb.AppendLine();
             sb.AppendLine(todayFailed);
         }
 
-        if (!string.IsNullOrWhiteSpace(dto.WhyImportant))
-        {
-            sections.Add(Section("Почему это важно", dto.WhyImportant, 50, HarveyPanelSeverity.Info));
-            sb.AppendLine();
-            sb.AppendLine("Почему это важно:");
-            sb.AppendLine(dto.WhyImportant);
-        }
-
         if (!string.IsNullOrWhiteSpace(dto.ComplicationSummary))
         {
-            sections.Add(Section("Осложнения", dto.ComplicationSummary, 60, HarveyPanelSeverity.Warning));
+            sections.Add(Section("Осложнения плана", dto.ComplicationSummary, 25, HarveyPanelSeverity.Warning));
             sb.AppendLine();
             sb.AppendLine(dto.ComplicationSummary);
         }
 
-        if (dto.RequiresHarveyTalk)
+        if (dto.RequiresHarveyTalk || dto.ReadyForNextPhase || dto.ReadyForRecovery)
         {
             sections.Add(new HarveyPanelSectionDto
             {
                 Title = "Нужен разговор с Харви",
-                Body = "Харви ждёт контрольный осмотр, прежде чем продолжить план.",
-                Priority = 5,
+                Body = "Харви ждёт контрольный осмотр.",
+                Priority = 1,
                 Severity = HarveyPanelSeverity.Urgent,
             });
         }
 
         return (true, new HarveyPanelPlanFields
         {
-            Title = "План восстановления",
+            Title = "План Харви",
             Body = sb.ToString().TrimEnd(),
         }, sections);
+    }
+
+    private static string BuildToneBlock(RecoveryPlanViewModel dto)
+    {
+        if (dto.HarveyTone.HasTone)
+            return $"{dto.HarveyTone.Title}. {dto.HarveyTone.Description}";
+
+        return dto.HarveyToneKind switch
+        {
+            RecoveryPlanToneKind.Strict =>
+                $"{RecoveryPlanTexts.HarveyTone.StrictTitle}. {RecoveryPlanTexts.HarveyTone.StrictDescription}",
+            RecoveryPlanToneKind.Worried =>
+                $"{RecoveryPlanTexts.HarveyTone.WorriedTitle}. {RecoveryPlanTexts.HarveyTone.WorriedDescription}",
+            _ =>
+                $"{RecoveryPlanTexts.HarveyTone.CalmTitle}. {RecoveryPlanTexts.HarveyTone.CalmDescription}",
+        };
     }
 
     private static string BuildTasksText(IReadOnlyList<RecoveryPlanTask> tasks)
     {
         if (tasks.Count == 0)
-            return "• Харви пока не добавил пунктов на сегодня";
+            return "";
 
         var sb = new StringBuilder();
         foreach (RecoveryPlanTask task in tasks)

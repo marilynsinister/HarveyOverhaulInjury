@@ -5,10 +5,11 @@ using HarveyOverhaul.InjuryCare.Api;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Managers;
+using StardewValley;
 
 namespace HarveyOverhaul.InjuryCare.Services;
 
-/// <summary>Отдаёт данные травм и recovery plan в общее окно «План Харви» (HarveyOverhaul.Core).</summary>
+/// <summary>Отдаёт данные травм для вкладок Обзор/Травмы/Доверие. План — через <see cref="InjuryCareDirectiveProvider"/>.</summary>
 public sealed class InjuryPanelProvider : IHarveyPanelProvider
 {
     public const string ProviderId = HarveyOverhaul.Core.Services.HarveyProviderRegistry.InjuryProviderId;
@@ -36,61 +37,57 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
 
     public HarveyPanelContribution GetPanelContribution()
     {
+        _recoveryPlanManager.EnsurePlanFreshForDisplay();
+
         var state = _stateManager.State;
         var injuries = CollectMainInjuries(state);
         var complications = CollectComplications(state);
         bool hasAnyInjury = injuries.Count > 0 || complications.Count > 0;
 
         var recoveryVm = _recoveryPlanManager.BuildViewModel();
-        var (hasPlan, planFields, planSections) = InjuryRecoveryPlanSections.Build(recoveryVm);
-
         bool pendingReview = ComputePendingHarveyReview(state, injuries, complications, recoveryVm);
+        bool hasActiveRecoveryPlan = ComputeHasActiveRecoveryPlan(
+            state, injuries, complications, recoveryVm, hasAnyInjury, pendingReview);
 
         return new HarveyPanelContribution
         {
             ProviderId = ProviderId,
-            HasActiveRecoveryPlan = hasPlan,
+            HasActiveRecoveryPlan = hasActiveRecoveryPlan,
             HasPendingHarveyReview = pendingReview,
             HasPriorityAppointment = pendingReview,
             OverviewFields = BuildOverviewFields(injuries, complications, hasAnyInjury, pendingReview),
-            OverviewSections = BuildOverviewSections(injuries, complications, hasAnyInjury, pendingReview),
+            OverviewSections = BuildOverviewSections(injuries, complications, hasAnyInjury, pendingReview, recoveryVm),
             InjurySections = BuildInjurySections(injuries, complications, hasAnyInjury),
             InjuriesBody = FormatInjuriesBody(injuries, complications, hasAnyInjury),
-            PlanFields = planFields,
-            PlanSections = planSections,
             TrustSections = BuildTrustSections(),
         };
+    }
+
+    private static bool ComputeHasActiveRecoveryPlan(
+        InjuryState state,
+        IReadOnlyList<InjuryPanelEntry> injuries,
+        IReadOnlyList<InjuryPanelEntry> complications,
+        RecoveryPlanViewModel recoveryVm,
+        bool hasAnyInjury,
+        bool pendingReview)
+    {
+        if (pendingReview || hasAnyInjury)
+            return true;
+
+        if (recoveryVm.IsActive || recoveryVm.Tasks.Count > 0 || recoveryVm.Assignments.Count > 0)
+            return true;
+
+        if (state.ActivePrescriptions != null && state.ActivePrescriptions.Count > 0)
+            return true;
+
+        return complications.Count > 0 || injuries.Count > 0;
     }
 
     private List<InjuryPanelEntry> CollectMainInjuries(InjuryState state)
     {
         var entries = new List<InjuryPanelEntry>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        string? mainId = _injuryManager.GetCurrentMainInjuryId() ?? state.MainInjuryId;
-        if (!string.IsNullOrEmpty(mainId)
-            && !InjurySets.KnownComplicationBuffIds.Contains(mainId)
-            && state.ActiveDebuffs.TryGetValue(mainId, out var mainDebuff)
-            && mainDebuff != null
-            && seen.Add(mainId))
-        {
-            entries.Add(MapMainInjury(mainId, mainDebuff));
-        }
-
-        foreach (string buffId in state.ActiveDebuffs.Keys.OrderBy(id => id, StringComparer.Ordinal))
-        {
-            if (InjurySets.KnownComplicationBuffIds.Contains(buffId))
-                continue;
-
-            if (!InjurySets.HarveyTreatable.Contains(buffId) && !IsDisplayableInjuryBuff(buffId))
-                continue;
-
-            if (!seen.Add(buffId))
-                continue;
-
-            if (state.ActiveDebuffs.TryGetValue(buffId, out var debuff) && debuff != null)
-                entries.Add(MapMainInjury(buffId, debuff));
-        }
+        foreach (var (injuryId, debuff) in _injuryManager.GetInjuriesForHarveyPanel())
+            entries.Add(MapMainInjury(injuryId, debuff));
 
         return entries;
     }
@@ -179,7 +176,8 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
         IReadOnlyList<InjuryPanelEntry> injuries,
         IReadOnlyList<InjuryPanelEntry> complications,
         bool hasAnyInjury,
-        bool pendingReview)
+        bool pendingReview,
+        RecoveryPlanViewModel recoveryVm)
     {
         if (!hasAnyInjury)
             return [];
@@ -190,6 +188,7 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
             {
                 Title = pendingReview ? "Нужен осмотр Харви" : "Активная травма",
                 Body = injuries.FirstOrDefault()?.Title ?? "Травма требует внимания",
+                Status = recoveryVm.DayProgressText,
                 Priority = 0,
                 Severity = pendingReview ? HarveyPanelSeverity.Urgent : HarveyPanelSeverity.Warning,
             },

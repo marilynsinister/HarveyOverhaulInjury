@@ -1,13 +1,13 @@
-using System.Collections.Generic;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Managers;
+using HarveyOverhaul.InjuryCare.Services;
 using StardewModdingAPI;
-using StardewValley;
 
 namespace HarveyOverhaul.InjuryCare.Helpers
 {
     /// <summary>
     /// Письма Харви с суффиксом тона отношений и fallback, если tier-вариант отсутствует в Data/Mail.
+    /// Отправка — только через <see cref="MedicalLetterScheduler"/>.
     /// </summary>
     public static class HarveyMailHelper
     {
@@ -36,42 +36,19 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             return baseMailId;
         }
 
-        /// <summary>Письмо на завтра: SendLetters, dedupe по dedupeKey, tier-fallback.</summary>
+        /// <summary>Поставить tiered-письмо в pending-очередь.</summary>
         public static bool TryScheduleTieredMail(
-            ModConfig config,
-            StateManager stateManager,
-            IMonitor? monitor,
+            MedicalLetterScheduler scheduler,
             string baseMailId,
+            string reason,
+            string stateId = "",
+            bool? critical = null,
             string? dedupeKey = null)
         {
-            if (!config.SendLetters)
+            if (scheduler == null || string.IsNullOrWhiteSpace(baseMailId))
                 return false;
 
-            if (string.IsNullOrWhiteSpace(baseMailId))
-                return false;
-
-            int today = (int)Game1.stats.DaysPlayed;
-            string key = dedupeKey ?? baseMailId;
-            var sent = stateManager.State.SentMedicalMailDays;
-
-            if (sent.TryGetValue(key, out int sentDay) && sentDay == today)
-            {
-                monitor?.Log(
-                    $"[Mail] Пропуск дубликата «{key}» в день {today}",
-                    LogLevel.Debug);
-                return false;
-            }
-
-            string mailId = BuildRelationshipMailId(baseMailId);
-            Game1.addMailForTomorrow(mailId);
-
-            sent[key] = today;
-            stateManager.Save();
-
-            monitor?.Log(
-                $"[Mail] {mailId} → завтра (base={baseMailId}, tier={HarveyHelper.GetHarveyRelationshipTier()}, key={key})",
-                LogLevel.Debug);
-            return true;
+            return scheduler.TryQueueTieredMail(baseMailId, reason, stateId, critical, dedupeKey);
         }
 
         /// <summary>Было ли письмо с этим dedupeKey уже запланировано сегодня.</summary>
@@ -80,7 +57,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             if (string.IsNullOrWhiteSpace(dedupeKey))
                 return false;
 
-            int today = (int)Game1.stats.DaysPlayed;
+            int today = (int)StardewValley.Game1.stats.DaysPlayed;
             return stateManager.State.SentMedicalMailDays.TryGetValue(dedupeKey, out int sentDay)
                 && sentDay == today;
         }
@@ -109,12 +86,11 @@ namespace HarveyOverhaul.InjuryCare.Helpers
         {
             try
             {
-                _mailCache ??= Game1.content.Load<Dictionary<string, string>>("Data/Mail");
+                _mailCache ??= StardewValley.Game1.content.Load<Dictionary<string, string>>("Data/Mail");
                 return _mailCache.ContainsKey(mailId);
             }
             catch
             {
-                // CP/Data/Mail недоступен — используем candidate как есть.
                 return true;
             }
         }
