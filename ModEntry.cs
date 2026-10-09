@@ -2591,7 +2591,7 @@ namespace HarveyOverhaul.InjuryCare
                 "harvey_plan_violate",
                 "Нарушение плана: harvey_plan_violate <type>",
                 (_, args) => CmdHarveyPlanViolate(args));
-            helper.ConsoleCommands.Add("harvey_plan_debug", "Debug HUD блок RecoveryPlan.", (_, _) => CmdHarveyPlanDebug());
+            helper.ConsoleCommands.Add("injury_plan_debug", "Debug HUD блок RecoveryPlan (Injury). Снапшот плана Core: harvey_plan_debug.", (_, _) => CmdHarveyPlanDebug());
         }
 
         private void CmdInjuryPanelDump()
@@ -4605,7 +4605,9 @@ namespace HarveyOverhaul.InjuryCare
 
             coreApi.RegisterPanelProvider(_injuryPanelProvider);
             coreApi.RegisterCareDirectiveProvider(_injuryCareDirectiveProvider);
+            coreApi.RegisterRecoveryPlanApi(_harveyRecoveryPlanApi);
             _domesticSpouseCareManager.SetCoreApi(coreApi);
+            _timeEventHandler.SetCoreApi(coreApi);
             _treatmentStartHandler.SetCoreApi(coreApi);
             _injuryMedicalIntentProvider.SetCoreApi(coreApi);
 
@@ -4620,10 +4622,6 @@ namespace HarveyOverhaul.InjuryCare
             if (!_config.EnableStandaloneRecoveryPlanWindow)
                 return;
 
-            Monitor.Log(
-                "[HarveyPlan/Injury] WARNING: legacy plan hotkey pressed (StandaloneRecoveryPlanKey). Use HarveyOverhaul.Core panel (H).",
-                LogLevel.Warn);
-
             if (!Context.IsWorldReady)
                 return;
 
@@ -4631,6 +4629,18 @@ namespace HarveyOverhaul.InjuryCare
                 return;
 
             Helper.Input.Suppress(e.Button);
+
+            // «План Харви» — единое окно Core; старое окно Injury только если Core недоступен.
+            var coreApi = Helper.ModRegistry.GetApi<IHarveyCoreApi>("marilynsinister.HarveyOverhaul.Core");
+            if (coreApi != null)
+            {
+                coreApi.OpenPanel(HarveyOverhaul.Core.Models.HarveyPanelTab.Plan);
+                return;
+            }
+
+            Monitor.Log(
+                "[HarveyPlan/Injury] Core API unavailable — opening legacy RecoveryPlan window.",
+                LogLevel.Warn);
             _recoveryPlanMenu.TryOpen(_recoveryPlanManager);
         }
 

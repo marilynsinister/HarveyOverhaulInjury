@@ -77,8 +77,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (plan.PlanStartDay < 0 && today >= 0)
                 plan.PlanStartDay = today;
 
+            var requested = source == RecoveryPlanSource.None ? RecoveryPlanSource.Mixed : source;
+            // План общий: стресс-эпизод поверх активного плана травмы (и наоборот) не перетирает источник.
+            bool mergeIntoActive = plan.IsActive
+                && plan.Source != RecoveryPlanSource.None
+                && plan.Source != requested;
+
             plan.IsActive = true;
-            plan.Source = source == RecoveryPlanSource.None ? RecoveryPlanSource.Mixed : source;
+            plan.Source = mergeIntoActive ? RecoveryPlanSource.Mixed : requested;
 
             if (!string.IsNullOrWhiteSpace(planId))
                 plan.PlanId = planId.Trim();

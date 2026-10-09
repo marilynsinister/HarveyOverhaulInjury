@@ -281,14 +281,27 @@ public sealed class InjuryMedicalIntentProvider
         bool injurySelected = selected != null
             && string.Equals(selected.ProviderId, HarveyProviderRegistry.InjuryProviderId, StringComparison.Ordinal);
 
+        // Фестиваль заблокировал лечение травмы: Core выбрал другое (или ничего), а Injury держит тему «после фестиваля».
+        var deferIntent = resolution.FestivalBlockedIntent;
+        string? festivalDeferTopic = deferIntent != null
+            && string.Equals(deferIntent.ProviderId, HarveyProviderRegistry.InjuryProviderId, StringComparison.Ordinal)
+            && !string.IsNullOrWhiteSpace(deferIntent.FestivalDeferTopicKey)
+                ? deferIntent.FestivalDeferTopicKey
+                : null;
+
         if (!injurySelected)
         {
-            int removed = RemoveStaleMedicalActionTopics(Array.Empty<string>());
+            var keep = festivalDeferTopic != null ? new[] { festivalDeferTopic } : Array.Empty<string>();
+            int removed = RemoveStaleMedicalActionTopics(keep);
+            if (festivalDeferTopic != null)
+                _dialogueManager.TryAddMedicalIntentTopic(festivalDeferTopic, 1);
+
             LogTopicSyncIfChanged(
-                $"none:{removed}",
+                $"none:{festivalDeferTopic}:{removed}",
                 removed > 0,
                 () => _monitor.Log(
-                    $"[MedicalIntent] topic sync: no injury intent selected — removed {removed} stale action topic(s)",
+                    $"[MedicalIntent] topic sync: no injury intent selected — removed {removed} stale action topic(s)" +
+                    (festivalDeferTopic != null ? $", festival defer topic {festivalDeferTopic}" : ""),
                     LogLevel.Debug));
 
             return;
@@ -296,14 +309,12 @@ public sealed class InjuryMedicalIntentProvider
 
         string topicToAdd = selected!.TopicKey;
 
-        if (resolution.FestivalBlockedLongTreatment
-            && !selected.AllowDuringFestival
-            && !string.IsNullOrWhiteSpace(selected.FestivalDeferTopicKey))
-        {
-            topicToAdd = selected.FestivalDeferTopicKey!;
-        }
-
         var keepTopics = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { topicToAdd };
+        if (festivalDeferTopic != null)
+        {
+            keepTopics.Add(festivalDeferTopic);
+            _dialogueManager.TryAddMedicalIntentTopic(festivalDeferTopic, 1);
+        }
 
         string? legacyAlias = null;
         if (TopicIds.IsMedicalActionTopic(topicToAdd))

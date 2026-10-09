@@ -1,4 +1,5 @@
 using System;
+using HarveyOverhaul.Core.Api;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.Managers;
@@ -25,6 +26,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly ComplicationManager _complicationManager;
         private readonly RecoveryPlanManager _recoveryPlanManager;
         private HarveyHomeCareEventLauncher? _homeCareLauncher;
+        private IHarveyCoreApi? _coreApi;
 
         public TimeEventHandler(
             IMonitor monitor,
@@ -51,6 +53,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _complicationManager = complicationManager;
             _recoveryPlanManager = recoveryPlanManager;
         }
+
+        public void SetCoreApi(IHarveyCoreApi? coreApi)
+            => _coreApi = coreApi;
 
         public void SetHomeCareLauncher(HarveyHomeCareEventLauncher homeCareLauncher)
         {
@@ -88,8 +93,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 StormComfortLauncher.TryDailyStormComfortRoll(
                     _monitor,
                     _stateManager,
-                    _buffManager,
                     _dialogueManager,
+                    _coreApi?.GetStressStateApi(),
                     e.NewTime);
             }
             catch (Exception ex)

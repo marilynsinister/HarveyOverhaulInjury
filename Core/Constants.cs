@@ -303,9 +303,8 @@ namespace HarveyOverhaul.InjuryCare.Core
     /// </summary>
     public static class StormComfortIds
     {
-        public const string StressThunderBuff = "buffStressThunder";
+        /// <summary>Собственный gate Injury для CP-сцен, когда Stress mod не установлен.</summary>
         public const string StormStressTopic = "topicHarveyStormStress";
-        public const string LegacyStressTopic = "topicStressThunder";
         public const string CooldownTopic = "HarveyMod_CD_StormComfort";
         public const string EventIdPrefix = "eventHarveyStormComfort";
 
@@ -570,7 +569,6 @@ namespace HarveyOverhaul.InjuryCare.Core
             }
 
             ids.Add(StormComfortIds.StormStressTopic);
-            ids.Add(StormComfortIds.LegacyStressTopic);
             ids.Add(StormComfortIds.CooldownTopic);
 
             foreach (var field in typeof(PrescriptionTopics).GetFields(

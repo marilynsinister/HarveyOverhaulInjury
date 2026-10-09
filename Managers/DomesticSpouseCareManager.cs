@@ -2,6 +2,8 @@ using System;
 using System.Linq;
 using System.Text;
 using HarveyOverhaul.Core.Api;
+using HarveyOverhaul.Core.Models;
+using HarveyOverhaul.Core.Services;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
@@ -196,7 +198,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             sb.AppendLine($"lowHealth: {ctx.LowHealth}");
             sb.AppendLine($"lowStamina: {ctx.LowStamina}");
             sb.AppendLine($"hasInjury: {ctx.HasAnyInjury} (severe={ctx.HasSevereInjury})");
-            sb.AppendLine($"hasStress: {ctx.HasStress}");
+            sb.AppendLine($"hasStress: {ctx.HasStress} (thunder={ctx.HasThunderFear} darkness={ctx.HasDarknessFear} social={ctx.HasSocialAnxiety}, stressApi={(_coreApi?.GetStressStateApi() != null)})");
             sb.AppendLine($"weather: rain={ctx.IsRaining} storm={ctx.IsStorm} snow={ctx.IsSnowing}");
             sb.AppendLine($"season: {ctx.Season} day: {ctx.DayOfWeek}");
             sb.AppendLine($"festivalToday: {ctx.IsFestivalToday} festivalTomorrow: {ctx.IsFestivalTomorrow}");
@@ -273,9 +275,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             public bool HasRecoveryPlanViolationTopic { get; set; }
             public bool HasAfterClinicTopic { get; set; }
             public bool HasAfterMineTopic { get; set; }
-            public bool HasThunderFearTopic { get; set; }
-            public bool HasDarknessFearTopic { get; set; }
-            public bool HasSocialAnxietyTopic { get; set; }
+            public bool HasThunderFear { get; set; }
+            public bool HasDarknessFear { get; set; }
+            public bool HasSocialAnxiety { get; set; }
         }
 
         private DomesticContext BuildContext()
@@ -320,16 +322,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     || HasTopic(ConversationTopics.NightRoundFollowup),
                 HasAfterMineTopic = HasTopic(ConversationTopics.MineInjuryRescue)
                     || HasTopic("topicHarvey_MineDeathRescue"),
-                HasThunderFearTopic = HasTopic("HarveyStress_Thunder")
-                    || HasTopic("topicHarvey_Thunder")
-                    || HasTopic("topicThunder")
-                    || HasTopic(StormComfortIds.LegacyStressTopic),
-                HasDarknessFearTopic = HasTopic("HarveyStress_Darkness")
-                    || HasTopic("topicHarvey_Darkness")
-                    || HasTopic("topicDarkness"),
-                HasSocialAnxietyTopic = HasTopic("HarveyStress_SocialAnxiety")
-                    || HasTopic("topicHarvey_SocialAnxiety")
-                    || HasTopic("topicSocialAnxiety"),
+                HasThunderFear = HasStressCondition(HarveyStressConditions.Thunder),
+                HasDarknessFear = HasStressCondition(HarveyStressConditions.Darkness),
+                HasSocialAnxiety = HasStressCondition(HarveyStressConditions.SocialAnxiety),
             };
 
             return ctx;
@@ -666,9 +661,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private bool HasTopic(string id) =>
             Game1.player?.activeDialogueEvents?.ContainsKey(id) == true;
 
-        private bool HasAnyBuff(params string[] ids) =>
-            ids.Any(id => Game1.player.hasBuff(id));
-
         private bool HasSevereInjury()
         {
             foreach (string injury in InjurySets.Severe)
@@ -694,60 +686,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return false;
         }
 
+        /// <summary>Состояние стресса берётся у Stress-мода через Core (без знания его buff ID).</summary>
         private bool HasStressState()
-        {
-            string[] stressBuffs =
-            {
-                "HarveyStress_NoSleep",
-                "HarveyStress_Hunger",
-                "HarveyStress_TooCold",
-                "HarveyStress_Thunder",
-                "HarveyStress_Darkness",
-                "HarveyStress_Overwork",
-                "HarveyStress_Tired",
-                "HarveyStress_Lonely",
-                "HarveyStress_SocialAnxiety",
-                "buffStressNoSleep",
-                "buffStressHunger",
-                "buffStressTooCold",
-                "buffStressThunder",
-                "buffStressDarkness",
-                "buffStressOverwork",
-                "buffStressTired",
-                "buffStressLonely",
-                "buffStressSocialAnxiety",
-                "buffNoSleep",
-                "buffHunger",
-                "buffTooCold",
-                "buffThunder",
-                "buffDarkness",
-                "buffOverwork",
-                "buffTired",
-                "buffLonely",
-                "buffSocialAnxiety",
-            };
+            => _coreApi?.HasActiveCareState(HarveyProviderRegistry.StressProviderId) == true;
 
-            if (HasAnyBuff(stressBuffs))
-                return true;
-
-            string[] stressTopics =
-            {
-                "topicHarvey_Thunder",
-                "topicHarvey_Darkness",
-                "topicHarvey_SocialAnxiety",
-                "topicThunder",
-                "topicDarkness",
-                "topicSocialAnxiety",
-            };
-
-            foreach (string topic in stressTopics)
-            {
-                if (HasTopic(topic))
-                    return true;
-            }
-
-            return false;
-        }
+        /// <summary>Конкретное стресс-состояние — у Stress mod через Core (без его topic/buff ID).</summary>
+        private bool HasStressCondition(string conditionId)
+            => _coreApi?.GetStressStateApi()?.HasCondition(conditionId) == true;
 
         private static bool IsFestivalTomorrow()
         {
