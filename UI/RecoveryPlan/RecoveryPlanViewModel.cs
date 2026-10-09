@@ -105,11 +105,11 @@ namespace HarveyOverhaul.InjuryCare.UI.RecoveryPlan
             }
 
             if (tasks.Count == 0 && sb.Length == 0)
-                return "• Нет активных задач на сегодня";
+                return "- Нет активных задач на сегодня";
 
             foreach (CoreTask task in tasks)
             {
-                string mark = task.IsFailed ? "✗" : task.IsCompleted ? "✓" : "○";
+                string mark = task.IsFailed ? "x" : task.IsCompleted ? "+" : "-";
                 sb.Append(mark);
                 sb.Append(' ');
                 sb.Append(task.Title);

@@ -379,7 +379,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private int _painFlareAskedDay = -1;
 
         /// <summary>
-        /// Обострение боли: раз в день Харви спрашивает «Боль усилилась?» и советует покой — не лечит.
+        /// Обострение боли: Харви спрашивает «Боль усилилась?», даёт обезболивающее и снимает дебафф
+        /// (без полноценного лечения и тем с $action).
         /// Остальные клики в этот день — обычный диалог.
         /// </summary>
         private bool TryAskAboutPainFlare(NPC harvey)
@@ -399,7 +400,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             // Старая тема «приходи, подберу обезболивание» противоречит вопросу — убираем.
             _dialogueManager.RemoveTopic(TopicIds.GetComplicationTopic(InjuryBuffs.PainFlare));
             _dialogueManager.Speak(harvey, line);
-            _monitor.Log("[PainFlare] Харви спросил о боли (лечения нет, пройдёт после сна)", LogLevel.Info);
+            _complicationManager.RelievePainFlareByHarvey();
+            _monitor.Log("[PainFlare] Харви спросил о боли и дал обезболивающее", LogLevel.Info);
             return true;
         }
 

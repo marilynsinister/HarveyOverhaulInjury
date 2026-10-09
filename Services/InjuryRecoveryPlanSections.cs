@@ -95,7 +95,7 @@ internal static class InjuryRecoveryPlanSections
 
         if (dto.TodayWarnings.Count > 0)
         {
-            string warnings = string.Join("\n", dto.TodayWarnings.Select(w => $"• {w}"));
+            string warnings = string.Join("\n", dto.TodayWarnings.Select(w => $"- {w}"));
             sections.Add(Section("Предупреждения", warnings, 18, HarveyPanelSeverity.Warning));
             sb.AppendLine();
             sb.AppendLine("Предупреждения:");
@@ -169,7 +169,7 @@ internal static class InjuryRecoveryPlanSections
         var sb = new StringBuilder();
         foreach (RecoveryPlanTask task in tasks)
         {
-            string mark = task.IsFailed ? "✗" : task.IsCompleted ? "✓" : "•";
+            string mark = task.IsFailed ? "x" : task.IsCompleted ? "+" : "-";
             sb.Append(mark);
             sb.Append(' ');
             sb.Append(task.Title);

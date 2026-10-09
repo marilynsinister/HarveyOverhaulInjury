@@ -346,6 +346,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _monitor.Log($"[Complication] PainFlare снят после отдыха (с дня {startDay})", LogLevel.Info);
         }
 
+        /// <summary>Харви расспросил о боли и дал обезболивающее — обострение снято (без полноценного лечения).</summary>
+        public bool RelievePainFlareByHarvey()
+        {
+            if (!HasComplication(InjuryBuffs.PainFlare))
+                return false;
+
+            RemoveComplication(InjuryBuffs.PainFlare);
+            _stateManager.Save();
+            Game1.addHUDMessage(new HUDMessage("Обезболивающее Харви помогло — боль утихла.", HUDMessage.newQuest_type));
+            _monitor.Log("[Complication] PainFlare снят Харви (обезболивание)", LogLevel.Info);
+            return true;
+        }
+
         /// <summary>
         /// Обострение боли вместо более тяжёлой main-травмы (простуда + удар в шахте и т.п. — без PainFlare).
         /// </summary>
