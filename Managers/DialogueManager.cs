@@ -827,6 +827,20 @@ namespace HarveyOverhaul.InjuryCare.Managers
             MoveTopicToEnd(reactionTopic);
         }
 
+        /// <summary>Тема-реакция Харви на осложнение (без $action). Не трогает порядок, если тема уже есть.</summary>
+        public void EnsureComplicationReactionTopic(string complicationBuffId, int days)
+        {
+            if (string.IsNullOrEmpty(complicationBuffId) || !InjurySets.KnownComplicationBuffIds.Contains(complicationBuffId))
+                return;
+
+            string reactionTopic = TopicIds.GetComplicationTopic(complicationBuffId);
+            if (HasTopic(reactionTopic))
+                return;
+
+            AddTopic(reactionTopic, Math.Max(1, days));
+            MoveTopicToEnd(reactionTopic);
+        }
+
         /// <summary>Сдвинуть топик в конец очереди activeDialogueEvents (последним сработает в диалоге).</summary>
         public void MoveTopicToEnd(string topicId)
         {

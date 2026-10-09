@@ -135,6 +135,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         _hospitalizationManager.RestoreHospitalizedBuffIfActive();
 
                         _complicationManager.CleanupInvalidComplications();
+                        _complicationManager.ExpirePainFlareAfterRest();
 
                         // 1b. Сброс некорректного ReadyForNextPhase у простого лечения (TotalPhases == 0)
                         _stateManager.SanitizeNonPhasedReadyFlags();

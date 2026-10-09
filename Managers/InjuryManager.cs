@@ -628,10 +628,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     _dialogueManager.ClearUntreatedInjuryTopic(buffId, "синхронизация: лечение уже идёт");
                     _dialogueManager.ClearTreatmentNeededTopic(buffId, "синхронизация: лечение уже идёт");
                 }
-                else if (!debuffState.TreatmentStarted && InjurySets.HarveyTreatable.Contains(buffId))
-                {
-                    EnsureTreatmentNeededTopic(buffId);
-                }
+                // Темы начала лечения с $action (TreatmentNeeded_*/StartTreatment_*) здесь не добавляем:
+                // ими владеет синхронизация медицинских намерений (InjuryMedicalIntentProvider.ApplyTopicSync).
+                // Раньше этот метод добавлял их на каждом клике/синхронизации, а intent sync тут же снимал,
+                // если Core выбрал другое (например, тяжёлую травму лечат только в клинике), — бесконечный спам в логе.
             }
 
             foreach (string compId in _stateManager.State.ActiveComplications.Keys.ToList())
@@ -650,8 +650,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     restored++;
                 }
 
-                if (InjurySets.KnownComplicationBuffIds.Contains(compId))
-                    _dialogueManager.EnsureComplicationDialogueTopics(compId, 7);
+                // Только тема-реакция; темы лечения с $action ведёт intent sync (иначе тот же цикл «добавлен → снят»).
+                // У обострения боли нет и реакции «приходи, подберу обезболивание» — Харви его не лечит.
+                if (InjurySets.KnownComplicationBuffIds.Contains(compId)
+                    && !string.Equals(compId, InjuryBuffs.PainFlare, StringComparison.OrdinalIgnoreCase))
+                {
+                    _dialogueManager.EnsureComplicationReactionTopic(compId, 7);
+                }
             }
 
             if (stateDirty)

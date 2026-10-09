@@ -325,6 +325,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (TryBeginSelectedInjuryMedicalIntentDialogue(harvey, clickResolution, e))
                 return;
 
+            if (clickResolution?.Selected == null && TryAskAboutPainFlare(harvey))
+            {
+                SuppressHarveyClickButtons(e);
+                LastClickDebug = "PAIN FLARE: Харви спросил о боли (без лечения)";
+                return;
+            }
+
             LastClickDebug = BuildClickDebugSnapshot(
                 null,
                 null,
@@ -350,6 +357,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 TreatmentStartActions.AdvancePhase => TryBeginAdvancePhase(harvey, selected.StateId),
                 TreatmentStartActions.CompleteRecovery => TryBeginCompleteRecovery(harvey, selected.StateId),
+                TreatmentStartActions.StartTreatment => TryBeginStartTreatmentFromIntent(harvey, selected),
                 _ => false,
             };
 
@@ -366,6 +374,54 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 $"topic={selected.TopicKey}",
                 LogLevel.Info);
             return true;
+        }
+
+        private int _painFlareAskedDay = -1;
+
+        /// <summary>
+        /// Обострение боли: раз в день Харви спрашивает «Боль усилилась?» и советует покой — не лечит.
+        /// Остальные клики в этот день — обычный диалог.
+        /// </summary>
+        private bool TryAskAboutPainFlare(NPC harvey)
+        {
+            if (!_stateManager.State.ActiveComplications.ContainsKey(InjuryBuffs.PainFlare))
+                return false;
+
+            int today = GameUtils.Today();
+            if (_painFlareAskedDay == today)
+                return false;
+
+            string? line = LoadPainFlareAskLine();
+            if (string.IsNullOrWhiteSpace(line))
+                return false;
+
+            _painFlareAskedDay = today;
+            // Старая тема «приходи, подберу обезболивание» противоречит вопросу — убираем.
+            _dialogueManager.RemoveTopic(TopicIds.GetComplicationTopic(InjuryBuffs.PainFlare));
+            _dialogueManager.Speak(harvey, line);
+            _monitor.Log("[PainFlare] Харви спросил о боли (лечения нет, пройдёт после сна)", LogLevel.Info);
+            return true;
+        }
+
+        private string? LoadPainFlareAskLine()
+        {
+            const string key = "HarveyMod_PainFlare_Ask";
+            bool married = Game1.player.friendshipData.TryGetValue("Harvey", out var friendship) && friendship.IsMarried();
+            if (married)
+            {
+                try
+                {
+                    var marriage = Game1.content.Load<Dictionary<string, string>>("Characters/Dialogue/MarriageDialogueHarvey");
+                    if (marriage.TryGetValue(key, out string? marriedLine) && !string.IsNullOrWhiteSpace(marriedLine))
+                        return marriedLine;
+                }
+                catch (Exception)
+                {
+                    // нет ключа в MarriageDialogue — берём обычный
+                }
+            }
+
+            return _dialogueManager.TryLoadHarveyDialogue(key);
         }
 
         private bool ShouldDeferHiddenInjuryForMedicalIntent(HarveyMedicalIntentResolution? clickResolution)
@@ -672,6 +728,45 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             AdvanceToNextPhase(harvey, injuryId, debuffState);
             return _pendingMedicalAction != null;
+        }
+
+        /// <summary>
+        /// Харви уже знает о травме — лечение начинается с первого клика.
+        /// Раньше CP-тема старта (с $action) стояла в очереди после тем-комментариев, и игра показывала
+        /// её только через несколько кликов. Показываем ту же CP-реплику сразу; $action в ней запускает лечение.
+        /// </summary>
+        private bool TryBeginStartTreatmentFromIntent(NPC harvey, HarveyMedicalIntentRegistration selected)
+        {
+            var debuffState = _stateManager.GetDebuffState(selected.StateId);
+            if (debuffState == null || debuffState.TreatmentStarted)
+                return false;
+
+            // Скрытую травму ведёт вопрос «скрыть или признаться» (HiddenInjuryDialogueFlow).
+            if (debuffState.HiddenFromHarvey && !debuffState.HarveyAware)
+                return false;
+
+            var topicKeys = new[] { selected.TopicKey }
+                .Concat(selected.AlternativeTopicKeys)
+                .Where(k => !string.IsNullOrWhiteSpace(k))
+                .ToList();
+
+            string? line = topicKeys
+                .Select(k => _dialogueManager.TryLoadHarveyDialogue(k))
+                .FirstOrDefault(t => t != null && t.Contains("$action", StringComparison.OrdinalIgnoreCase));
+            if (line == null)
+            {
+                _monitor.Log(
+                    $"[MedicalAction] StartTreatment {selected.StateId}: нет CP-реплики с $action — обычный диалог",
+                    LogLevel.Info);
+                return false;
+            }
+
+            // Реплика показана здесь — убираем темы, чтобы игра не повторила её следующим кликом.
+            foreach (string key in topicKeys)
+                _dialogueManager.RemoveTopic(key);
+
+            _dialogueManager.Speak(harvey, line);
+            return true;
         }
 
         private bool TryBeginCompleteRecovery(NPC harvey, string injuryId)

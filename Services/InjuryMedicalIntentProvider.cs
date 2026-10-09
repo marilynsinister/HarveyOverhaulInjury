@@ -158,7 +158,10 @@ public sealed class InjuryMedicalIntentProvider
                 continue;
             }
 
-            if (!debuff.TreatmentStarted)
+            // Игрок сегодня решил скрыть травму: без намерения CP-тема с $action не начнёт лечение «в обход» ответа.
+            // Нескрытую/неотказанную травму оставляем — её приоритет не даёт стрессу перехватить клик раньше вопроса.
+            bool hiddenAndDeniedToday = debuff.HiddenFromHarvey && !debuff.HarveyAware && debuff.PlayerDeniedInjuryToday;
+            if (!debuff.TreatmentStarted && !hiddenAndDeniedToday)
                 intents.Add(BuildStartIntent(debuff, today));
         }
 

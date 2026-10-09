@@ -1536,7 +1536,35 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 $"[Proximity] Показ облачка: локация={_lastLocationName}, дистанция={distance:F1} клеток",
                 LogLevel.Debug);
             ShowProximityDiscovery(harvey, injuries);
+            TryShowUnnoticedInjuryHint();
             _proximityReactionShown = true;
+        }
+
+        private int _unnoticedInjuryHintDay = -1;
+
+        /// <summary>
+        /// Раз в день: подсказка, что лечение скрытой травмы начинается с разговора с Харви.
+        /// Не показываем, если игрок сегодня уже решил скрыть травму.
+        /// </summary>
+        private void TryShowUnnoticedInjuryHint()
+        {
+            int today = Helpers.GameUtils.Today();
+            if (_unnoticedInjuryHintDay == today)
+                return;
+
+            bool hasUnnoticed = _stateManager.GetAllActiveDebuffStates().Any(d =>
+                d.HiddenFromHarvey
+                && !d.HarveyAware
+                && !d.TreatmentStarted
+                && !d.PlayerDeniedInjuryToday
+                && (_injuryManager.HasInjuryOrPhase(d.BuffId) || Game1.player.hasBuff(d.BuffId)));
+            if (!hasUnnoticed)
+                return;
+
+            _unnoticedInjuryHintDay = today;
+            Game1.addHUDMessage(new HUDMessage(
+                "Харви внимательно смотрит на тебя. Поговори с ним.",
+                HUDMessage.newQuest_type));
         }
 
         /// <summary>
@@ -1911,6 +1939,26 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _toolUseCounters[toolKey]++;
         }
 
+        /// <summary>Игровые минуты ударов топором/киркой/мотыгой (для окна «тяжёлая работа за последний час»).</summary>
+        private readonly Queue<int> _recentHeavyToolUseMinutes = new();
+
+        private static bool IsHeavyToolKey(string toolKey) =>
+            toolKey is "Axe" or "Pickaxe" or "Hoe";
+
+        private int CountRecentHeavyToolUses(int currentMinutes, int windowMinutes)
+        {
+            // Новый день (время «откатилось») или старые записи — выбрасываем.
+            while (_recentHeavyToolUseMinutes.Count > 0)
+            {
+                int first = _recentHeavyToolUseMinutes.Peek();
+                if (first <= currentMinutes && currentMinutes - first <= windowMinutes)
+                    break;
+                _recentHeavyToolUseMinutes.Dequeue();
+            }
+
+            return _recentHeavyToolUseMinutes.Count;
+        }
+
         private int GetToolUseCounter(string toolKey)
         {
             return _toolUseCounters.TryGetValue(toolKey, out int count) ? count : 0;
@@ -2008,6 +2056,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _lastToolUseTick = tick;
             _lastToolUseKey = toolKey;
 
+            if (IsHeavyToolKey(toolKey))
+            {
+                int nowMinutes = Helpers.GameUtils.CurrentTimeInMinutes();
+                _complicationManager.LastHeavyWorkMinutes = nowMinutes;
+                _recentHeavyToolUseMinutes.Enqueue(nowMinutes);
+            }
+
             _monitor.Log(
                 $"[FarmingInjury] Tool use: {toolKey}, count={GetToolUseCounter(toolKey)}, stamina={Game1.player.Stamina:F0}",
                 LogLevel.Trace);
@@ -2032,11 +2087,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (_complicationManager.IsMainInjuryIn(InjurySets.OverworkSensitive))
             {
-                int totalUses = GetToolUseCounter("Scythe")
-                    + GetToolUseCounter("Axe")
-                    + GetToolUseCounter("Pickaxe")
-                    + GetToolUseCounter("Hoe")
-                    + GetToolUseCounter("WateringCan");
+                // Только тяжёлые инструменты за последний игровой час, а не накопленное за день.
+                int totalUses = CountRecentHeavyToolUses(currentMinutes, windowMinutes: 60);
                 float staminaThreshold = Math.Min(
                     deepCutsStaminaThreshold,
                     Math.Min(tornMusclesStaminaThreshold, backStrainStaminaThreshold));
@@ -2044,7 +2096,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     _config.DeepCutsToolUsesThreshold,
                     Math.Min(_config.TornMusclesToolUsesThreshold, _config.BackStrainToolUsesThreshold));
 
-                LogFarmingInjuryPotential("OverworkComplication", stamina);
+                // Лог только при реальном броске: раньше строка писалась каждую секунду со счётчиками за весь день.
+                if (_complicationManager.IsDoingHeavyWorkRecently()
+                    && (stamina <= staminaThreshold || totalUses >= usesThreshold))
+                {
+                    _monitor.Log(
+                        $"[FarmingInjury] Overwork roll: тяжёлых ударов за час={totalUses}/{usesThreshold}, " +
+                        $"stamina={stamina:F0}/{staminaThreshold:F0}, {FormatInjuryDiagnosticContext()}",
+                        LogLevel.Debug);
+                }
 
                 if (_complicationManager.TryRollOverworkComplication(
                         stamina,

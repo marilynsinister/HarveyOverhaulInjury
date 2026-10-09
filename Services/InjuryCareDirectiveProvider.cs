@@ -42,6 +42,7 @@ public sealed class InjuryCareDirectiveProvider : IHarveyCareDirectiveProvider
         int today = Context.IsWorldReady ? (int)Game1.stats.DaysPlayed : -1;
 
         AppendComplicationDirectives(state, directives);
+        AppendUnnoticedInjuryHint(directives);
         AppendTreatmentDirectives(state, recoveryVm, directives);
         AppendRecoveryPlanTasks(recoveryVm, directives);
         AppendPrescriptionDirectives(state, today, directives);
@@ -69,6 +70,40 @@ public sealed class InjuryCareDirectiveProvider : IHarveyCareDirectiveProvider
 
             AppendComplication(id, directives);
         }
+    }
+
+    /// <summary>
+    /// Травма, о которой Харви не знает: без подсказки игрок не догадывается, что лечение начинается с разговора.
+    /// Название травмы не раскрываем (Харви лишь «что-то заметил»). Если сегодня игрок решил скрыть — не напоминаем.
+    /// </summary>
+    private void AppendUnnoticedInjuryHint(List<HarveyCareDirective> directives)
+    {
+        if (!Context.IsWorldReady)
+            return;
+
+        bool hasUnnoticed = _stateManager.GetAllActiveDebuffStates().Any(d =>
+            d.HiddenFromHarvey
+            && !d.HarveyAware
+            && !d.TreatmentStarted
+            && !d.PlayerDeniedInjuryToday
+            && InjurySets.HarveyTreatable.Contains(d.BuffId)
+            && (_injuryManager.HasInjuryOrPhase(d.BuffId) || Game1.player.hasBuff(d.BuffId)));
+
+        if (!hasUnnoticed)
+            return;
+
+        directives.Add(new HarveyCareDirective
+        {
+            Id = "injury.unnoticed.talk",
+            Source = HarveyCareDirectiveSource.Injury,
+            Type = HarveyCareDirectiveType.Appointment,
+            Title = "Поговори с Харви",
+            Text = "Харви поглядывает на тебя с беспокойством — он спросит, всё ли в порядке.",
+            Reason = "У тебя есть травма, о которой Харви ещё не знает.",
+            NextStep = "в разговоре можно признаться — тогда сразу начнётся лечение — или промолчать.",
+            Priority = HarveyCareDirectivePriority.Normal,
+            HarveyTone = HarveyCareDirectiveTone.Calm,
+        });
     }
 
     private static void AppendComplication(string buffId, List<HarveyCareDirective> directives)

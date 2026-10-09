@@ -82,11 +82,20 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (harvey == null || Game1.player == null || Game1.currentLocation == null)
                 return false;
 
-            if (IsQuestionPending)
+            // Для прямого разговора пишем причину пропуска в лог (Info), чтобы было видно,
+            // почему вместо вопроса о травме показан обычный диалог.
+            bool Skip(string reason)
+            {
+                if (isDirectTalk)
+                    _monitor.Log($"[HiddenInjuryFlow] talk: вопрос о травме не задан — {reason}", LogLevel.Info);
                 return false;
+            }
+
+            if (IsQuestionPending)
+                return Skip("вопрос уже открыт");
 
             if (ShouldDeferForActiveTreatableComplication())
-                return false;
+                return Skip("сначала осложнение");
 
             var injuryState = _stateManager.State;
             var context = InjuryVisibilityHelper.BuildDetectionContext(
@@ -96,29 +105,36 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 isProximityCheck);
 
             if (!context.HarveyIsPresent)
-                return false;
+                return Skip($"Харви дальше {_config.ProximityTiles} клеток");
 
             DebuffState? target = PickMostImportantHiddenInjury(context);
             if (target == null)
-                return false;
+                return false; // скрытых травм нет — обычный случай, не логируем
 
             var profile = InjuryVisibilityHelper.GetVisibilityProfile(target.BuffId);
             if (!InjuryVisibilityHelper.ShouldHarveyDetectHiddenInjury(target, profile, context))
-                return false;
+                return Skip($"{target.BuffId}: Харви не заметил");
 
             FlowKind kind = DetermineFlowKind(target, profile, context);
 
+            bool started;
             if (context.IsFestivalContext && !IsEmergency(target.BuffId, target, context))
-                return TryStartFestivalNotice(harvey, target.BuffId, context);
+                started = TryStartFestivalNotice(harvey, target.BuffId, context);
+            else if (kind == FlowKind.ForcedReveal)
+                started = TryStartForcedRevealFlow(harvey, target, context);
+            else if (kind == FlowKind.Obvious)
+                started = TryStartObviousFlow(harvey, target, context);
+            else
+                started = TryStartSuspicionFlow(harvey, target, context);
 
-            if (kind == FlowKind.ForcedReveal)
-                return TryStartForcedRevealFlow(harvey, target, context);
+            if (!started)
+                Skip($"{target.BuffId}: {_lastCanAskBlockReason ?? "нет текста вопроса"}");
 
-            if (kind == FlowKind.Obvious)
-                return TryStartObviousFlow(harvey, target, context);
-
-            return TryStartSuspicionFlow(harvey, target, context);
+            return started;
         }
+
+        /// <summary>Последняя причина отказа CanAskAboutHiddenInjury (для лога клика).</summary>
+        private string? _lastCanAskBlockReason;
 
         /// <summary>Domestic morning/evening check (pre-validated proximity and injury).</summary>
         public bool TryStartDomesticHiddenInjuryFlow(NPC harvey, string reason, DebuffState target)
@@ -465,6 +481,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
             string revealReason,
             DetectionContext context)
         {
+            // Реплика-тема травмы (topicBruisedRibs: «Ушиб рёбер. Сяду, осмотрю…») написана как начало осмотра —
+            // показываем её последней страницей признания. Тема снимется при старте лечения, второй раз её не будет.
+            dialogueText = CombineDialogueParts(dialogueText, GetInjuryTopicLine(buffId));
+
             if (string.IsNullOrWhiteSpace(dialogueText))
             {
                 _monitor.Log(
@@ -481,6 +501,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             _dialogueManager.Speak(harvey, dialogueText);
             _monitor.Log("[HiddenInjuryFlow] queued reveal/treatment after dialogue close", LogLevel.Info);
+        }
+
+        /// <summary>CP-реплика темы травмы, если тема ещё активна (иначе пусто).</summary>
+        private string GetInjuryTopicLine(string buffId)
+        {
+            string topic = TopicIds.GetInjuryTopic(buffId);
+            if (!_dialogueManager.HasTopic(topic))
+                return "";
+
+            return _dialogueManager.TryLoadHarveyDialogue(topic) ?? "";
         }
 
         private void ClearAfterDialogueQueue()
@@ -650,10 +680,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private bool CanAskAboutHiddenInjury(DebuffState state, DetectionContext context, FlowKind kind)
         {
+            _lastCanAskBlockReason = null;
             var injuryState = _stateManager.State;
 
             if (!string.IsNullOrEmpty(injuryState.PendingHiddenInjuryBuffId))
+            {
+                _lastCanAskBlockReason = $"завис незакрытый вопрос ({injuryState.PendingHiddenInjuryBuffId})";
                 return false;
+            }
 
             if (IsEmergency(state.BuffId, state, context) || kind == FlowKind.ForcedReveal)
                 return true;
@@ -666,7 +700,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 if (elapsed < 0)
                     elapsed += 2400;
                 if (elapsed < PostponeCooldownGameMinutes)
+                {
+                    _lastCanAskBlockReason = $"игрок ответил «не сейчас» {elapsed}/{PostponeCooldownGameMinutes} мин назад";
                     return false;
+                }
             }
 
             if (injuryState.LastHiddenInjuryQuestionDay == today
@@ -684,7 +721,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 }
 
                 if (!IsEmergency(state.BuffId, state, context) && kind != FlowKind.ForcedReveal)
+                {
+                    _lastCanAskBlockReason = "сегодня уже спрашивал, игрок решил скрыть травму";
                     return false;
+                }
             }
 
             return true;

@@ -290,10 +290,60 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (string.Equals(compId, InjuryBuffs.WetBandage, StringComparison.OrdinalIgnoreCase))
                 return IsWetBandageComplicationValid();
 
+            // Обострение боли Харви не лечит: он расспрашивает и советует покой, боль проходит после сна
+            // (ExpirePainFlareAfterRest). Поэтому PainFlare не создаёт медицинского намерения и тем с $action.
             if (string.Equals(compId, InjuryBuffs.PainFlare, StringComparison.OrdinalIgnoreCase))
-                return IsPainFlareComplicationValid();
+                return false;
 
             return _buffManager.HasBuff(compId) || _stateManager.HasDebuffState(compId);
+        }
+
+        /// <summary>Игровая минута последнего удара тяжёлым инструментом (топор/кирка/мотыга); -1 — не было.</summary>
+        public int LastHeavyWorkMinutes { get; set; } = -1;
+
+        private const int HeavyWorkRecentMinutes = 30;
+
+        /// <summary>Только что была тяжёлая работа (за последние 30 игровых минут).</summary>
+        public bool IsDoingHeavyWorkRecently()
+        {
+            if (LastHeavyWorkMinutes < 0)
+                return false;
+
+            int elapsed = GameUtils.CurrentTimeInMinutes() - LastHeavyWorkMinutes;
+            return elapsed >= 0 && elapsed <= HeavyWorkRecentMinutes;
+        }
+
+        /// <summary>
+        /// Обстановка, в которой боль реально может обостриться: гроза на улице, тяжёлая работа, шахта/вулкан.
+        /// Прогулка по деревне и разговоры с жителями сюда не входят.
+        /// </summary>
+        private bool IsPainFlareContext()
+        {
+            var location = Game1.player?.currentLocation;
+            if (location == null)
+                return false;
+
+            if (Game1.isLightning && location.IsOutdoors)
+                return true;
+
+            if (location is StardewValley.Locations.MineShaft or StardewValley.Locations.VolcanoDungeon)
+                return true;
+
+            return IsDoingHeavyWorkRecently();
+        }
+
+        /// <summary>Утром после сна обострение проходит (Харви его не лечит).</summary>
+        public void ExpirePainFlareAfterRest()
+        {
+            if (!_stateManager.State.ActiveComplications.TryGetValue(InjuryBuffs.PainFlare, out int startDay))
+                return;
+
+            if (startDay >= GameUtils.Today())
+                return;
+
+            RemoveComplication(InjuryBuffs.PainFlare);
+            Game1.addHUDMessage(new HUDMessage("После сна обострение боли утихло.", HUDMessage.newQuest_type));
+            _monitor.Log($"[Complication] PainFlare снят после отдыха (с дня {startDay})", LogLevel.Info);
         }
 
         /// <summary>
@@ -303,6 +353,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             if (!InjurySets.IsPainFlareEligibleMain(GetActiveMainInjuryId()))
                 return false;
+
+            if (!IsPainFlareContext())
+            {
+                _monitor.Log(
+                    $"[Complication] PainFlare пропущен: нет грозы/нагрузки/шахты (попытка: {attemptedInjuryId})",
+                    LogLevel.Debug);
+                return false;
+            }
 
             return TryApplyComplication(
                 InjuryBuffs.PainFlare,
@@ -693,7 +751,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _buffManager.AddBuff(complicationId, -2);
             _stateManager.State.ActiveComplications[complicationId] = today;
             _stateManager.CreateComplicationState(complicationId, today);
-            _dialogueManager.EnsureComplicationDialogueTopics(complicationId, topicDays);
+
+            // PainFlare: без CP-тем лечения ($action) и темы «приходи, подберу обезболивание» —
+            // на клик Харви отвечает вопросом HarveyMod_PainFlare_Ask (InteractionHandler).
+            if (!string.Equals(complicationId, InjuryBuffs.PainFlare, StringComparison.OrdinalIgnoreCase))
+                _dialogueManager.EnsureComplicationDialogueTopics(complicationId, topicDays);
 
             if (hudMessage != null)
                 Game1.addHUDMessage(hudMessage);
@@ -781,6 +843,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public bool TryRollOverworkComplication(float stamina, int toolUses, float staminaThreshold, int toolUsesThreshold)
         {
             if (!IsMainInjuryIn(InjurySets.OverworkSensitive))
+                return false;
+
+            // Раньше хватало низкой выносливости или 20 взмахов за весь день (включая лейку) — после утреннего полива
+            // обострение выпадало каждый час даже на прогулке по деревне. Теперь нужна именно текущая тяжёлая работа.
+            if (!IsDoingHeavyWorkRecently())
                 return false;
 
             if (stamina > staminaThreshold && toolUses < toolUsesThreshold)

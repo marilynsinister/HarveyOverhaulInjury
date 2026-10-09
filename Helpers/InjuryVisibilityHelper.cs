@@ -247,7 +247,10 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             if (profile.BaseVisibility == InjuryVisibilityLevel.Unhideable)
                 return true;
 
-            if (context.IsDirectTalk && profile.AutoRevealOnTalkToHarvey)
+            // Игрок сам подошёл к Харви — он всегда спрашивает о травме (скрыть всё ещё можно ответом).
+            // Раньше лёгкие травмы не набирали порог 6, и вместо вопроса шли реплики-комментарии:
+            // игрок не понимал, сколько раз нужно кликнуть.
+            if (context.IsDirectTalk)
                 return true;
 
             if (context.IsProximityCheck && profile.AutoRevealOnProximityToHarvey)

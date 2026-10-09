@@ -455,6 +455,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return false;
             }
 
+            // Обострение боли не лечится у Харви (старые сейвы могли сохранить тему с $action).
+            if (string.Equals(complicationId, InjuryBuffs.PainFlare, StringComparison.OrdinalIgnoreCase))
+            {
+                skipReason = "PainFlare не лечится — проходит после сна";
+                _monitor.Log($"[ComplicationTreatment] {skipReason}", LogLevel.Info);
+                return false;
+            }
+
             bool isActive = _stateManager.State.ActiveComplications.ContainsKey(complicationId)
                 || _buffManager.HasBuff(complicationId);
             if (!isActive)
