@@ -179,6 +179,25 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// <summary>Дни приёма обезболивающего (для проверки злоупотребления).</summary>
         public List<int> PainkillerUseDays { get; set; } = new();
 
+        /// <summary>Медицинская карта: травмы, от которых игрок полностью выздоровел.</summary>
+        public List<MedicalRecord> MedicalHistory { get; set; } = new();
+
+        /// <summary>Открытые медицинские достижения (MedicalAchievements.*).</summary>
+        public List<string> MedicalAchievements { get; set; } = new();
+
+        /// <summary>«Закалка» после тяжёлой травмы активна по этот день включительно (-1 = нет).</summary>
+        public int ResilienceUntilDay { get; set; } = -1;
+
+        /// <summary>День последней мелкой неприятности (заноза, укус, солнечный удар, обморожение).</summary>
+        public int LastMishapDay { get; set; } = -1;
+
+        /// <summary>День, к которому относятся счётчики пребывания на солнце/холоде.</summary>
+        public int MishapExposureDay { get; set; } = -1;
+
+        public int SunExposureMinutesToday { get; set; } = 0;
+
+        public int ColdExposureMinutesToday { get; set; } = 0;
+
         /// <summary>День отправки медицинского письма: dedupeKey → DaysPlayed (не чаще 1×/день на повод).</summary>
         public Dictionary<string, int> SentMedicalMailDays { get; set; } = new();
 

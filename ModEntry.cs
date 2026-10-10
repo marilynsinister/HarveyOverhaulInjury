@@ -56,6 +56,8 @@ namespace HarveyOverhaul.InjuryCare
         private TreatmentPlanManager _treatmentPlanManager = null!;
         private SelfCareManager _selfCareManager = null!;
         private MedicalItemManager _medicalItemManager = null!;
+        private MedicalCardManager _medicalCardManager = null!;
+        private MishapManager _mishapManager = null!;
         private DoctorVisitReminderManager _doctorVisitReminderManager = null!;
         private MedicalLetterScheduler _medicalLetterScheduler = null!;
 
@@ -3627,11 +3629,21 @@ namespace HarveyOverhaul.InjuryCare
                 _checkupManager,
                 _treatmentPlanManager);
 
+            _medicalCardManager = new MedicalCardManager(
+                Monitor,
+                _stateManager,
+                _buffManager,
+                _dialogueManager,
+                _injuryManager);
+            _treatmentManager.InjuryRecovered += _medicalCardManager.OnInjuryRecovered;
+            _mishapManager = new MishapManager(Monitor, _config, _stateManager, _buffManager, _dialogueManager);
+
             _injuryPanelProvider = new InjuryPanelProvider(
                 _stateManager,
                 _injuryManager,
                 _recoveryPlanManager,
-                _careTrustManager);
+                _careTrustManager,
+                _medicalCardManager);
             _injuryCareDirectiveProvider = new InjuryCareDirectiveProvider(
                 _config,
                 _stateManager,
@@ -3685,7 +3697,9 @@ namespace HarveyOverhaul.InjuryCare
                 _complianceManager,
                 _complicationManager,
                 _selfCareManager,
-                _treatmentManager);
+                _treatmentManager,
+                _mishapManager,
+                _medicalCardManager);
 
             _treatmentStartHandler = new TreatmentStartHandler(
                 Monitor,
@@ -3881,6 +3895,13 @@ namespace HarveyOverhaul.InjuryCare
             events.Input.ButtonPressed += _interactionHandler.OnButtonPressed;
             events.Input.ButtonPressed += _medicalItemManager.OnButtonPressed;
             events.GameLoop.UpdateTicked += _medicalItemManager.OnUpdateTicked;
+            events.GameLoop.UpdateTicked += _mishapManager.OnUpdateTicked;
+            events.GameLoop.TimeChanged += _mishapManager.OnTimeChanged;
+            events.GameLoop.DayStarted += (_, _) =>
+            {
+                _mishapManager.OnDayStarted();
+                _medicalCardManager.OnDayStarted();
+            };
             events.GameLoop.UpdateTicked += _interactionHandler.OnUpdateTicked;
             events.GameLoop.UpdateTicked += _injuryMedicalIntentProvider.OnUpdateTicked;
             events.GameLoop.UpdateTicked += _hiddenInjuryDialogueFlow.OnUpdateTicked;

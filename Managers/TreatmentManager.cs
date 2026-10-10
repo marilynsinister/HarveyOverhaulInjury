@@ -310,8 +310,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>
         /// Централизованная финальная очистка после полного выздоровления от травмы.
         /// </summary>
+        /// <summary>Полное выздоровление: id травмы и её состояние до очистки (для медицинской карты).</summary>
+        public event Action<string, DebuffState?>? InjuryRecovered;
+
         public void ApplyFullRecoveryCleanup(string injuryId)
         {
+            var recoveredState = _stateManager.GetDebuffState(injuryId)?.Clone();
             _injuryManager.RemoveAllPhaseBuffs(injuryId);
             RemoveRecoveryTreatmentBuffs(injuryId);
 
@@ -326,6 +330,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _stateManager.State.TimeUnderRainTicks = 0;
 
             _stateManager.Save();
+            InjuryRecovered?.Invoke(injuryId, recoveredState);
         }
 
         /// <summary>

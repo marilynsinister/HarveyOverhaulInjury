@@ -78,6 +78,12 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 value => config.EnableFarmingToolUseInjuries = value,
                 () => "Травмы от работы на ферме",
                 () => "Растяжения и порезы при долгой работе инструментами с низкой энергией.");
+            gmcm.AddBoolOption(
+                manifest,
+                () => config.EnableMinorMishaps,
+                value => config.EnableMinorMishaps = value,
+                () => "Мелкие неприятности",
+                () => "Заноза, укус пчелы, солнечный удар, обморожение. Проходят за ночь или лечатся предметами.");
             gmcm.AddNumberOption(
                 manifest,
                 () => config.MineForbiddenDurationDays,
@@ -122,6 +128,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             config.RegimenAffectsRecoveryPace = defaults.RegimenAffectsRecoveryPace;
             config.ForceHospitalization = defaults.ForceHospitalization;
             config.EnableFarmingToolUseInjuries = defaults.EnableFarmingToolUseInjuries;
+            config.EnableMinorMishaps = defaults.EnableMinorMishaps;
             config.MineForbiddenDurationDays = defaults.MineForbiddenDurationDays;
             config.MedicalLetters = defaults.MedicalLetters;
             config.SendRomanticCareLetters = defaults.SendRomanticCareLetters;

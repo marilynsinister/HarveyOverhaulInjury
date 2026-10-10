@@ -18,13 +18,16 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
     private readonly InjuryManager _injuryManager;
     private readonly RecoveryPlanManager _recoveryPlanManager;
     private readonly CareTrustManager _careTrustManager;
+    private readonly MedicalCardManager _medicalCardManager;
 
     public InjuryPanelProvider(
         StateManager stateManager,
         InjuryManager injuryManager,
         RecoveryPlanManager recoveryPlanManager,
-        CareTrustManager careTrustManager)
+        CareTrustManager careTrustManager,
+        MedicalCardManager medicalCardManager)
     {
+        _medicalCardManager = medicalCardManager;
         _stateManager = stateManager;
         _injuryManager = injuryManager;
         _recoveryPlanManager = recoveryPlanManager;
@@ -57,7 +60,7 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
             HasPriorityAppointment = pendingReview,
             OverviewFields = BuildOverviewFields(injuries, complications, hasAnyInjury, pendingReview),
             OverviewSections = BuildOverviewSections(injuries, complications, hasAnyInjury, pendingReview, recoveryVm),
-            InjurySections = BuildInjurySections(injuries, complications, hasAnyInjury),
+            InjurySections = BuildInjurySectionsWithCard(injuries, complications, hasAnyInjury),
             InjuriesBody = FormatInjuriesBody(injuries, complications, hasAnyInjury),
             TrustSections = BuildTrustSections(),
         };
@@ -216,6 +219,28 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
             });
         }
 
+        return sections;
+    }
+
+    /// <summary>Текущие травмы + медицинская карта (история, шрамы, достижения) внизу вкладки.</summary>
+    private List<HarveyPanelSectionDto> BuildInjurySectionsWithCard(
+        IReadOnlyList<InjuryPanelEntry> injuries,
+        IReadOnlyList<InjuryPanelEntry> complications,
+        bool hasAnyInjury)
+    {
+        var sections = BuildInjurySections(injuries, complications, hasAnyInjury);
+        if (!hasAnyInjury)
+        {
+            sections.Add(new HarveyPanelSectionDto
+            {
+                Title = "Сейчас",
+                Body = "Активных травм нет. Береги себя.",
+                Priority = 0,
+                Severity = HarveyPanelSeverity.Success,
+            });
+        }
+
+        sections.AddRange(_medicalCardManager.BuildPanelSections(basePriority: 100));
         return sections;
     }
 

@@ -163,6 +163,9 @@ namespace HarveyOverhaul.InjuryCare.Core
         /// <summary>Соблюдение предписаний сокращает текущую фазу лечения, нарушения — удлиняют.</summary>
         public bool RegimenAffectsRecoveryPace { get; set; } = true;
 
+        /// <summary>Мелкие неприятности: заноза, укус пчелы, солнечный удар, обморожение.</summary>
+        public bool EnableMinorMishaps { get; set; } = true;
+
         /// <summary>Пресет сложности: Cozy, Realistic, Hardcore или Custom (свои множители ниже).</summary>
         public string Difficulty { get; set; } = DifficultyPresets.Realistic;
 

@@ -767,6 +767,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (string.Equals(buffId, StatusBuffs.Hospitalized, StringComparison.OrdinalIgnoreCase))
                 return false;
 
+            // Мелкие неприятности проходят за ночь; «Закалку» восстанавливает MedicalCardManager.
+            if (MishapBuffs.All.Contains(buffId)
+                || string.Equals(buffId, MedicalCardBuffs.Resilience, StringComparison.OrdinalIgnoreCase))
+                return false;
+
             if (string.Equals(buffId, ReminderBuffs.DoctorVisitNeeded, StringComparison.OrdinalIgnoreCase))
                 return false;
 

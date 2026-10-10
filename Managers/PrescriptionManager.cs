@@ -388,6 +388,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 if (ds.PhaseDurationAdjustment < MaxSlowdownDays)
                 {
                     ds.PhaseDurationAdjustment++;
+                    ds.TotalRegimenAdjustment++;
                     Game1.addHUDMessage(new HUDMessage(
                         "Вчерашнее нарушение режима замедлило заживление (+1 день до следующего этапа).",
                         HUDMessage.error_type));
@@ -402,6 +403,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 {
                     ds.GoodRegimenDays = 0;
                     ds.PhaseDurationAdjustment--;
+                    ds.TotalRegimenAdjustment--;
                     Game1.addHUDMessage(new HUDMessage(
                         "Ты соблюдаешь режим — заживление идёт быстрее (−1 день до следующего этапа).",
                         HUDMessage.health_type));

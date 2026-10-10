@@ -130,6 +130,9 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
 
         /// <summary>День последнего пересчёта темпа восстановления (не чаще раза в день).</summary>
         public int LastRegimenPaceDay { get; set; } = -1;
+
+        /// <summary>Суммарный сдвиг сроков от режима за всё лечение (для медицинской карты).</summary>
+        public int TotalRegimenAdjustment { get; set; } = 0;
         
         // ============================================================================
         // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
@@ -264,7 +267,8 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
                 CheckupOverduePenaltyApplied = CheckupOverduePenaltyApplied,
                 PhaseDurationAdjustment = PhaseDurationAdjustment,
                 GoodRegimenDays = GoodRegimenDays,
-                LastRegimenPaceDay = LastRegimenPaceDay
+                LastRegimenPaceDay = LastRegimenPaceDay,
+                TotalRegimenAdjustment = TotalRegimenAdjustment
             };
         }
     }

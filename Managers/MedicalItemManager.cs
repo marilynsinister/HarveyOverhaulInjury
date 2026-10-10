@@ -28,8 +28,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly ComplicationManager _complicationManager;
         private readonly SelfCareManager _selfCareManager;
         private readonly TreatmentManager _treatmentManager;
+        private readonly MishapManager _mishapManager;
+        private readonly MedicalCardManager _medicalCardManager;
 
-        private bool _drinkingHerbalTea;
+        private StardewValley.Object? _itemBeingEaten;
 
         public MedicalItemManager(
             IMonitor monitor,
@@ -40,7 +42,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             ComplianceManager complianceManager,
             ComplicationManager complicationManager,
             SelfCareManager selfCareManager,
-            TreatmentManager treatmentManager)
+            TreatmentManager treatmentManager,
+            MishapManager mishapManager,
+            MedicalCardManager medicalCardManager)
         {
             _monitor = monitor;
             _input = input;
@@ -51,6 +55,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _complicationManager = complicationManager;
             _selfCareManager = selfCareManager;
             _treatmentManager = treatmentManager;
+            _mishapManager = mishapManager;
+            _medicalCardManager = medicalCardManager;
         }
 
         public void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
@@ -93,24 +99,44 @@ namespace HarveyOverhaul.InjuryCare.Managers
             var player = Game1.player;
             if (player.isEating)
             {
-                if (player.itemToEat?.QualifiedItemId == MedicalItems.HerbalTea)
-                    _drinkingHerbalTea = true;
+                if (player.itemToEat is StardewValley.Object eating)
+                    _itemBeingEaten = eating;
                 return;
             }
 
-            if (!_drinkingHerbalTea)
+            if (_itemBeingEaten == null)
                 return;
 
-            _drinkingHerbalTea = false;
-            if (_selfCareManager.ApplyWarmTea(requireHome: false))
+            var consumed = _itemBeingEaten;
+            _itemBeingEaten = null;
+            _mishapManager.OnConsumed(consumed);
+            if (consumed.QualifiedItemId == MedicalItems.HerbalTea && _selfCareManager.ApplyWarmTea(requireHome: false))
                 _monitor.Log("[MedicalItem] Травяной сбор: простуда облегчена", LogLevel.Info);
+        }
+
+        /// <summary>Предмет не нужен для основной цели — может, им можно снять мелкую неприятность.</summary>
+        private bool TryCureMishap(string message, params string[] mishapIds)
+        {
+            if (_mishapManager.TryCure(mishapIds) == null)
+                return false;
+
+            Game1.addHUDMessage(new HUDMessage(message, HUDMessage.health_type));
+            return true;
         }
 
         private bool UseCleanBandage()
         {
             string? blockReason = _selfCareManager.GetCleanBandageBlockReason();
             if (blockReason != null)
+            {
+                if (TryCureMishap("Ты вытащила занозу и заклеила палец.", MishapBuffs.Splinter))
+                {
+                    Game1.playSound("leafrustle");
+                    return true;
+                }
+
                 return Refuse(blockReason);
+            }
 
             if (!_selfCareManager.ApplyCleanBandage(requireHome: false))
                 return Refuse("Сейчас перевязывать нечего.");
@@ -128,7 +154,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             bool removedDirtyWound = _complicationManager.RemoveComplicationBySelfCare(InjuryBuffs.DirtyWound, "antiseptic");
             if (!removedDirtyWound && !_complicationManager.CanReceiveMineDirtyWound())
+            {
+                if (TryCureMishap("Ты обработала ранку антисептиком. Щиплет, но заживёт быстро.", MishapBuffs.Splinter, MishapBuffs.BeeSting))
+                {
+                    Game1.playSound("waterSlosh");
+                    return true;
+                }
+
                 return Refuse("Сейчас обрабатывать нечего.");
+            }
 
             state.LastAntisepticDay = today;
             state.SelfCareProtections[SelfCareProtectionTypes.Antiseptic] = today;
@@ -149,7 +183,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private bool UsePainkiller()
         {
             if (!_complicationManager.HasComplication(InjuryBuffs.PainFlare) && !_buffManager.HasBuff(InjuryBuffs.PainFlare))
+            {
+                if (TryCureMishap("Таблетка сняла отёк от укуса.", MishapBuffs.BeeSting))
+                {
+                    Game1.playSound("smallSelect");
+                    return true;
+                }
+
                 return Refuse("Сильной боли сейчас нет. Без нужды таблетки лучше не пить.");
+            }
 
             _complicationManager.RemoveComplicationBySelfCare(InjuryBuffs.PainFlare, "painkiller");
 
@@ -184,12 +226,20 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (untreatedMinorInjury && _treatmentManager.ApplySelfTreatmentForMinorInjury(MinorInjuryId))
             {
+                _medicalCardManager.Unlock(MedicalAchievements.SelfReliant);
                 _dialogueManager.AddTopic(ConversationTopics.UsedFirstAidKit, TopicDays);
                 _stateManager.Save();
                 Game1.playSound("powerup");
                 Game1.addHUDMessage(new HUDMessage(
                     "Ты сама обработала рану по правилам Харви. Лёгкая травма под контролем.",
                     HUDMessage.health_type));
+                return true;
+            }
+
+            if (TryCureMishap("Аптечка пригодилась: с мелкой бедой справилась сама.",
+                    MishapBuffs.Splinter, MishapBuffs.BeeSting, MishapBuffs.Sunstroke, MishapBuffs.Frostbite))
+            {
+                Game1.playSound("powerup");
                 return true;
             }
 

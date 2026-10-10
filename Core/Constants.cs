@@ -163,6 +163,35 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string Antiseptic = "Antiseptic";
     }
 
+    /// <summary>Мелкие неприятности: однодневные баффы без фазового лечения (CP: assets/Code/minorMishaps.json).</summary>
+    public static class MishapBuffs
+    {
+        public const string Splinter = "HarveyMod_Splinter";
+        public const string BeeSting = "HarveyMod_BeeSting";
+        public const string Sunstroke = "HarveyMod_Sunstroke";
+        public const string Frostbite = "HarveyMod_Frostbite";
+
+        public static readonly HashSet<string> All = new(StringComparer.OrdinalIgnoreCase)
+        {
+            Splinter, BeeSting, Sunstroke, Frostbite,
+        };
+    }
+
+    /// <summary>Медицинская карта: бафф «Закалка» и достижения.</summary>
+    public static class MedicalCardBuffs
+    {
+        public const string Resilience = "HarveyMod_Resilience";
+    }
+
+    public static class MedicalAchievements
+    {
+        public const string FirstRecovery = "FirstRecovery";
+        public const string ModelPatient = "ModelPatient";
+        public const string ThroughThorns = "ThroughThorns";
+        public const string Veteran = "Veteran";
+        public const string SelfReliant = "SelfReliant";
+    }
+
     /// <summary>Значения ModConfig.Difficulty.</summary>
     public static class DifficultyPresets
     {
@@ -285,6 +314,7 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string UsedAntiseptic = "topicHarvey_UsedAntiseptic";
         public const string UsedFirstAidKit = "topicHarvey_UsedFirstAidKit";
         public const string PainkillerOveruse = "topicHarvey_PainkillerOveruse";
+        public const string MedicalMilestone = "topicHarvey_MedicalMilestone";
 
         // --- Proximity-реакции Харви ---
         public const string ProximityReaction = "topicHarvey_ProximityReaction";
