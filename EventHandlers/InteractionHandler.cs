@@ -294,6 +294,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
+            if (IsHoldingQuestDeliveryForHarvey())
+            {
+                LastClickDebug = "ALLOWED: доставка предмета по квесту Харви";
+                return;
+            }
+
             _stateManager.SanitizeNonPhasedReadyFlags();
             _injuryManager.EnsureActiveTreatmentBuffs();
             var clickResolution = _medicalIntentProvider.SyncOnHarveyClick(logDetails: true);
@@ -336,6 +342,20 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 null,
                 null,
                 "ALLOWED: vanilla/CP dialogue — treatment only via $action or hidden-injury choice");
+        }
+
+        /// <summary>Игрок держит предмет для активного квеста доставки Харви — не перехватываем клик.</summary>
+        private static bool IsHoldingQuestDeliveryForHarvey()
+        {
+            string? heldId = Game1.player.ActiveObject?.QualifiedItemId;
+            if (heldId == null)
+                return false;
+
+            return Game1.player.questLog.Any(quest =>
+                quest is StardewValley.Quests.ItemDeliveryQuest delivery
+                && !delivery.completed.Value
+                && delivery.target.Value == "Harvey"
+                && ItemRegistry.QualifyItemId(delivery.ItemId.Value) == heldId);
         }
 
         /// <summary>
