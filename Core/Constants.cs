@@ -163,6 +163,17 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string Antiseptic = "Antiseptic";
     }
 
+    /// <summary>Значения ModConfig.Difficulty.</summary>
+    public static class DifficultyPresets
+    {
+        public const string Cozy = "Cozy";
+        public const string Realistic = "Realistic";
+        public const string Hardcore = "Hardcore";
+        public const string Custom = "Custom";
+
+        public static readonly string[] All = { Cozy, Realistic, Hardcore, Custom };
+    }
+
     /// <summary>Медицинские предметы самопомощи (CP: assets/Code/medicalItems.json).</summary>
     public static class MedicalItems
     {

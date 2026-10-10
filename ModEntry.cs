@@ -4603,6 +4603,7 @@ namespace HarveyOverhaul.InjuryCare
                 _recoveryPlanMenu.TryInitialize(Helper);
 
             RegisterCoreProviders("GameLaunched");
+            GenericModConfigMenuIntegration.Register(Helper, ModManifest, _config);
 
             _treatmentStartHandler.RegisterTriggerActions();
             _recoveryPlanManager.RegisterTriggerActions();

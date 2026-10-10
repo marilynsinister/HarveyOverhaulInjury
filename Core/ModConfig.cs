@@ -163,6 +163,31 @@ namespace HarveyOverhaul.InjuryCare.Core
         /// <summary>Соблюдение предписаний сокращает текущую фазу лечения, нарушения — удлиняют.</summary>
         public bool RegimenAffectsRecoveryPace { get; set; } = true;
 
+        /// <summary>Пресет сложности: Cozy, Realistic, Hardcore или Custom (свои множители ниже).</summary>
+        public string Difficulty { get; set; } = DifficultyPresets.Realistic;
+
+        /// <summary>Custom: множитель шанса получить травму (бой, взрывы, фарминг, простуда).</summary>
+        public double CustomInjuryChanceMultiplier { get; set; } = 1.0;
+
+        /// <summary>Custom: множитель длительности фаз лечения.</summary>
+        public double CustomPhaseDurationMultiplier { get; set; } = 1.0;
+
+        public double GetInjuryChanceMultiplier() => Difficulty switch
+        {
+            DifficultyPresets.Cozy => 0.5,
+            DifficultyPresets.Hardcore => 1.5,
+            DifficultyPresets.Custom => Math.Clamp(CustomInjuryChanceMultiplier, 0.0, 3.0),
+            _ => 1.0,
+        };
+
+        public double GetPhaseDurationMultiplier() => Difficulty switch
+        {
+            DifficultyPresets.Cozy => 0.5,
+            DifficultyPresets.Hardcore => 1.25,
+            DifficultyPresets.Custom => Math.Clamp(CustomPhaseDurationMultiplier, 0.25, 3.0),
+            _ => 1.0,
+        };
+
         /// <summary>
         /// Клавиша fallback-окна RecoveryPlan (только если EnableStandaloneRecoveryPlanWindow=true).
         /// Пустая строка = hotkey не назначен.

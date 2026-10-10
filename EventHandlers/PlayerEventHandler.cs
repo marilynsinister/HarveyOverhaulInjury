@@ -1220,6 +1220,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _ => 0.80        // 20+ мин: 80%
             };
             
+            coldChance = ScaleInjuryChance(coldChance);
             if (coldChance > 0 && Helpers.GameUtils.Roll(coldChance))
             {
                 _monitor.Log($"🤧 Игрок простудился после {totalSecondsToday / 60} минут под дождём (шанс {coldChance:P0})", LogLevel.Warn);
@@ -1784,7 +1785,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             double chance = fromMonster
                 ? GetSkillAdjustedChance(baseChance, combatSkill)
-                : ClampChance(baseChance);
+                : ScaleInjuryChance(baseChance);
 
             if (!Helpers.GameUtils.Roll(chance))
             {
@@ -1887,7 +1888,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (!nearExplosion) return;
 
-            if (!Helpers.GameUtils.Roll(0.50))
+            if (!Helpers.GameUtils.Roll(ScaleInjuryChance(0.50)))
             {
                 _monitor.Log(
                     $"[ExplosionInjury] Near explosion but 50% gate roll failed, {FormatInjuryDiagnosticContext()}",
@@ -2012,8 +2013,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             double reduction = ClampChance(_config.SkillChanceReductionPerLevel);
             double minMultiplier = ClampChance(_config.MinSkillChanceMultiplier);
             double multiplier = Math.Max(minMultiplier, 1.0 - skillLevel * reduction);
-            return ClampChance(baseChance) * multiplier;
+            return ScaleInjuryChance(ClampChance(baseChance) * multiplier);
         }
+
+        /// <summary>Шанс получить травму с учётом пресета сложности (ModConfig.Difficulty).</summary>
+        private double ScaleInjuryChance(double chance) =>
+            ClampChance(chance * _config.GetInjuryChanceMultiplier());
 
         private int GetSkillAdjustedUseThreshold(int baseThreshold, string toolKey)
         {

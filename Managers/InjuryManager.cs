@@ -1231,15 +1231,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private void CreateInjuryDebuffState(string buffId, int currentDay, int p1, int p2, int p3)
         {
             bool harveySawIt = InjuryVisibilityHelper.IsHarveyPresent(_config);
+            double durationMultiplier = _config.GetPhaseDurationMultiplier();
             _stateManager.CreateDebuffState(
                 buffId,
                 currentDay,
-                p1,
-                p2,
-                p3,
+                ScalePhaseDuration(p1, durationMultiplier),
+                ScalePhaseDuration(p2, durationMultiplier),
+                ScalePhaseDuration(p3, durationMultiplier),
                 harveySawIt,
                 harveySawIt ? "witnessed" : "");
         }
+
+        private static int ScalePhaseDuration(int days, double multiplier) =>
+            days <= 0 ? days : Math.Max(1, (int)Math.Round(days * multiplier));
 
         private void ApplyInjurySafe(string injuryId, Action applyFunc, string triggerConst)
         {
