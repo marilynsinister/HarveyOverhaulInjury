@@ -246,12 +246,16 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _buffManager.HasBuff(InjuryBuffs.Cold)
             || _buffManager.HasBuff(InjuryBuffs.ColdAcute);
 
+        /// <summary>Самоуход снял осложнение — подписчик обновляет бафф «Нужен приём у Харви».</summary>
+        public event Action? ComplicationsChanged;
+
         private void RemoveWetBandageComplication()
         {
             _buffManager.RemoveBuff(InjuryBuffs.WetBandage);
             _stateManager.State.ActiveComplications.Remove(InjuryBuffs.WetBandage);
             _stateManager.RemoveDebuffState(InjuryBuffs.WetBandage);
             _dialogueManager.RemoveTopic(ConversationTopics.WetBandage);
+            ComplicationsChanged?.Invoke();
         }
 
         private void ScheduleProtection(string type, int activeDay)

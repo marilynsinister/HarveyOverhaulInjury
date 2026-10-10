@@ -1411,6 +1411,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _stateManager.State.ActiveComplications[InjuryBuffs.WetStitches] = today;
             _stateManager.CreateComplicationState(InjuryBuffs.WetStitches, today);
             _dialogueManager.EnsureComplicationDialogueTopics(InjuryBuffs.WetStitches, 4);
+            _complicationManager.NotifyComplicationsChanged();
             Game1.addHUDMessage(new HUDMessage("Швы намокли! Нельзя было купаться со швами!", HUDMessage.error_type));
             _monitor.Log(logContext, LogLevel.Warn);
             return true;

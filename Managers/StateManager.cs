@@ -786,6 +786,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 InjuryStartDay = startDay,
                 TreatmentStarted = true,
                 HarveyConversationHappened = false,
+                // Осложнение — не скрываемая травма (по умолчанию DebuffState считает всё скрытым).
+                HiddenFromHarvey = false,
+                HarveyAware = true,
                 TotalPhases = 0,
                 CurrentPhase = 1,
                 PhaseStartDay = startDay,

@@ -186,7 +186,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public bool TryStartHiddenInjuryFlowFromDomesticCheck(NPC harvey, string reason)
         {
             DebuffState? target = _stateManager.GetAllActiveDebuffStates()
-                .Where(s => s.HiddenFromHarvey && !s.HarveyAware)
+                .Where(s => InjuryVisibilityHelper.IsHiddenInjuryCandidate(s, _stateManager.State.MainInjuryId))
                 .Where(s => _buffManager.HasBuff(s.BuffId) || _injuryManager.HasInjuryOrPhase(s.BuffId))
                 .OrderByDescending(s => (int)InjuryVisibilityHelper.GetVisibilityLevel(s))
                 .FirstOrDefault();
@@ -605,7 +605,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private DebuffState? PickMostImportantHiddenInjury(DetectionContext context)
         {
             return _stateManager.GetAllActiveDebuffStates()
-                .Where(s => s.HiddenFromHarvey && !s.HarveyAware)
+                .Where(s => InjuryVisibilityHelper.IsHiddenInjuryCandidate(s, _stateManager.State.MainInjuryId))
                 .Where(s => _buffManager.HasBuff(s.BuffId) || _injuryManager.HasInjuryOrPhase(s.BuffId))
                 .Where(s =>
                 {

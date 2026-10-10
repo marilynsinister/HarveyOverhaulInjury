@@ -313,7 +313,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private bool HasAnyHiddenInjuryWorthDomesticCheck() =>
             _stateManager.GetAllActiveDebuffStates()
-                .Any(s => s.HiddenFromHarvey && !s.HarveyAware && IsWorthDomesticCheck(s));
+                .Any(s => InjuryVisibilityHelper.IsHiddenInjuryCandidate(s, _stateManager.State.MainInjuryId) && IsWorthDomesticCheck(s));
 
         internal static bool IsWorthDomesticCheck(DebuffState state)
         {
@@ -336,7 +336,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         internal DebuffState? PickMostImportantDomesticHiddenInjury()
         {
             return _stateManager.GetAllActiveDebuffStates()
-                .Where(s => s.HiddenFromHarvey && !s.HarveyAware)
+                .Where(s => InjuryVisibilityHelper.IsHiddenInjuryCandidate(s, _stateManager.State.MainInjuryId))
                 .Where(s => _buffManager.HasBuff(s.BuffId) || _injuryManager.HasInjuryOrPhase(s.BuffId))
                 .Where(IsWorthDomesticCheck)
                 .OrderByDescending(GetDomesticPickScore)

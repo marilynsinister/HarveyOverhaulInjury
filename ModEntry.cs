@@ -3672,6 +3672,9 @@ namespace HarveyOverhaul.InjuryCare
             _injuryManager.SetComplicationManager(_complicationManager);
             _treatmentManager.SetComplicationManager(_complicationManager);
             _treatmentManager.SetDoctorVisitReminderManager(_doctorVisitReminderManager);
+            _doctorVisitReminderManager.SetComplicationManager(_complicationManager);
+            _complicationManager.ComplicationsChanged += _doctorVisitReminderManager.SyncReminderBuff;
+            _selfCareManager.ComplicationsChanged += _doctorVisitReminderManager.SyncReminderBuff;
 
             _treatmentStartHandler = new TreatmentStartHandler(
                 Monitor,

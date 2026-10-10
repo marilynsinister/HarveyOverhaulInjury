@@ -403,6 +403,25 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             return revealed;
         }
 
+        /// <summary>
+        /// Травма, которую игрок скрывает от Харви: не осложнение, лечение не начато, Харви о ней не знает.
+        /// Осложнения (PainFlare и т.п.) создаются с HiddenFromHarvey=true по умолчанию DebuffState —
+        /// без этого фильтра поток скрытых травм принимал их за «нескрываемую травму».
+        /// </summary>
+        public static bool IsHiddenInjuryCandidate(DebuffState state, string? mainInjuryId)
+        {
+            if (!state.HiddenFromHarvey || state.HarveyAware || state.TreatmentStarted)
+                return false;
+
+            if (InjurySets.KnownComplicationBuffIds.Contains(state.BuffId)
+                || state.BuffId.StartsWith("HarveyMod_", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // Одна активная главная травма: остальные DebuffState (хвосты) вопрос не вызывают.
+            return string.IsNullOrEmpty(mainInjuryId)
+                || string.Equals(state.BuffId, mainInjuryId, StringComparison.OrdinalIgnoreCase);
+        }
+
         public static void ProcessHiddenInjuryDaily(
             InjuryState state,
             ComplicationManager? complicationManager,
@@ -410,7 +429,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
         {
             foreach (var (_, debuffState) in state.ActiveDebuffs)
             {
-                if (!debuffState.HiddenFromHarvey)
+                if (!IsHiddenInjuryCandidate(debuffState, state.MainInjuryId))
                     continue;
 
                 debuffState.HiddenDays++;

@@ -25,18 +25,40 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _hospitalizationManager = hospitalizationManager;
         }
 
+        private ComplicationManager? _complicationManager;
+
+        public void SetComplicationManager(ComplicationManager complicationManager) =>
+            _complicationManager = complicationManager;
+
+        /// <summary>
+        /// Напоминание висит только когда Харви на приёме действительно что-то сделает:
+        /// осмотр/смена фазы главной травмы, выписка, лечение осложнения, выписка из больницы.
+        /// Раньше учитывались любые осложнения (в т.ч. «Обострение боли», которое Харви процедурой не лечит)
+        /// и флаги готовности не-главных травм — бафф висел, а Харви отвечал обычным диалогом.
+        /// </summary>
         public bool IsVisitNeeded()
         {
-            foreach (var debuffState in _stateManager.State.ActiveDebuffs.Values)
+            string? mainInjuryId = _stateManager.GetMainInjuryId();
+            foreach (var (injuryId, debuffState) in _stateManager.State.ActiveDebuffs)
             {
                 if (!debuffState.TreatmentStarted)
+                    continue;
+
+                if (InjurySets.KnownComplicationBuffIds.Contains(injuryId))
+                    continue;
+
+                if (!string.IsNullOrEmpty(mainInjuryId)
+                    && !string.Equals(injuryId, mainInjuryId, StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 if (debuffState.ReadyForNextPhase || debuffState.ReadyForRecovery)
                     return true;
             }
 
-            if (_stateManager.State.ActiveComplications.Count > 0)
+            if (_complicationManager != null
+                ? _complicationManager.GetActiveTreatableComplicationIds().Count > 0
+                : _stateManager.State.ActiveComplications.Keys.Any(id =>
+                    !string.Equals(id, InjuryBuffs.PainFlare, StringComparison.OrdinalIgnoreCase)))
                 return true;
 
             if (_hospitalizationManager.IsHospitalized && _hospitalizationManager.CanDischarge())

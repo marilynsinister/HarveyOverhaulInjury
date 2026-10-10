@@ -61,6 +61,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return !string.IsNullOrEmpty(mainInjuryId) && injurySet.Contains(mainInjuryId);
         }
 
+        /// <summary>
+        /// Осложнение добавлено или снято. Подписчик — бафф «Нужен приём у Харви»:
+        /// обновляем его по факту изменения, а не опросом по таймеру.
+        /// </summary>
+        public event Action? ComplicationsChanged;
+
+        /// <summary>Для мест, которые меняют ActiveComplications напрямую (мокрые швы, самоуход).</summary>
+        public void NotifyComplicationsChanged() => ComplicationsChanged?.Invoke();
+
         public bool HasComplication(string complicationId) =>
             _buffManager.HasBuff(complicationId)
             || _stateManager.State.ActiveComplications.ContainsKey(complicationId);
@@ -184,6 +193,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (hadBuff || hadComplication || hadTopic)
                 _stateManager.Save();
+
+            if (hadComplication)
+                ComplicationsChanged?.Invoke();
         }
 
         private bool HasBandageOrTreatmentForMainInjury()
@@ -764,6 +776,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _buffManager.AddBuff(complicationId, -2);
             _stateManager.State.ActiveComplications[complicationId] = today;
             _stateManager.CreateComplicationState(complicationId, today);
+            ComplicationsChanged?.Invoke();
 
             // PainFlare: без CP-тем лечения ($action) и темы «приходи, подберу обезболивание» —
             // на клик Харви отвечает вопросом HarveyMod_PainFlare_Ask (InteractionHandler).
@@ -939,6 +952,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.State.SavedActiveBuffs.RemoveAll(id =>
                 string.Equals(id, complicationId, StringComparison.OrdinalIgnoreCase));
             _medicalLetterScheduler?.CancelLettersForState(complicationId);
+            ComplicationsChanged?.Invoke();
         }
 
         private void QueueComplicationMail(string mailId, string reason, string stateId)
