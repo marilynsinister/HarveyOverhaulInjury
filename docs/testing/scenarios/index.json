@@ -61,6 +61,12 @@
       "file": "09-save-load.json",
       "title": "Save/load и персистентность",
       "testCount": 5
+    },
+    {
+      "suiteId": "10-story-arc3-marriage",
+      "file": "10-story-arc3-marriage.json",
+      "title": "Арка 3, свидание, брак — debug ebi smoke",
+      "testCount": 26
     }
   ]
 }

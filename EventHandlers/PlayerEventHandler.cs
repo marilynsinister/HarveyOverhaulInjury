@@ -725,8 +725,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             if (IsVolcanoLocation(location))
             {
-                // TODO: уточнить тайл у входа в вулкан на IslandNorth при тесте на Ginger Island.
-                Game1.warpFarmer("IslandNorth", 31, 17, 2);
+                // Island_N.tmx: вход в вулкан — warp-ряд 39–42,20; 40,22 — проходимый тайл в проёме под ним.
+                Game1.warpFarmer("IslandNorth", 40, 22, 2);
                 return;
             }
 

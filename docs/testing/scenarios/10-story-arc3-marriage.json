@@ -1,0 +1,2480 @@
+{
+  "suiteId": "10-story-arc3-marriage",
+  "suiteName": "Арка 3, свидание у фонтана, брак — debug ebi smoke",
+  "description": "Smoke сюжетных событий HarveyOverhaul [CP]: eventsArc3.json (N1–N7) и eventsMarriage.json (D1, M1–M12), eventsAdult.json (A1–A4, AdultEvents), триггеры тем после признания. Статика: scripts/validate_story_events.py.",
+  "requires": {
+    "stardewMcp": true,
+    "smapiConsole": true,
+    "manualClick": true,
+    "debugCommands": [
+      "injury_game_ui_status",
+      "injury_topic_dump"
+    ]
+  },
+  "tests": [
+    {
+      "id": "HOI-STORY-001",
+      "title": "N1 N1_NightShift smoke",
+      "priority": "P1",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulArc3.N1_NightShift"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "не Dating, 8♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: не Dating, 8♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "debug ebi HarveyOverhaulStory.E6_SayItOutLoud (или пометить просмотренным)"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 9pm",
+          "args": {
+            "time": "9pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Town",
+          "args": {
+            "location": "Town",
+            "x": 36,
+            "y": 58
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulArc3.N1_NightShift"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyArc3_KnowsWhy"
+        ],
+        "flagsOrMail": [
+          "HarveyArc3_N1_Bandage (письмо на завтра)"
+        ],
+        "notes": [
+          "Town → changeLocation Hospital ночью при запертой двери",
+          "end warpOut — игрок снаружи клиники"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulArc3.N1_NightShift проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-002",
+      "title": "N2 N2_Spring smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulArc3.N2_Spring"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "не Married, 8♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: не Married, 8♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Побывать в Custom_SpriteSpring2 (PLAYER_VISITED_LOCATION)"
+        },
+        {
+          "type": "note",
+          "description": "set_weather sunny"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 11am",
+          "args": {
+            "time": "11am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Custom_SpriteSpring2",
+          "args": {
+            "location": "Custom_SpriteSpring2",
+            "x": 46,
+            "y": 24
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulArc3.N2_Spring"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyArc3_Spring"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Харви не заходит в воду: x 45–56"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulArc3.N2_Spring проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-003",
+      "title": "N3 N3_ContactCard smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulArc3.N3_ContactCard"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Dating",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Dating",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 10am",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Hospital",
+          "args": {
+            "location": "Hospital",
+            "x": 10,
+            "y": 18
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulArc3.N3_ContactCard"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyArc3_Rules"
+        ],
+        "flagsOrMail": [
+          "HarveyArc3_N3_Rules (письмо на завтра)"
+        ],
+        "notes": [
+          "quickQuestion из 4 вариантов — все ветки"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulArc3.N3_ContactCard проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-004",
+      "title": "N4 N4_BlueMoon smoke",
+      "priority": "P1",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulArc3.N4_BlueMoon"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Dating, 9♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Dating, 9♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "set_weather sunny, сезон не зима"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 8pm",
+          "args": {
+            "time": "8pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Custom_BlueMoonVineyard",
+          "args": {
+            "location": "Custom_BlueMoonVineyard",
+            "x": 28,
+            "y": 49
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulArc3.N4_BlueMoon"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyArc3_SaidIt"
+        ],
+        "flagsOrMail": [
+          "HarveyArc3_Confessed (ветки 1–2) или HarveyArc3_ConfessionPending (ветка 3)"
+        ],
+        "notes": [
+          "Ветка 3 «не готова» → дальше N5_ReversedKit_Confess"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulArc3.N4_BlueMoon проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-005",
+      "title": "N5 N5_ReversedKit smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulArc3.N5_ReversedKit"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Dating/Married, 10♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Dating/Married, 10♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Побывать в Custom_Highlands"
+        },
+        {
+          "type": "note",
+          "description": "N4 просмотрено без ветки «не готова»"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 1pm",
+          "args": {
+            "time": "1pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Custom_AdventurerSummit",
+          "args": {
+            "location": "Custom_AdventurerSummit",
+            "x": 30,
+            "y": 26
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulArc3.N5_ReversedKit"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyArc3_Limping",
+          "HarveyArc3_HighlandsPact"
+        ],
+        "flagsOrMail": [
+          "HarveyArc3_N5_Ankle (письмо на завтра)"
+        ],
+        "notes": [
+          "Ветка «Позвать Марлона»: Марлон входит с 30,26"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulArc3.N5_ReversedKit проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-006",
+      "title": "N5b N5_ReversedKit_Confess smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulArc3.N5_ReversedKit_Confess"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Dating/Married, 10♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Dating/Married, 10♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Флаг HarveyArc3_ConfessionPending (ветка 3 в N4)"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 1pm",
+          "args": {
+            "time": "1pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Custom_AdventurerSummit",
+          "args": {
+            "location": "Custom_AdventurerSummit",
+            "x": 30,
+            "y": 26
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulArc3.N5_ReversedKit_Confess"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyArc3_SaidIt",
+          "HarveyArc3_Limping"
+        ],
+        "flagsOrMail": [
+          "HarveyArc3_Confessed"
+        ],
+        "notes": [
+          "N5_ReversedKit после этого не запускается"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulArc3.N5_ReversedKit_Confess проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-007",
+      "title": "N6 N6_StormCall smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulArc3.N6_StormCall"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 12♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 12♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "set_weather thunderstorm"
+        },
+        {
+          "type": "note",
+          "description": "N5 или N5b просмотрено"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 10am",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Hospital",
+          "args": {
+            "location": "Hospital",
+            "x": 10,
+            "y": 18
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulArc3.N6_StormCall"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyArc3_LetHimGo или HarveyArc3_HeStayed"
+        ],
+        "flagsOrMail": [
+          "HarveyArc3_N6_Report (письмо на завтра)"
+        ],
+        "notes": [
+          "Мару входит с 10,19"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulArc3.N6_StormCall проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-008",
+      "title": "N7 N7_Key smoke",
+      "priority": "P1",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulArc3.N7_Key"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 13♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 13♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "N6 просмотрено"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 2pm",
+          "args": {
+            "time": "2pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Hospital",
+          "args": {
+            "location": "Hospital",
+            "x": 14,
+            "y": 7
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulArc3.N7_Key"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyArc3_KeyGiven"
+        ],
+        "flagsOrMail": [
+          "HarveyArc3_Graduated"
+        ],
+        "notes": [
+          "После N7 на следующий день: jobLeave/Sat/Mine_5_5 в MarriageDialogueHarvey — версии «без проверок»"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulArc3.N7_Key проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-009",
+      "title": "D1 D1_Fountain smoke",
+      "priority": "P1",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulDate.D1_Fountain"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Dating",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Dating",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Суббота: письмо mailHarveyNoteGirlfriend приходит само (triggersDate.json)"
+        },
+        {
+          "type": "note",
+          "description": "set_date на воскресенье"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 2pm",
+          "args": {
+            "time": "2pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Town",
+          "args": {
+            "location": "Town",
+            "x": 26,
+            "y": 32
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulDate.D1_Fountain"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyDate_Fountain"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Фонтан SVE 24–28 × 25–28, актёры южнее, 26,29–27,29"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulDate.D1_Fountain проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-010",
+      "title": "M1 M1_FirstShift smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M1_FirstShift"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 10♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 10♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Выйти из дома утром"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 7am",
+          "args": {
+            "time": "7am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Farm",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M1_FirstShift"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyMarriage_FirstShift"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Проверить стандартную ферму и Frontier Farm (токены HO_FarmX/HO_FarmY*)"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M1_FirstShift проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-011",
+      "title": "M2 M2_SickDay smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M2_SickDay"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 11♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 11♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Зима"
+        },
+        {
+          "type": "note",
+          "description": "M1 просмотрено"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 7am",
+          "args": {
+            "time": "7am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Farm",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M2_SickDay"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyMarriage_SickDay"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Мару, Харви на следующий день — реплики на тему HarveyMarriage_SickDay"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M2_SickDay проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-012",
+      "title": "M3 M3_Anniversary smoke",
+      "priority": "P1",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M3_Anniversary"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Флаг HarveyMarriage_AnniversaryToday: ставит HarveyOverhaulCore в день кратный 112 дням брака. Для теста: debug mail HarveyMarriage_AnniversaryToday (добавить в mailReceived) или подогнать DaysMarried"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 7pm",
+          "args": {
+            "time": "7pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Beach",
+          "args": {
+            "location": "Beach",
+            "x": 40,
+            "y": 23
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M3_Anniversary"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyMarriage_Anniversary"
+        ],
+        "flagsOrMail": [
+          "Предмет: розовый торт (O)221"
+        ],
+        "notes": [
+          "Повтор: на следующую годовщину событие снова доступно (Core снимает его из eventsSeen)"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M3_Anniversary проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-013",
+      "title": "M4 M4_HarveyBirthday smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M4_HarveyBirthday"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Dating или Married",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Dating или Married",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "set_date winter 14"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 10am",
+          "args": {
+            "time": "10am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Hospital",
+          "args": {
+            "location": "Hospital",
+            "x": 10,
+            "y": 18
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M4_HarveyBirthday"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyBirthday_Celebrated"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Мару входит с 10,19 и встаёт на 10,18"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M4_HarveyBirthday проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-014",
+      "title": "M5 M5_Overworked smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M5_Overworked"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 10♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 10♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Лето или осень"
+        },
+        {
+          "type": "note",
+          "description": "M1 просмотрено"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 7pm",
+          "args": {
+            "time": "7pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Farm",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M5_Overworked"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyMarriage_Overworked"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "ComfortRelief снижает стресс (HarveyStressMeter)"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M5_Overworked проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-015",
+      "title": "M6 M6_HerCold smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M6_HerCold"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 11♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 11♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Осень или зима"
+        },
+        {
+          "type": "note",
+          "description": "M2 просмотрено"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 7am",
+          "args": {
+            "time": "7am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Farm",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M6_HerCold"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyMarriage_HerCold"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Ответ на «Больничный»: теперь лечит он"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M6_HerCold проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-016",
+      "title": "M7 M7_LateReturn smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M7_LateReturn"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 10♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 10♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Вернуться на ферму после 23:00"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 11:30pm",
+          "args": {
+            "time": "11:30pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Farm",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M7_LateReturn"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyMarriage_LateReturn"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Игрок приходит снизу (HO_FarmY5), Харви на крыльце"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M7_LateReturn проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-017",
+      "title": "M8 M8_SleeplessNight smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M8_SleeplessNight"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 11♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 11♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "M1 просмотрено"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 6:30am",
+          "args": {
+            "time": "6:30am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Farm",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M8_SleeplessNight"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyMarriage_Nightmare"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Ветка «Сесть рядом»: фермер сдвигается на HO_FarmY2"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M8_SleeplessNight проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-018",
+      "title": "M9 M9_ForestPharmacy smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M9_ForestPharmacy"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 10♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 10♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Весна, set_weather sunny"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 11am",
+          "args": {
+            "time": "11am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Forest",
+          "args": {
+            "location": "Forest",
+            "x": 48,
+            "y": 14
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M9_ForestPharmacy"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyMarriage_ForestPharmacy"
+        ],
+        "flagsOrMail": [
+          "Предмет: дикий хрен (O)16 ×3"
+        ],
+        "notes": [
+          "Точки 48,14 и 49,14 (SVE)"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M9_ForestPharmacy проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-019",
+      "title": "M10 M10_FountainDance smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M10_FountainDance"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 11♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 11♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Суббота, set_weather sunny"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 9pm",
+          "args": {
+            "time": "9pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Town",
+          "args": {
+            "location": "Town",
+            "x": 25,
+            "y": 32
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M10_FountainDance"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyMarriage_FountainDance"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Актёры на 25,30 и 26,30 южнее фонтана"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M10_FountainDance проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-020",
+      "title": "M11 M11_BadDay smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M11_BadDay"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 12♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 12♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "M8 просмотрено"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 1:30pm",
+          "args": {
+            "time": "1:30pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Hospital",
+          "args": {
+            "location": "Hospital",
+            "x": 14,
+            "y": 7
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M11_BadDay"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyMarriage_BadDay"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Мару — реплика на тему HarveyMarriage_BadDay"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M11_BadDay проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-021",
+      "title": "M12 M12_SundayPancakes smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulMarriage.M12_SundayPancakes"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 10♥",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 10♥",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Воскресенье"
+        },
+        {
+          "type": "note",
+          "description": "M1 просмотрено"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 7am",
+          "args": {
+            "time": "7am"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Farm",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulMarriage.M12_SundayPancakes"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyMarriage_Pancakes"
+        ],
+        "flagsOrMail": [
+          "Предмет: блинчики (O)211"
+        ],
+        "notes": []
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulMarriage.M12_SundayPancakes проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-022",
+      "title": "A4 A4_WhiteCoat smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulAdult.A4_WhiteCoat"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 12♥, AdultEvents=true",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 12♥, AdultEvents=true",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Вторник"
+        },
+        {
+          "type": "note",
+          "description": "A1 просмотрено"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 1pm",
+          "args": {
+            "time": "1pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в HarveyRoom",
+          "args": {
+            "location": "HarveyRoom",
+            "x": 6,
+            "y": 12
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulAdult.A4_WhiteCoat"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyAdult_WhiteCoat"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Ветка «Шучу» завершает сцену"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulAdult.A4_WhiteCoat проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-023",
+      "title": "A1 A1_LunchBreak smoke",
+      "priority": "P1",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulAdult.A1_LunchBreak"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 11♥, AdultEvents=true",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 11♥, AdultEvents=true",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Письмо HarveyAdult_LunchNote (приходит в среду)"
+        },
+        {
+          "type": "note",
+          "description": "Четверг"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 1pm",
+          "args": {
+            "time": "1pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в HarveyRoom",
+          "args": {
+            "location": "HarveyRoom",
+            "x": 6,
+            "y": 12
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulAdult.A1_LunchBreak"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyAdult_LunchBreak"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Ветка «Не сегодня» завершает сцену без затемнения",
+          "Проверить с Off The Clock (3 варианта HarveyRoom)"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulAdult.A1_LunchBreak проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-024",
+      "title": "A2 A2_NightSwim smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulAdult.A2_NightSwim"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 12♥, AdultEvents=true",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 12♥, AdultEvents=true",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "Лето, set_weather sunny"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 9pm",
+          "args": {
+            "time": "9pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Beach",
+          "args": {
+            "location": "Beach",
+            "x": 40,
+            "y": 23
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulAdult.A2_NightSwim"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyAdult_NightSwim"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Ветка «Просто посидим» завершает сцену"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulAdult.A2_NightSwim проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-025",
+      "title": "A3 A3_Downpour smoke",
+      "priority": "P2",
+      "mechanics": [
+        "cp_event",
+        "HarveyOverhaulAdult.A3_Downpour"
+      ],
+      "preconditions": [
+        "Загружен тестовый сейв с SVE",
+        "Married, 12♥, AdultEvents=true",
+        "SMAPI debug console для debug ebi"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "get_npc_info",
+          "description": "Харви: Married, 12♥, AdultEvents=true",
+          "args": {
+            "npc_name": "Harvey"
+          }
+        },
+        {
+          "type": "note",
+          "description": "set_weather rain"
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "set_time",
+          "description": "Время 7pm",
+          "args": {
+            "time": "7pm"
+          }
+        },
+        {
+          "type": "stardewmcp",
+          "tool": "teleport_player",
+          "description": "Warp в Farm",
+          "args": {
+            "location": "Farm"
+          }
+        },
+        {
+          "type": "note",
+          "description": "SMAPI console: debug ebi HarveyOverhaulAdult.A3_Downpour"
+        },
+        {
+          "type": "manual",
+          "description": "Пройти сцену, выбрать каждую ветку quickQuestion (повторный прогон через debug ebi)"
+        },
+        {
+          "type": "observe",
+          "tool": "injury_game_ui_status",
+          "description": "Событие завершено, управление вернулось"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Темы после события"
+        }
+      ],
+      "expected": {
+        "logsNotContain": [
+          "NullReferenceException",
+          "Game crashed",
+          "couldn't parse"
+        ],
+        "topicsPresent": [
+          "HarveyAdult_RainBath"
+        ],
+        "flagsOrMail": [],
+        "notes": [
+          "Ветка «Я сама справлюсь» завершает сцену",
+          "При AdultEvents=false сцены нет"
+        ]
+      },
+      "passCriteria": [
+        "debug ebi HarveyOverhaulAdult.A3_Downpour проходит без исключений",
+        "Актёры не стоят в стенах и не уходят за край карты",
+        "Нет чёрного экрана, управление возвращается",
+        "Темы и флаги из expected на месте"
+      ],
+      "failureHints": [
+        "scripts/validate_story_events.py — статическая проверка",
+        "HarveyOverhaul [CP]/docs/story-arc3-proposal.md — проверенные тайлы",
+        "Генераторы: scripts/build_arc3_events.py, scripts/build_marriage_events.py"
+      ],
+      "cleanup": [
+        {
+          "type": "note",
+          "description": "Не сохранять игру после debug ebi на рабочем сейве"
+        }
+      ]
+    },
+    {
+      "id": "HOI-STORY-026",
+      "title": "Темы «люблю» / «жду» после признания",
+      "priority": "P2",
+      "mechanics": [
+        "trigger_action",
+        "triggersArc3Aftermath.json"
+      ],
+      "preconditions": [
+        "Флаг HarveyArc3_Confessed",
+        "Dating или Married"
+      ],
+      "steps": [
+        {
+          "type": "stardewmcp",
+          "tool": "advance_day",
+          "description": "Несколько дней подряд"
+        },
+        {
+          "type": "observe",
+          "command": "injury_topic_dump",
+          "description": "Иногда (≈35%) активна HarveyArc3_Love_<0–5> по дню месяца"
+        },
+        {
+          "type": "manual",
+          "description": "Поговорить с Харви — реплика «люблю» звучит и повторяется в следующий подходящий день"
+        }
+      ],
+      "expected": {
+        "topicsPresent": [
+          "HarveyArc3_Love_N"
+        ],
+        "notes": [
+          "Триггер снимает флаг Harvey_HarveyArc3_Love_N, иначе вариант прозвучал бы один раз за игру",
+          "При ConfessionPending без Confessed — HarveyArc3_Waiting_0/1"
+        ]
+      },
+      "passCriteria": [
+        "Реплика звучит больше одного раза за игру",
+        "Нет «люблю» до признания"
+      ],
+      "failureHints": [
+        "Data/TriggerActions: MarkActionApplied=false"
+      ],
+      "cleanup": []
+    }
+  ]
+}
