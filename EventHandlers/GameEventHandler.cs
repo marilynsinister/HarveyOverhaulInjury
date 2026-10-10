@@ -166,7 +166,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                             // 6. Проверяем завершение нефазового лечения (buffHurt, buffBadlyHurt, buffSurgicalWound)
                             CheckSimpleTreatmentCompletion();
 
-                            // 7. Проверяем прогресс фаз и устанавливаем флаги готовности
+                            // 7. Темп восстановления от соблюдения режима, затем прогресс фаз и флаги готовности
+                            _prescriptionManager.ApplyRegimenPaceDaily();
                             CheckInjuryPhases();
                         }
                         else

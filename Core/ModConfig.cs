@@ -160,6 +160,9 @@ namespace HarveyOverhaul.InjuryCare.Core
         /// </summary>
         public bool EnableStandaloneRecoveryPlanWindow { get; set; } = false;
 
+        /// <summary>Соблюдение предписаний сокращает текущую фазу лечения, нарушения — удлиняют.</summary>
+        public bool RegimenAffectsRecoveryPace { get; set; } = true;
+
         /// <summary>
         /// Клавиша fallback-окна RecoveryPlan (только если EnableStandaloneRecoveryPlanWindow=true).
         /// Пустая строка = hotkey не назначен.

@@ -343,6 +343,75 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _dialogueManager.AddTopic(PrescriptionTopics.Followed, FollowedTopicDays);
         }
 
+        private const int GoodRegimenDaysPerSpeedup = 2;
+        private const double MaxSpeedupShare = 0.3;
+        private const int MaxSlowdownDays = 3;
+
+        /// <summary>
+        /// Утром до CheckInjuryPhases: вчерашнее соблюдение предписаний сдвигает срок текущей фазы основной травмы.
+        /// Каждые 2 дня без нарушений — −1 день (не больше 30% фазы), каждый день с нарушением — +1 день (не больше +3).
+        /// Без предписаний «хорошим» считается день при высоком TreatmentComplianceScore.
+        /// </summary>
+        public void ApplyRegimenPaceDaily()
+        {
+            if (!_config.RegimenAffectsRecoveryPace)
+                return;
+
+            var state = _stateManager.State;
+            EnsurePrescriptionsInitialized(state);
+
+            string? injuryId = _stateManager.GetMainInjuryId();
+            if (string.IsNullOrEmpty(injuryId))
+                return;
+
+            var ds = _stateManager.GetDebuffState(injuryId);
+            int today = (int)Game1.stats.DaysPlayed;
+            if (ds == null || !ds.IsPhasedInjury || !ds.IsInTreatment
+                || ds.ReadyForNextPhase || ds.ReadyForRecovery
+                || ds.LastRegimenPaceDay == today || ds.PhaseStartDay >= today)
+            {
+                return;
+            }
+
+            ds.LastRegimenPaceDay = today;
+            int yesterday = today - 1;
+
+            var activeYesterday = state.ActivePrescriptions.Values
+                .Where(p => p.StartDay <= yesterday && !p.IsExpired(yesterday))
+                .ToList();
+            bool violated = activeYesterday.Any(p => p.LastViolationDay == yesterday);
+            bool goodDay = activeYesterday.Count > 0 ? !violated : _complianceManager.IsHighCompliance;
+
+            if (violated)
+            {
+                ds.GoodRegimenDays = 0;
+                if (ds.PhaseDurationAdjustment < MaxSlowdownDays)
+                {
+                    ds.PhaseDurationAdjustment++;
+                    Game1.addHUDMessage(new HUDMessage(
+                        "Вчерашнее нарушение режима замедлило заживление (+1 день до следующего этапа).",
+                        HUDMessage.error_type));
+                    _monitor.Log($"[RegimenPace] {injuryId}: нарушение → adjustment {ds.PhaseDurationAdjustment:+0;-0;0}", LogLevel.Info);
+                }
+            }
+            else if (goodDay)
+            {
+                ds.GoodRegimenDays++;
+                int maxSpeedup = Math.Max(1, (int)(ds.GetBasePhaseDuration() * MaxSpeedupShare));
+                if (ds.GoodRegimenDays >= GoodRegimenDaysPerSpeedup && ds.PhaseDurationAdjustment > -maxSpeedup)
+                {
+                    ds.GoodRegimenDays = 0;
+                    ds.PhaseDurationAdjustment--;
+                    Game1.addHUDMessage(new HUDMessage(
+                        "Ты соблюдаешь режим — заживление идёт быстрее (−1 день до следующего этапа).",
+                        HUDMessage.health_type));
+                    _monitor.Log($"[RegimenPace] {injuryId}: режим соблюдён → adjustment {ds.PhaseDurationAdjustment:+0;-0;0}", LogLevel.Info);
+                }
+            }
+
+            _stateManager.UpdateDebuffState(injuryId, ds);
+        }
+
         /// <summary>Строки для консоли и debug HUD.</summary>
         public IEnumerable<string> GetActivePrescriptionSummary()
         {

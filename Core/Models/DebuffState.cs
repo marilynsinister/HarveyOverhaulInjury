@@ -121,6 +121,15 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
 
         /// <summary>Штраф TreatmentComplianceScore / Neglect за 5+ дней просрочки уже применён.</summary>
         public bool CheckupOverduePenaltyApplied { get; set; } = false;
+
+        /// <summary>Сдвиг длительности текущей фазы (дни) от соблюдения режима: &lt;0 быстрее, &gt;0 медленнее.</summary>
+        public int PhaseDurationAdjustment { get; set; } = 0;
+
+        /// <summary>Подряд идущие дни соблюдения режима в текущей фазе (каждые N дают −1 день).</summary>
+        public int GoodRegimenDays { get; set; } = 0;
+
+        /// <summary>День последнего пересчёта темпа восстановления (не чаще раза в день).</summary>
+        public int LastRegimenPaceDay { get; set; } = -1;
         
         // ============================================================================
         // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
@@ -137,9 +146,18 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         public bool IsInTreatment => TreatmentStarted && CurrentPhase > 0;
         
         /// <summary>
-        /// Получить длительность текущей фазы
+        /// Длительность текущей фазы с учётом соблюдения режима (PhaseDurationAdjustment)
         /// </summary>
         public int GetCurrentPhaseDuration()
+        {
+            int baseDuration = GetBasePhaseDuration();
+            return baseDuration <= 0 ? 0 : System.Math.Max(1, baseDuration + PhaseDurationAdjustment);
+        }
+
+        /// <summary>
+        /// Длительность текущей фазы по плану лечения (без поправки на режим)
+        /// </summary>
+        public int GetBasePhaseDuration()
         {
             return CurrentPhase switch
             {
@@ -185,6 +203,7 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
             TreatmentStarted = true;
             CurrentPhase = 1;
             PhaseStartDay = currentDay;
+            ResetRegimenPace();
         }
         
         /// <summary>
@@ -198,7 +217,14 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
                 PhaseStartDay = currentDay;
                 ReadyForNextPhase = false;
                 ReadyForRecovery = false;
+                ResetRegimenPace();
             }
+        }
+
+        private void ResetRegimenPace()
+        {
+            PhaseDurationAdjustment = 0;
+            GoodRegimenDays = 0;
         }
         
         /// <summary>
@@ -235,7 +261,10 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
                 MissedCheckupDays = MissedCheckupDays,
                 CheckupReminderSent = CheckupReminderSent,
                 CheckupLateLetterSent = CheckupLateLetterSent,
-                CheckupOverduePenaltyApplied = CheckupOverduePenaltyApplied
+                CheckupOverduePenaltyApplied = CheckupOverduePenaltyApplied,
+                PhaseDurationAdjustment = PhaseDurationAdjustment,
+                GoodRegimenDays = GoodRegimenDays,
+                LastRegimenPaceDay = LastRegimenPaceDay
             };
         }
     }
