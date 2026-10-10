@@ -53,6 +53,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private readonly DialogueManager _dialogueManager;
         private readonly TreatmentManager _treatmentManager;
         private readonly HospitalizationManager _hospitalizationManager;
+        private HospitalActivityManager? _hospitalActivityManager;
+
+        public void SetHospitalActivityManager(HospitalActivityManager manager) => _hospitalActivityManager = manager;
         private readonly ComplianceManager _complianceManager;
         private readonly CareTrustManager _careTrustManager;
         private readonly PrescriptionManager _prescriptionManager;
@@ -297,6 +300,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (IsHoldingQuestDeliveryForHarvey())
             {
                 LastClickDebug = "ALLOWED: доставка предмета по квесту Харви";
+                return;
+            }
+
+            if (_hospitalizationManager.IsHospitalized
+                && _hospitalActivityManager?.TryShowHospitalTalkMenu(harvey, _hospitalizationManager) == true)
+            {
+                SuppressHarveyClickButtons(e);
+                LastClickDebug = "HOSPITAL: меню занятий в палате";
                 return;
             }
 

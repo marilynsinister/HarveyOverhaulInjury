@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.Managers;
@@ -18,6 +19,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private int _lastActivityAtProgressMinutes = -1;
         private int _activityCounter = 0;
+
+        // Разовые за одно пребывание: разговор, чтение, визит друга.
+        private bool _talkedThisStay;
+        private bool _readThisStay;
+        private bool _visitorThisStay;
+        private const int VisitorAfterProgressMinutes = 30;
         private readonly System.Collections.Generic.List<string> _availableActivities = new();
 
         public HospitalActivityManager(IMonitor monitor, ModConfig config, DialogueManager dialogueManager)
@@ -64,6 +71,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _lastActivityAtProgressMinutes = progressMinutes;
                 return;
             }
+
+            if (!_visitorThisStay && progressMinutes >= VisitorAfterProgressMinutes)
+                TryFriendVisit();
 
             while (_lastActivityAtProgressMinutes + intervalMinutes <= progressMinutes
                 && _activityCounter < _config.MaxHospitalActivitiesPerStay)
@@ -170,10 +180,154 @@ namespace HarveyOverhaul.InjuryCare.Managers
             ShowActivity(harvey, dialogue);
         }
 
+        // ============================================================================
+        // РАЗГОВОР С ХАРВИ В ПАЛАТЕ — выбор, чем занять время
+        // ============================================================================
+
+        /// <summary>
+        /// Клик по Харви во время госпитализации: вместо обычного диалога — выбор занятия.
+        /// Поспать — прокрутить время до выписки; поговорить; попросить почитать.
+        /// </summary>
+        public bool TryShowHospitalTalkMenu(NPC harvey, HospitalizationManager hospitalization)
+        {
+            if (!hospitalization.IsHospitalized || hospitalization.HasPendingReturnToHospital)
+                return false;
+
+            var choices = new List<Response>();
+            int remaining = hospitalization.RemainingStayMinutes;
+            if (remaining > 0)
+                choices.Add(new Response("rest", $"Поспать (до выписки {FormatMinutes(remaining)})"));
+            if (!_talkedThisStay)
+                choices.Add(new Response("talk", "Поговорить с Харви"));
+            if (!_readThisStay)
+                choices.Add(new Response("read", "Попросить что-нибудь почитать"));
+            if (remaining <= 0)
+                choices.Add(new Response("discharge", "Спросить про выписку"));
+            choices.Add(new Response("nothing", "Ничего, просто лежу"));
+
+            harvey.facePlayer(Game1.player);
+            Game1.currentLocation.createQuestionDialogue(
+                remaining > 0
+                    ? "Харви: Как ты? Тебе ещё нужно полежать. Чем займёмся?"
+                    : $"Харви: Показатели хорошие. Можешь идти, если {(Game1.player.IsMale ? "готов" : "готова")}.",
+                choices.ToArray(),
+                (_, answer) => OnHospitalTalkAnswer(harvey, hospitalization, answer));
+            return true;
+        }
+
+        private void OnHospitalTalkAnswer(NPC harvey, HospitalizationManager hospitalization, string answer)
+        {
+            switch (answer)
+            {
+                case "rest":
+                    RestUntilDischarge(hospitalization);
+                    break;
+                case "talk":
+                    _talkedThisStay = true;
+                    ShowConversation(harvey);
+                    Game1.player.changeFriendship(15, harvey);
+                    break;
+                case "read":
+                    _readThisStay = true;
+                    ReadSomething(harvey);
+                    break;
+                case "discharge":
+                    _dialogueManager.Speak(harvey, "Можешь идти. Но сегодня — без шахты и тяжёлой работы, ладно?$u");
+                    break;
+            }
+        }
+
+        /// <summary>Сон в палате: затемнение, прокрутка часов до конца срока, полное восстановление сил.</summary>
+        private void RestUntilDischarge(HospitalizationManager hospitalization)
+        {
+            int remaining = hospitalization.RemainingStayMinutes;
+            int steps = (remaining + 9) / 10;
+
+            Game1.globalFadeToBlack(() =>
+            {
+                int done = 0;
+                // Не спим за полночь — дальше начинается усталость и обморок.
+                while (done < steps && Game1.timeOfDay < 2400)
+                {
+                    Game1.performTenMinuteClockUpdate();
+                    done++;
+                }
+
+                hospitalization.ApplyRestedMinutes(done * 10);
+                Game1.player.health = Game1.player.maxHealth;
+                Game1.player.Stamina = Game1.player.MaxStamina;
+                Game1.globalFadeToClear();
+                Game1.addHUDMessage(new HUDMessage(
+                    $"Ты {(Game1.player.IsMale ? "проспал" : "проспала")} {FormatMinutes(done * 10)}. Силы восстановлены.",
+                    HUDMessage.health_type));
+                _monitor.Log($"🏥 Сон в палате: +{done * 10} мин к сроку", LogLevel.Info);
+            });
+        }
+
+        private static readonly (string Text, int Skill)[] ReadingOptions =
+        {
+            ("Харви приносит старый справочник по травам. Ты узнаёшь пару новых растений.$h", Farmer.foragingSkill),
+            ("Харви даёт журнал о садоводстве из приёмной. Пара советов про почву — очень кстати.$h", Farmer.farmingSkill),
+            ("Харви находит книжку про рыб Долины. «Не спрашивай, откуда она у меня».$h", Farmer.fishingSkill),
+            ("Харви приносит брошюру по технике безопасности в шахтах. Подозрительно уместно.$u", Farmer.miningSkill),
+        };
+
+        private void ReadSomething(NPC harvey)
+        {
+            var (text, skill) = ReadingOptions[Game1.random.Next(ReadingOptions.Length)];
+            _dialogueManager.Speak(harvey, text);
+            Game1.player.gainExperience(skill, 40);
+        }
+
+        // ============================================================================
+        // ВИЗИТ ДРУГА
+        // ============================================================================
+
+        private static readonly string[] VisitorGiftItems = { "(O)196", "(O)223", "(O)614", "(O)613", "(O)216" };
+
+        /// <summary>Самый близкий друг (от 2 сердечек) заходит проведать и оставляет гостинец.</summary>
+        private void TryFriendVisit()
+        {
+            _visitorThisStay = true;
+
+            string? bestName = null;
+            int bestPoints = 499;
+            foreach (var (name, friendship) in Game1.player.friendshipData.Pairs)
+            {
+                if (string.Equals(name, "Harvey", StringComparison.OrdinalIgnoreCase) || friendship.Points <= bestPoints)
+                    continue;
+                bestPoints = friendship.Points;
+                bestName = name;
+            }
+
+            NPC? friend = bestName != null ? Game1.getCharacterFromName(bestName) : null;
+            if (friend == null)
+                return;
+
+            var gift = ItemRegistry.Create(VisitorGiftItems[Game1.random.Next(VisitorGiftItems.Length)]);
+            Game1.player.addItemByMenuIfNecessary(gift);
+            Game1.player.changeFriendship(10, friend);
+            Game1.addHUDMessage(new HUDMessage(
+                $"{friend.displayName} заглядывает проведать и оставляет гостинец: {gift.DisplayName}.",
+                HUDMessage.newQuest_type));
+            Game1.playSound("give_gift");
+            _monitor.Log($"🏥 Визит друга: {bestName}, подарок {gift.QualifiedItemId}", LogLevel.Info);
+        }
+
+        private static string FormatMinutes(int minutes)
+        {
+            int h = minutes / 60, m = minutes % 60;
+            if (h == 0) return $"{m} мин";
+            return m == 0 ? $"{h} ч" : $"{h} ч {m} мин";
+        }
+
         public void Reset()
         {
             _lastActivityAtProgressMinutes = -1;
             _activityCounter = 0;
+            _talkedThisStay = false;
+            _readThisStay = false;
+            _visitorThisStay = false;
             _monitor.Log("🏥 Сброс активностей госпитализации", LogLevel.Debug);
         }
     }

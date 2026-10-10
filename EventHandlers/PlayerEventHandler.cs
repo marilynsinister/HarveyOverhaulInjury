@@ -483,8 +483,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         }
 
         /// <summary>
-        /// Острое окно hard block без активного MineForbidden: строгое предупреждение и MineWarningDay,
-        /// повторный вход в тот же день — вынос без катсцены перехвата.
+        /// Острое окно hard block без активного MineForbidden: первый вход — строгое предупреждение,
+        /// повторный вход в тот же день — вынос и MineWarningDay (запрет на следующий день).
+        /// Раньше запрет ставился уже за первую попытку.
         /// </summary>
         private void HandleAcuteHardBlockMineEntry(
             int today,
@@ -509,10 +510,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     MineForbiddenHelper.GetStrictMineWarningText(),
                     HUDMessage.error_type));
                 state.LastMineSevereWarningDay = today;
-                state.MineWarningDay = today;
                 _stateManager.Save();
                 _monitor.Log(
-                    $"[MineHardBlock] Строгое предупреждение ({hardBlockReason ?? "acute"}) — MineWarningDay={today}",
+                    $"[MineHardBlock] Строгое предупреждение ({hardBlockReason ?? "acute"})",
                     LogLevel.Warn);
                 return;
             }
@@ -521,6 +521,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 "Харви: Я уже предупреждал. Сегодня в шахту нельзя.",
                 HUDMessage.error_type));
             state.LastMineSevereForcedExitDay = today;
+            state.MineWarningDay = today;
             _stateManager.Save();
             _monitor.Log(
                 $"[MineHardBlock] Повторный вход — вынос ({hardBlockReason ?? "acute"})",

@@ -122,6 +122,9 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// <summary>Штраф TreatmentComplianceScore / Neglect за 5+ дней просрочки уже применён.</summary>
         public bool CheckupOverduePenaltyApplied { get; set; } = false;
 
+        /// <summary>Сколько дней добавлено к лечению из-за запущенности (осложнение «Небрежность»), максимум 3.</summary>
+        public int NeglectExtensionDays { get; set; } = 0;
+
         /// <summary>Сдвиг длительности текущей фазы (дни) от соблюдения режима: &lt;0 быстрее, &gt;0 медленнее.</summary>
         public int PhaseDurationAdjustment { get; set; } = 0;
 
@@ -265,6 +268,7 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
                 CheckupReminderSent = CheckupReminderSent,
                 CheckupLateLetterSent = CheckupLateLetterSent,
                 CheckupOverduePenaltyApplied = CheckupOverduePenaltyApplied,
+                NeglectExtensionDays = NeglectExtensionDays,
                 PhaseDurationAdjustment = PhaseDurationAdjustment,
                 GoodRegimenDays = GoodRegimenDays,
                 LastRegimenPaceDay = LastRegimenPaceDay,

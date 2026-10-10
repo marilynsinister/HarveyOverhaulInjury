@@ -422,6 +422,42 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 || string.Equals(state.BuffId, mainInjuryId, StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Шанс, что Харви не поверит «всё нормально» / шутке и сам увидит травму.
+        /// Растёт с заметностью травмы, подозрением, днями сокрытия, близостью отношений и плохим самочувствием.
+        /// </summary>
+        public static double GetSeeThroughChance(DebuffState state, DetectionContext context)
+        {
+            double chance = GetVisibilityLevel(state) switch
+            {
+                InjuryVisibilityLevel.Hidden => 0.05,
+                InjuryVisibilityLevel.Subtle => 0.15,
+                InjuryVisibilityLevel.Suspicious => 0.30,
+                InjuryVisibilityLevel.Obvious => 0.60,
+                _ => 1.0,
+            };
+
+            chance += state.SuspicionLevel * 0.08;
+            chance += state.HiddenDays * 0.04;
+
+            if (context.IsMarriedToHarvey)
+                chance += 0.15;
+            else if (context.IsDatingOrEngagedToHarvey)
+                chance += 0.10;
+
+            if (context.PlayerHealthLow)
+                chance += 0.15;
+            if (context.PlayerStaminaLow)
+                chance += 0.05;
+            if (context.HasComplication)
+                chance += 0.20;
+
+            return Math.Clamp(chance, 0.0, 0.9);
+        }
+
+        /// <summary>Каждые 3 дня сокрытия травма становится заметнее (до «очевидной»): скрывать всё труднее.</summary>
+        private const int HiddenDaysPerVisibilityStep = 3;
+
         public static void ProcessHiddenInjuryDaily(
             InjuryState state,
             ComplicationManager? complicationManager,
@@ -433,6 +469,16 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                     continue;
 
                 debuffState.HiddenDays++;
+
+                if (debuffState.HiddenDays % HiddenDaysPerVisibilityStep == 0
+                    && debuffState.VisibilityLevel < (int)InjuryVisibilityLevel.Obvious)
+                {
+                    debuffState.VisibilityLevel++;
+                    monitor?.Log(
+                        $"[InjuryVisibility] {debuffState.BuffId}: скрыта {debuffState.HiddenDays} дн. → видимость "
+                        + $"{(InjuryVisibilityLevel)debuffState.VisibilityLevel}",
+                        LogLevel.Info);
+                }
 
                 var profile = GetVisibilityProfile(debuffState.BuffId);
                 if ((int)profile.BaseVisibility >= (int)InjuryVisibilityLevel.Suspicious

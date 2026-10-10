@@ -3820,6 +3820,7 @@ namespace HarveyOverhaul.InjuryCare
                 _treatmentStartHandler,
                 _injuryMedicalIntentProvider,
                 _hiddenInjuryDialogueFlow);
+            _interactionHandler.SetHospitalActivityManager(_hospitalActivityManager);
 
             _timeEventHandler = new TimeEventHandler(
                 Monitor,
@@ -4627,6 +4628,7 @@ namespace HarveyOverhaul.InjuryCare
             GenericModConfigMenuIntegration.Register(Helper, ModManifest, _config);
 
             _treatmentStartHandler.RegisterTriggerActions();
+            _mishapManager.RegisterTriggerActions();
             _recoveryPlanManager.RegisterTriggerActions();
         }
 

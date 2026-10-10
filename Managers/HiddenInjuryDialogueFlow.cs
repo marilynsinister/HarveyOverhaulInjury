@@ -410,7 +410,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.UpdateDebuffState(buffId, state);
             _stateManager.Save();
 
-            string prefix = ResolveResponsePrefix("Deny", BuildDetectionContextForRelationship());
+            var context = BuildDetectionContextForRelationship();
+            if (TrySeeThroughDenial(harvey, buffId, state, context, "deny"))
+                return;
+
+            string prefix = ResolveResponsePrefix("Deny", context);
             _dialogueManager.Speak(harvey, _dialogueManager.GetDialogueTextByPrefix(prefix));
 
             _monitor.Log($"[HiddenInjuryFlow] Denied buff={buffId} suspicion={state.SuspicionLevel}", LogLevel.Info);
@@ -426,10 +430,36 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.UpdateDebuffState(buffId, state);
             _stateManager.Save();
 
-            string prefix = ResolveResponsePrefix("Joke", BuildDetectionContextForRelationship());
+            var context = BuildDetectionContextForRelationship();
+            if (TrySeeThroughDenial(harvey, buffId, state, context, "joke"))
+                return;
+
+            string prefix = ResolveResponsePrefix("Joke", context);
             _dialogueManager.Speak(harvey, _dialogueManager.GetDialogueTextByPrefix(prefix));
 
             _monitor.Log($"[HiddenInjuryFlow] Joke-deny buff={buffId} suspicion={state.SuspicionLevel}", LogLevel.Info);
+        }
+
+        /// <summary>
+        /// Игрок сказал «всё нормально» или отшутился, но Харви не поверил и сам заметил травму:
+        /// реплика «я вижу, что ты врёшь» → раскрытие и начало лечения.
+        /// «Не сейчас» сюда не ведёт — это честная просьба, а не ложь.
+        /// </summary>
+        private bool TrySeeThroughDenial(NPC harvey, string buffId, DebuffState state, DetectionContext context, string answer)
+        {
+            double chance = InjuryVisibilityHelper.GetSeeThroughChance(state, context);
+            bool sawThrough = Game1.random.NextDouble() < chance;
+            _monitor.Log(
+                $"[HiddenInjuryFlow] See-through roll answer={answer} buff={buffId} chance={chance:P0} result={sawThrough}",
+                LogLevel.Info);
+
+            if (!sawThrough)
+                return false;
+
+            // Ключи _Married_XX / _Dating_XX подбираются по стадии отношений автоматически.
+            string text = _dialogueManager.GetDialogueTextByPrefix("HarveyMod_HiddenInjury_SawThrough");
+            SpeakAndQueueRevealAfterClose(harvey, text, buffId, $"harvey_saw_through_{answer}", context);
+            return true;
         }
 
         private void OnHiddenInjuryChoice_NotNow(NPC harvey, string buffId)
@@ -635,6 +665,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return score;
         }
 
+        private const int SuspicionForInsist = 5;
+
         private static FlowKind DetermineFlowKind(
             DebuffState state,
             InjuryVisibilityProfile profile,
@@ -648,7 +680,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return FlowKind.ForcedReveal;
             }
 
-            if (level >= InjuryVisibilityLevel.Obvious || !profile.CanBeHiddenFromHarvey)
+            // Много раз отрицала / откладывала — Харви больше не спрашивает мягко, а настаивает.
+            if (level >= InjuryVisibilityLevel.Obvious || !profile.CanBeHiddenFromHarvey
+                || state.SuspicionLevel >= SuspicionForInsist)
                 return FlowKind.Obvious;
 
             return FlowKind.Suspicion;

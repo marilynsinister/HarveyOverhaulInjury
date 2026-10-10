@@ -29,12 +29,14 @@ namespace HarveyOverhaul.InjuryCare.Helpers
 
         private const int ConcussionAcuteHardBlockDays = 3;
 
+        /// <summary>
+        /// Короткие экстренные темы (1–2 дня). Темы HealthDamage*/PostOperativeCare сюда не входят:
+        /// они живут всё лечение (разрыв мышц — 11 дн., перелом — 18) и закрывали шахту даже на восстановлении.
+        /// Острое окно травмы и так блокирует шахту через GetHardBlockDayLimit.
+        /// </summary>
         private static readonly string[] EmergencyMineBlockTopics =
         {
             "topicOverprotectiveMode",
-            ConversationTopics.HealthDamageCritical,
-            ConversationTopics.HealthDamageSevere,
-            ConversationTopics.PostOperativeCare,
             ConversationTopics.MineInjuryRescue,
         };
 
@@ -554,14 +556,10 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             int phase = ds?.CurrentPhase ?? 0;
             bool inTreatment = ds?.TreatmentStarted == true && phase > 0;
 
+            // После острой фазы жёсткий запрет снимается для всех травм: дальше — мягкие предупреждения и риски.
+            // Раньше для перелома/тяжёлых травм окно считалось заново от начала каждой фазы.
             if (inTreatment && phase >= 2 && config.AllowMinesDuringHealingPhase)
-            {
-                if (string.Equals(injuryId, "buffInfectedWound", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(injuryId, "buffBurnWounds", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(injuryId, "buffConcussion", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(injuryId, "buffShrapnelWounds", StringComparison.OrdinalIgnoreCase))
-                    return 0;
-            }
+                return 0;
 
             if (string.Equals(injuryId, "buffDeepCuts", StringComparison.OrdinalIgnoreCase))
             {

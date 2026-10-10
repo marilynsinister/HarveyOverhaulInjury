@@ -1156,6 +1156,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             // Травмы без начатого лечения
             CheckUntreatedInjuries(today);
 
+            // Долгая «Небрежность» — травма заживает дольше
+            CheckNeglectEscalation(today);
+
             return infectionEscalated;
         }
 
@@ -1342,6 +1345,75 @@ namespace HarveyOverhaul.InjuryCare.Managers
                             injuryId);
                     }
                 }
+            }
+        }
+
+        private const int NeglectEscalationEveryDays = 3;
+        private const int MaxNeglectExtensionDays = 3;
+
+        /// <summary>
+        /// Раньше «Небрежность» была потолком: травма висела с этим осложнением сколько угодно, ничего не менялось.
+        /// Теперь каждые 3 дня «Небрежности» лечение главной травмы удлиняется на день (до +3):
+        /// запущенная травма заживает дольше. Удлиняется ещё не пройденный отрезок, чтобы сдвиг был заметен.
+        /// </summary>
+        private void CheckNeglectEscalation(int today)
+        {
+            if (!_stateManager.State.ActiveComplications.TryGetValue(InjuryBuffs.Neglect, out int neglectStart))
+                return;
+
+            int neglectDays = today - neglectStart;
+            if (neglectDays <= 0 || neglectDays % NeglectEscalationEveryDays != 0)
+                return;
+
+            string? mainId = GetActiveMainInjuryId();
+            if (string.IsNullOrEmpty(mainId) || _stateManager.GetDebuffState(mainId) is not { } ds)
+                return;
+
+            if (ds.NeglectExtensionDays >= MaxNeglectExtensionDays)
+                return;
+
+            if (!TryExtendRemainingTreatment(ds))
+                return;
+
+            ds.NeglectExtensionDays++;
+            _stateManager.UpdateDebuffState(mainId, ds);
+            Game1.addHUDMessage(new HUDMessage(
+                "Травма запущена — заживать будет дольше. Пора к Харви.",
+                HUDMessage.error_type));
+            _monitor.Log(
+                $"[Neglect] {mainId}: «Небрежность» {neglectDays} дн. → лечение +1 день (всего +{ds.NeglectExtensionDays})",
+                LogLevel.Warn);
+        }
+
+        /// <summary>+1 день к ещё не пройденному отрезку лечения. false — продлевать нечего (ждёт финальный осмотр).</summary>
+        private static bool TryExtendRemainingTreatment(DebuffState ds)
+        {
+            if (!ds.TreatmentStarted)
+            {
+                // Лечение ещё не начато: первый этап (или весь срок простого лечения) будет длиннее.
+                ds.Phase1Duration++;
+                return true;
+            }
+
+            if (ds.IsPhasedInjury && ds.CurrentPhase < ds.TotalPhases)
+            {
+                // Фаза уже ждёт осмотра — удлиняем последнюю, ещё не начатую.
+                switch (ds.TotalPhases)
+                {
+                    case 3: ds.Phase3Duration++; return true;
+                    case 2: ds.Phase2Duration++; return true;
+                }
+            }
+
+            if (ds.ReadyForRecovery || ds.ReadyForNextPhase)
+                return false;
+
+            switch (ds.IsPhasedInjury ? ds.CurrentPhase : 1)
+            {
+                case 1: ds.Phase1Duration++; return true;
+                case 2: ds.Phase2Duration++; return true;
+                case 3: ds.Phase3Duration++; return true;
+                default: return false;
             }
         }
 

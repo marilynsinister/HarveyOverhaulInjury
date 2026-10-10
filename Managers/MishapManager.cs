@@ -5,6 +5,8 @@ using HarveyOverhaul.InjuryCare.Helpers;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
+using StardewValley.Delegates;
+using StardewValley.Triggers;
 
 namespace HarveyOverhaul.InjuryCare.Managers
 {
@@ -56,6 +58,39 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager = stateManager;
             _buffManager = buffManager;
             _dialogueManager = dialogueManager;
+        }
+
+        /// <summary>$action в репликах Харви topicHarvey_* — Харви сам вытаскивает занозу, даёт воду и т.п.</summary>
+        public const string CureMishapAction = "HarveyOverhaulInjury_CureMishap";
+
+        public void RegisterTriggerActions() =>
+            TriggerActionManager.RegisterAction(CureMishapAction, OnDialogueCureMishapAction);
+
+        private bool OnDialogueCureMishapAction(string[] args, TriggerActionContext context, out string error)
+        {
+            error = string.Empty;
+            if (!Context.IsWorldReady)
+            {
+                error = "world not ready";
+                return false;
+            }
+
+            if (args.Length < 2 || string.IsNullOrWhiteSpace(args[1]))
+            {
+                error = "usage: HarveyOverhaulInjury_CureMishap <buffId>";
+                return false;
+            }
+
+            string buffId = args[1];
+            if (!Remove(buffId))
+            {
+                _monitor.Log($"[Mishap] Харви: {buffId} уже не активен", LogLevel.Debug);
+                return true;
+            }
+
+            Game1.addHUDMessage(new HUDMessage("Харви помог — стало легче.", HUDMessage.health_type));
+            _monitor.Log($"[Mishap] {buffId} снят Харви", LogLevel.Info);
+            return true;
         }
 
         public void OnDayStarted()

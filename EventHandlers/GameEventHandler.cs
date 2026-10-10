@@ -511,6 +511,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
+            // Харви не знает о травме — «ты запустила лечение» и штраф доверия здесь несправедливы.
+            // Скрытую травму ухудшает своя система (TryRollHiddenInjuryComplicationRisk).
+            if (_stateManager.GetDebuffState(untreatedInjury) is { HiddenFromHarvey: true, HarveyAware: false })
+            {
+                _monitor.Log($"[Neglect] {untreatedInjury} скрыта от Харви — штраф пропущен", LogLevel.Debug);
+                return;
+            }
+
             if (!_treatmentManager.HasMatchingTreatment(untreatedInjury))
             {
                 int strikes = _stateManager.IncrementNeglectStrikes(untreatedInjury);
@@ -556,6 +564,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
 
             _stateManager.State.MineWarningDay = -1;
+
+            // Острая фаза уже прошла — запрет «за вчерашнее» не продлеваем на заживление.
+            string? mainId = _stateManager.GetMainInjuryId();
+            var mainState = mainId != null ? _stateManager.GetDebuffState(mainId) : null;
+            if (mainState is { TreatmentStarted: true, CurrentPhase: >= 2 } && _config.AllowMinesDuringHealingPhase)
+            {
+                _monitor.Log($"[Шахта] Запрет после предупреждения пропущен: {mainId} уже в фазе {mainState.CurrentPhase}", LogLevel.Info);
+                return;
+            }
             MineForbiddenHelper.ApplyHardMineForbidden(
                 _stateManager.State,
                 _config,

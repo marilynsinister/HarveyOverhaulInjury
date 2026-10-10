@@ -374,6 +374,27 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _monitor.Log("Минимальный срок госпитализации прошёл, можно выписаться", LogLevel.Debug);
         }
 
+        /// <summary>
+        /// Игрок поспал в палате: время уже прокручено, засчитываем его в срок пребывания.
+        /// LastHospitalTimeOfDay = текущее время, чтобы TimeChanged не посчитал скачок второй раз.
+        /// </summary>
+        public void ApplyRestedMinutes(int minutes)
+        {
+            if (!IsHospitalized || minutes <= 0)
+                return;
+
+            var state = _stateManager.State;
+            state.HospitalStayProgressMinutes += minutes;
+            state.LastHospitalTimeOfDay = Game1.timeOfDay;
+            _dischargeAllowed = state.HospitalStayProgressMinutes >= GetMinStayMinutes();
+            _stateManager.Save();
+            NotifyDischargeReadyIfNeeded();
+        }
+
+        /// <summary>Сколько минут ещё осталось до разрешения на выписку.</summary>
+        public int RemainingStayMinutes =>
+            Math.Max(0, GetMinStayMinutes() - _stateManager.State.HospitalStayProgressMinutes);
+
         /// <summary>QA: установить накопленный прогресс госпитализации в минутах.</summary>
         public void SetHospitalStayProgressMinutes(int minutes)
         {
