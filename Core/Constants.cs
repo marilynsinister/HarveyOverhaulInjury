@@ -160,6 +160,19 @@ namespace HarveyOverhaul.InjuryCare.Core
     {
         public const string CleanBandage = "CleanBandage";
         public const string WarmTea = "WarmTea";
+        public const string Antiseptic = "Antiseptic";
+    }
+
+    /// <summary>Медицинские предметы самопомощи (CP: assets/Code/medicalItems.json).</summary>
+    public static class MedicalItems
+    {
+        private const string Prefix = "(O)marilynsinister.HarveyOverhaul_";
+
+        public const string CleanBandage = Prefix + "CleanBandage";
+        public const string Antiseptic = Prefix + "Antiseptic";
+        public const string Painkiller = Prefix + "Painkiller";
+        public const string HerbalTea = Prefix + "HerbalTea";
+        public const string FirstAidKit = Prefix + "FirstAidKit";
     }
 
     /// <summary>
@@ -258,6 +271,9 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string CleanBandage = "topicHarvey_CleanBandage";
         public const string WarmTea = "topicHarvey_WarmTea";
         public const string SelfCarePraise = "topicHarvey_SelfCarePraise";
+        public const string UsedAntiseptic = "topicHarvey_UsedAntiseptic";
+        public const string UsedFirstAidKit = "topicHarvey_UsedFirstAidKit";
+        public const string PainkillerOveruse = "topicHarvey_PainkillerOveruse";
 
         // --- Proximity-реакции Харви ---
         public const string ProximityReaction = "topicHarvey_ProximityReaction";

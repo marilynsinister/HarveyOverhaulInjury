@@ -55,6 +55,7 @@ namespace HarveyOverhaul.InjuryCare
         private InjuryCareDirectiveProvider _injuryCareDirectiveProvider = null!;
         private TreatmentPlanManager _treatmentPlanManager = null!;
         private SelfCareManager _selfCareManager = null!;
+        private MedicalItemManager _medicalItemManager = null!;
         private DoctorVisitReminderManager _doctorVisitReminderManager = null!;
         private MedicalLetterScheduler _medicalLetterScheduler = null!;
 
@@ -3675,6 +3676,16 @@ namespace HarveyOverhaul.InjuryCare
             _doctorVisitReminderManager.SetComplicationManager(_complicationManager);
             _complicationManager.ComplicationsChanged += _doctorVisitReminderManager.SyncReminderBuff;
             _selfCareManager.ComplicationsChanged += _doctorVisitReminderManager.SyncReminderBuff;
+            _medicalItemManager = new MedicalItemManager(
+                Monitor,
+                Helper.Input,
+                _stateManager,
+                _buffManager,
+                _dialogueManager,
+                _complianceManager,
+                _complicationManager,
+                _selfCareManager,
+                _treatmentManager);
 
             _treatmentStartHandler = new TreatmentStartHandler(
                 Monitor,
@@ -3868,6 +3879,8 @@ namespace HarveyOverhaul.InjuryCare
 
             // События взаимодействия
             events.Input.ButtonPressed += _interactionHandler.OnButtonPressed;
+            events.Input.ButtonPressed += _medicalItemManager.OnButtonPressed;
+            events.GameLoop.UpdateTicked += _medicalItemManager.OnUpdateTicked;
             events.GameLoop.UpdateTicked += _interactionHandler.OnUpdateTicked;
             events.GameLoop.UpdateTicked += _injuryMedicalIntentProvider.OnUpdateTicked;
             events.GameLoop.UpdateTicked += _hiddenInjuryDialogueFlow.OnUpdateTicked;

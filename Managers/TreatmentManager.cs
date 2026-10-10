@@ -575,6 +575,27 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return treatmentStarted;
         }
 
+        /// <summary>
+        /// Самолечение аптечкой: только лёгкая buffHurt, без плана лечения, предписаний и запрета шахты.
+        /// </summary>
+        public bool ApplySelfTreatmentForMinorInjury(string injuryId)
+        {
+            if (!string.Equals(injuryId, "buffHurt", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (!StartSimpleTreatment(injuryId))
+                return false;
+
+            _dialogueManager.ClearUntreatedInjuryTopic(injuryId, "самолечение аптечкой");
+            _dialogueManager.ClearTreatmentNeededTopic(injuryId, "самолечение аптечкой");
+            var ds = _stateManager.GetDebuffState(injuryId);
+            if (ds != null)
+                ds.TreatmentApplied = true;
+            _injuryManager.EnsureTreatmentBuffForInjury(injuryId);
+            _monitor.Log($"[SelfCare] {injuryId}: самолечение аптечкой", LogLevel.Info);
+            return true;
+        }
+
         /// <summary>Снять topic нелеченной травмы для всех HarveyTreatable (фазовые и простые).</summary>
         public void ClearUntreatedInjuryTopic(string injuryId, string reason) =>
             _dialogueManager.ClearUntreatedInjuryTopic(injuryId, reason);

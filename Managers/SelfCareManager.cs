@@ -40,7 +40,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _prescriptionManager = prescriptionManager;
         }
 
-        public bool ApplyCleanBandage(bool force = false)
+        /// <param name="requireHome">false — перевязка предметом «Чистый бинт» (где угодно).</param>
+        public bool ApplyCleanBandage(bool force = false, bool requireHome = true)
         {
             int today = GameUtils.Today();
             var state = _stateManager.State;
@@ -51,7 +52,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return false;
             }
 
-            if (!force && !IsAtHome())
+            if (!force && requireHome && !IsAtHome())
             {
                 _monitor.Log("[SelfCare] CleanBandage: не дома", LogLevel.Debug);
                 return false;
@@ -93,7 +94,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return true;
         }
 
-        public bool ApplyWarmTea(bool force = false)
+        /// <param name="requireHome">false — выпит «Травяной сбор» (где угодно).</param>
+        public bool ApplyWarmTea(bool force = false, bool requireHome = true)
         {
             int today = GameUtils.Today();
             var state = _stateManager.State;
@@ -101,7 +103,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!force && state.LastSelfCareTeaDay == today)
                 return false;
 
-            if (!force && !IsAtHome())
+            if (!force && requireHome && !IsAtHome())
                 return false;
 
             if (!HasColdCondition())
@@ -176,6 +178,18 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager.AddTopic(ConversationTopics.SelfCare, TopicDays);
             _stateManager.Save();
             _monitor.Log("[SelfCare] +1 TreatmentComplianceScore за домашнюю повязку (визит к Харви)", LogLevel.Info);
+        }
+
+        /// <summary>Почему сейчас нельзя сменить повязку (текст для HUD) или null.</summary>
+        public string? GetCleanBandageBlockReason()
+        {
+            if (_stateManager.State.LastSelfCareBandageDay == GameUtils.Today())
+                return "Повязку сегодня уже меняли. Лучше не тревожить рану лишний раз.";
+
+            if (!CanApplyCleanBandage())
+                return "Сейчас перевязывать нечего.";
+
+            return null;
         }
 
         public bool HasSelfCareProtection(string type)

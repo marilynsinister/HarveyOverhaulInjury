@@ -45,6 +45,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private const int LightWorkViolationSeconds = 90;
         private const double PrescriptionDirtyWoundBaseChance = 0.10;
         private const double PrescriptionDirtyWoundBonusChance = 0.20;
+        private const double AntisepticDirtyWoundChanceMultiplier = 0.5;
         private const double PrescriptionWetBandageBonusChance = 0.20;
         private const double PrescriptionWetStitchesBonusChance = 0.15;
 
@@ -898,6 +899,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (_buffManager.HasBuff(InjuryBuffs.MineRestricted))
                 chance *= MineForbiddenHelper.GetRestrictedDirtyChanceMultiplier();
+
+            if (_stateManager.State.SelfCareProtections.TryGetValue(SelfCareProtectionTypes.Antiseptic, out int antisepticDay)
+                && antisepticDay == Helpers.GameUtils.Today())
+            {
+                chance *= AntisepticDirtyWoundChanceMultiplier;
+            }
 
             return Math.Clamp(chance, 0.0, 0.95);
         }

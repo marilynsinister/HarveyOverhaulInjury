@@ -500,6 +500,18 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>QA: снять одно осложнение (buff + ActiveComplications + DebuffState + topic).</summary>
+        /// <summary>Снять осложнение самопомощью (медицинский предмет). Без HUD — сообщение показывает вызывающий.</summary>
+        public bool RemoveComplicationBySelfCare(string complicationId, string reason)
+        {
+            if (!HasComplication(complicationId) && !_buffManager.HasBuff(complicationId))
+                return false;
+
+            RemoveComplication(complicationId);
+            _stateManager.Save();
+            _monitor.Log($"[Complication] {complicationId} снято самопомощью ({reason})", LogLevel.Info);
+            return true;
+        }
+
         public bool RemoveComplicationForQa(string complicationId)
         {
             bool hadBuff = _buffManager.HasBuff(complicationId);

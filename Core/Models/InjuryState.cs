@@ -173,6 +173,12 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// <summary>День последней самопомощи: ранний отдых.</summary>
         public int LastRestSelfCareDay { get; set; } = -1;
 
+        /// <summary>День последней обработки антисептиком.</summary>
+        public int LastAntisepticDay { get; set; } = -1;
+
+        /// <summary>Дни приёма обезболивающего (для проверки злоупотребления).</summary>
+        public List<int> PainkillerUseDays { get; set; } = new();
+
         /// <summary>День отправки медицинского письма: dedupeKey → DaysPlayed (не чаще 1×/день на повод).</summary>
         public Dictionary<string, int> SentMedicalMailDays { get; set; } = new();
 
