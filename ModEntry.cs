@@ -79,7 +79,7 @@ namespace HarveyOverhaul.InjuryCare
         private readonly ConcurrentQueue<(string Tool, JsonElement? Args, TaskCompletionSource<string> Completion)> _mcpCommandQueue = new();
 
         /// <summary>Режим дебаг-HUD (F10): 0 скрыт, 1 compact, 2 full.</summary>
-        private int _debugHudMode = 1;
+        private int _debugHudMode = 0;
 
         /// <summary>
         /// Точка входа - инициализация мода
@@ -3636,6 +3636,7 @@ namespace HarveyOverhaul.InjuryCare
                 _dialogueManager,
                 _injuryManager);
             _treatmentManager.InjuryRecovered += _medicalCardManager.OnInjuryRecovered;
+            _injuryManager.MainInjuryApplied += _medicalCardManager.OnMainInjuryApplied;
             _mishapManager = new MishapManager(Monitor, _config, _stateManager, _buffManager, _dialogueManager);
 
             _injuryPanelProvider = new InjuryPanelProvider(
@@ -3686,6 +3687,7 @@ namespace HarveyOverhaul.InjuryCare
             _treatmentManager.SetComplicationManager(_complicationManager);
             _treatmentManager.SetDoctorVisitReminderManager(_doctorVisitReminderManager);
             _doctorVisitReminderManager.SetComplicationManager(_complicationManager);
+            _doctorVisitReminderManager.SetRecoveryPlanManager(_recoveryPlanManager);
             _complicationManager.ComplicationsChanged += _doctorVisitReminderManager.SyncReminderBuff;
             _selfCareManager.ComplicationsChanged += _doctorVisitReminderManager.SyncReminderBuff;
             _medicalItemManager = new MedicalItemManager(
@@ -3898,10 +3900,13 @@ namespace HarveyOverhaul.InjuryCare
             events.GameLoop.UpdateTicked += _medicalItemManager.OnUpdateTicked;
             events.GameLoop.UpdateTicked += _mishapManager.OnUpdateTicked;
             events.GameLoop.TimeChanged += _mishapManager.OnTimeChanged;
+            var rainHouseCallManager = new RainHouseCallManager(Monitor, _stateManager, _dialogueManager, _hospitalizationManager);
+            events.GameLoop.OneSecondUpdateTicked += rainHouseCallManager.OnOneSecondUpdateTicked;
             events.GameLoop.DayStarted += (_, _) =>
             {
                 _mishapManager.OnDayStarted();
                 _medicalCardManager.OnDayStarted();
+                rainHouseCallManager.OnDayStarted();
             };
             events.GameLoop.UpdateTicked += _interactionHandler.OnUpdateTicked;
             events.GameLoop.UpdateTicked += _injuryMedicalIntentProvider.OnUpdateTicked;

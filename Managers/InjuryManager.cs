@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using HarveyOverhaul.InjuryCare.Core;
@@ -92,6 +92,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return 0;
         }
 
+        /// <summary>Новая основная травма наложена (подписчик — медкарта: Харви вспоминает повторы).</summary>
+        public event Action<string>? MainInjuryApplied;
+
         /// <summary>
         /// Попытаться применить основную травму с учётом правила «только одна основная».
         /// </summary>
@@ -109,6 +112,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 applyAction();
                 _stateManager.SetMainInjury(newInjuryId);
                 EnsureTreatmentNeededTopic(newInjuryId);
+                MainInjuryApplied?.Invoke(newInjuryId);
                 return true;
             }
 
@@ -132,6 +136,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     _complicationManager?.ClearWoundRelatedComplicationsAfterInfection();
 
                 EnsureTreatmentNeededTopic(newInjuryId);
+                MainInjuryApplied?.Invoke(newInjuryId);
 
                 _monitor.Log(
                     $"[MainInjury] Основная травма заменена: {oldInjuryId} -> {newInjuryId}",
@@ -1120,7 +1125,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 "buffDeepCuts" => "Глубокие порезы",
                 "buffBurnWounds" => "Ожоги",
                 "buffInfectedWound" => "Инфицированная рана",
-                "buffTornMuscles" => "Разрыв мышц",
+                "buffTornMuscles" => "Надрыв мышцы",
                 "buffConcussion" => "Сотрясение мозга",
                 "buffFracturedBone" => "Перелом",
                 "buffShrapnelWounds" => "Осколочные ранения",
@@ -1245,7 +1250,52 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private static int ScalePhaseDuration(int days, double multiplier) =>
             days <= 0 ? days : Math.Max(1, (int)Math.Round(days * multiplier));
 
-        private void ApplyInjurySafe(string injuryId, Action applyFunc, string triggerConst)
+        /// <summary>
+        /// Аптечка в рюкзаке в шахте/вулкане: тратится одна, травма на шаг легче, а лёгкий ушиб не случается совсем.
+        /// Подготовка к походу вознаграждается, а не наказывается.
+        /// </summary>
+        private bool TryUseFirstAidKit(ref string injuryId, ref Action? applyFunc)
+        {
+            var player = Game1.player;
+            if (player == null || !IsInsideMineOrVolcano(player.currentLocation)
+                || !player.Items.ContainsId(MedicalItems.FirstAidKit))
+            {
+                return false;
+            }
+
+            (string? lighterId, Action? lighterApply, string message) = injuryId switch
+            {
+                "buffFracturedBone" => ("buffSprainedAnkle", (Action)ApplySprainedAnkleCore,
+                    "Аптечка пригодилась: шина и тугая повязка — похоже, просто растяжение."),
+                "buffShrapnelWounds" => ("buffDeepCuts", ApplyDeepCutsCore,
+                    "Аптечка пригодилась: осколки вынуты сразу, остались порезы."),
+                "buffConcussion" => ("buffBadlyHurt", ApplyBadlyHurtCore,
+                    "Аптечка пригодилась: холод к голове и покой — обошлось без сотрясения."),
+                "buffTornMuscles" => ("buffBackStrain", ApplyBackStrainCore,
+                    "Аптечка пригодилась: эластичный бинт уберёг мышцу от надрыва — только перенапряжение спины."),
+                "buffBurnWounds" or "buffDeepCuts" or "buffBadlyHurt" => ("buffHurt", ApplyHurtCore,
+                    "Аптечка пригодилась: рана обработана сразу, вышел лишь ушиб."),
+                "buffBruisedRibs" or "buffSprainedAnkle" or "buffBackStrain" => ("buffHurt", ApplyHurtCore,
+                    "Аптечка пригодилась: повязка наложена вовремя — просто ушиб."),
+                "buffHurt" => (null, null,
+                    "Аптечка пригодилась: ссадина обработана — травмы не будет."),
+                _ => (injuryId, applyFunc, ""),
+            };
+
+            if (message.Length == 0)
+                return false;
+
+            player.Items.ReduceId(MedicalItems.FirstAidKit, 1);
+            Game1.playSound("healSound");
+            Game1.addHUDMessage(new HUDMessage(message, HUDMessage.health_type));
+            _monitor.Log($"[FirstAidKit] {injuryId} → {lighterId ?? "нет травмы"}", LogLevel.Info);
+
+            injuryId = lighterId ?? injuryId;
+            applyFunc = lighterApply;
+            return true;
+        }
+
+        private void ApplyInjurySafe(string injuryId, Action? applyFunc, string triggerConst)
         {
             try
             {
@@ -1281,6 +1331,18 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     _monitor.Log($"Кулдаун травм активен, пропускаем {injuryId}", LogLevel.Debug);
                     return;
                 }
+
+                if (!storyOneShot && TryUseFirstAidKit(ref injuryId, ref applyFunc))
+                {
+                    if (applyFunc == null)
+                    {
+                        UpdateLastInjuryTime();
+                        return;
+                    }
+                }
+
+                if (applyFunc == null)
+                    return;
 
                 _monitor.Log($"Применяем травму {injuryId}", LogLevel.Info);
                 if (!TryApplyMainInjury(injuryId, applyFunc))

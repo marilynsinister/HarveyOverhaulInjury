@@ -2497,6 +2497,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return plan.IsActive && plan.Status == RecoveryPlanMoodStatus.NeedsHarveyTalk;
         }
 
+        /// <summary>Плану нужен разговор с Харви, и его не перекрывает медицинский интент (тогда говорит NeedVisit-реплика).</summary>
+        public bool NeedsRecoveryPlanVisitReminder()
+            => NeedsHarveyTalkSync() && !HasPendingMedicalHarveyTalk();
+
         /// <summary>Медицинский интент (фаза, выписка, старт лечения) важнее recovery-plan NeedVisit.</summary>
         private bool HasPendingMedicalHarveyTalk()
         {

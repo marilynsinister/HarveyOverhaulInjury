@@ -31,7 +31,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
 
         /// <summary>
         /// Короткие экстренные темы (1–2 дня). Темы HealthDamage*/PostOperativeCare сюда не входят:
-        /// они живут всё лечение (разрыв мышц — 11 дн., перелом — 18) и закрывали шахту даже на восстановлении.
+        /// они живут всё лечение (надрыв мышцы — 11 дн., перелом — 18) и закрывали шахту даже на восстановлении.
         /// Острое окно травмы и так блокирует шахту через GetHardBlockDayLimit.
         /// </summary>
         private static readonly string[] EmergencyMineBlockTopics =

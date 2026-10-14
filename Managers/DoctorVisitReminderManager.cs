@@ -30,6 +30,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void SetComplicationManager(ComplicationManager complicationManager) =>
             _complicationManager = complicationManager;
 
+        private RecoveryPlanManager? _recoveryPlanManager;
+
+        /// <summary>План восстановления тоже может ждать разговора — иначе дневной Sync снимал бы его бафф и наоборот.</summary>
+        public void SetRecoveryPlanManager(RecoveryPlanManager recoveryPlanManager) =>
+            _recoveryPlanManager = recoveryPlanManager;
+
         /// <summary>
         /// Напоминание висит только когда Харви на приёме действительно что-то сделает:
         /// осмотр/смена фазы главной травмы, выписка, лечение осложнения, выписка из больницы.
@@ -64,7 +70,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (_hospitalizationManager.IsHospitalized && _hospitalizationManager.CanDischarge())
                 return true;
 
-            return false;
+            return _recoveryPlanManager?.NeedsRecoveryPlanVisitReminder() == true;
         }
 
         public void SyncReminderBuff()

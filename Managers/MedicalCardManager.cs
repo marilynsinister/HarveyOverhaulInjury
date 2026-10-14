@@ -22,6 +22,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private const int MilestoneTopicDays = 3;
         private const int VeteranRecoveries = 5;
         private const int HistoryLinesShown = 5;
+        private const int RepeatMemoryDays = 56;
+        private const int RepeatTopicDays = 3;
+        private const string RepeatInjuryTopicPrefix = "HarveyMod_RepeatInjury_";
 
         private sealed record Achievement(string Id, string Title, string Hint);
 
@@ -43,7 +46,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             ["buffConcussion"] = "Иногда кружится голова, если резко встать.",
             ["buffSurgicalWound"] = "Аккуратный шов — работа Харви.",
             ["buffInfectedWound"] = "Неровный рубец на месте воспаления.",
-            ["buffTornMuscles"] = "Мышца помнит разрыв, если перетрудиться.",
+            ["buffTornMuscles"] = "Мышца помнит надрыв, если перетрудиться.",
         };
 
         private readonly IMonitor _monitor;
@@ -101,6 +104,28 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
 
             _stateManager.Save();
+        }
+
+        /// <summary>
+        /// Та же травма снова в течение двух сезонов — Харви это помнит (топик на 3 дня).
+        /// Своя реплика для частых повторов, иначе общая.
+        /// </summary>
+        public void OnMainInjuryApplied(string injuryId)
+        {
+            int today = GameUtils.Today();
+            var previous = State.MedicalHistory
+                .Where(r => string.Equals(r.InjuryId, injuryId, StringComparison.OrdinalIgnoreCase)
+                            && today - r.RecoveredDay <= RepeatMemoryDays)
+                .ToList();
+            if (previous.Count == 0)
+                return;
+
+            string key = RepeatInjuryTopicPrefix + injuryId.Replace("buff", "");
+            if (!_dialogueManager.HasDialogueKey(key))
+                key = RepeatInjuryTopicPrefix.TrimEnd('_');
+
+            _dialogueManager.AddTopic(key, RepeatTopicDays);
+            _monitor.Log($"[MedicalCard] Повторная травма {injuryId} (было {previous.Count} раз за {RepeatMemoryDays} дн.) → {key}", LogLevel.Info);
         }
 
         public void OnDayStarted()

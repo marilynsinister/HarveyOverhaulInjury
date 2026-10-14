@@ -191,6 +191,9 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// <summary>День последней мелкой неприятности (заноза, укус, солнечный удар, обморожение).</summary>
         public int LastMishapDay { get; set; } = -1;
 
+        /// <summary>День последнего визита Харви в дождь (RainHouseCallManager).</summary>
+        public int LastRainHouseCallDay { get; set; } = -100;
+
         /// <summary>День, к которому относятся счётчики пребывания на солнце/холоде.</summary>
         public int MishapExposureDay { get; set; } = -1;
 
