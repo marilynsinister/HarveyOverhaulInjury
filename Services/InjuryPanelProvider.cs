@@ -19,6 +19,9 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
     private readonly RecoveryPlanManager _recoveryPlanManager;
     private readonly CareTrustManager _careTrustManager;
     private readonly MedicalCardManager _medicalCardManager;
+    private HarveyWellbeingManager? _wellbeingManager;
+
+    public void SetWellbeingManager(HarveyWellbeingManager manager) => _wellbeingManager = manager;
 
     public InjuryPanelProvider(
         StateManager stateManager,
@@ -63,6 +66,9 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
             InjurySections = BuildInjurySectionsWithCard(injuries, complications, hasAnyInjury),
             InjuriesBody = FormatInjuriesBody(injuries, complications, hasAnyInjury),
             TrustSections = BuildTrustSections(),
+            ExtraOverviewSections = _wellbeingManager?.BuildOverviewSection() is { } wellbeing
+                ? new List<HarveyPanelSectionDto> { wellbeing }
+                : new List<HarveyPanelSectionDto>(),
         };
     }
 
@@ -341,18 +347,25 @@ public sealed class InjuryPanelProvider : IHarveyPanelProvider
         var level = _careTrustManager.GetLevel();
         string levelName = level switch
         {
-            CareTrustLevel.Low => "Харви насторожен",
-            CareTrustLevel.High => "Харви доверяет режиму",
-            _ => "Харви наблюдает",
+            CareTrustLevel.Low => "Режим травм: Харви насторожен",
+            CareTrustLevel.High => "Режим травм: Харви доверяет",
+            _ => "Режим травм: Харви наблюдает",
         };
+
+        // Со Stress очки идут в общую шкалу (секция выше) — здесь только то, что касается ран.
+        string body = _careTrustManager.UnifiedTrust != null
+            ? level == CareTrustLevel.Low
+                ? "Недавно режим травм нарушался. Пока это не забудется, Харви строже с шахтой и перевязками."
+                : "Соблюдённый режим при ранах прибавляет к общему доверию: ранний сон, перевязки, день без шахты по запрету."
+            : $"Медицинское доверие: {trust} очков.";
 
         return
         [
             new HarveyPanelSectionDto
             {
                 Title = levelName,
-                Body = $"Медицинское доверие: {trust} очков.",
-                Priority = 10,
+                Body = body,
+                Priority = 30,
                 Severity = level == CareTrustLevel.Low
                     ? HarveyPanelSeverity.Warning
                     : HarveyPanelSeverity.Info,

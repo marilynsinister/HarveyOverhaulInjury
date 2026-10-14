@@ -213,6 +213,9 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string Painkiller = Prefix + "Painkiller";
         public const string HerbalTea = Prefix + "HerbalTea";
         public const string FirstAidKit = Prefix + "FirstAidKit";
+
+        /// <summary>Мазь для рубцов (сцена C3, TraumaBackstory). Снимает «Рубцы стягивает» — ScarCareManager.</summary>
+        public const string ScarSalve = Prefix + "ScarSalve";
     }
 
     /// <summary>

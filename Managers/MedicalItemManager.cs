@@ -32,6 +32,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly MedicalCardManager _medicalCardManager;
 
         private StardewValley.Object? _itemBeingEaten;
+        private ScarCareManager? _scarCareManager;
+
+        public void SetScarCareManager(ScarCareManager scarCareManager) => _scarCareManager = scarCareManager;
 
         public MedicalItemManager(
             IMonitor monitor,
@@ -66,7 +69,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             string? itemId = Game1.player.ActiveObject?.QualifiedItemId;
             if (itemId is not (MedicalItems.CleanBandage or MedicalItems.Antiseptic
-                or MedicalItems.Painkiller or MedicalItems.FirstAidKit))
+                or MedicalItems.Painkiller or MedicalItems.FirstAidKit or MedicalItems.ScarSalve))
             {
                 return;
             }
@@ -84,6 +87,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 MedicalItems.Antiseptic => UseAntiseptic(),
                 MedicalItems.Painkiller => UsePainkiller(),
                 MedicalItems.FirstAidKit => UseFirstAidKit(),
+                MedicalItems.ScarSalve => _scarCareManager?.UseSalve() == true,
                 _ => false,
             };
 

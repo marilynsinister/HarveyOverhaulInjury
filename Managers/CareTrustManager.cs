@@ -1,4 +1,5 @@
 using System;
+using HarveyOverhaul.Core.Api;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Helpers;
 using StardewModdingAPI;
@@ -17,10 +18,22 @@ namespace HarveyOverhaul.InjuryCare.Managers
     /// <summary>
     /// Скрытое медицинское доверие Харви (CareTrust).
     /// Не Friendship: отдельный показатель заботы и соблюдения медицинских рекомендаций.
+    /// Если установлен Stress, каждое изменение дублируется в единую шкалу доверия Core
+    /// (×<see cref="UnifiedPointsPerCareTrust"/>), а уровень High берётся из неё: во вкладке «Доверие» одна картина.
+    /// Low остаётся местным — свежие нарушения режима травм Харви помнит отдельно.
     /// </summary>
     public class CareTrustManager
     {
         private const int CareTrustTopicDays = 3;
+        private const string SourceId = "marilynsinister.HarveyOverhaul.Injury";
+
+        /// <summary>Очки единой шкалы за 1 очко CareTrust (пороги там 25/50/100/160).</summary>
+        public const int UnifiedPointsPerCareTrust = 3;
+
+        /// <summary>Уровень единой шкалы, с которого Харви «доверяет режиму» (SafePerson).</summary>
+        private const int UnifiedHighLevel = 3;
+
+        private IHarveyCoreApi? _coreApi;
 
         private readonly IMonitor _monitor;
         private readonly ModConfig _config;
@@ -39,6 +52,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _dialogueManager = dialogueManager;
         }
 
+        public void SetCoreApi(IHarveyCoreApi? coreApi) => _coreApi = coreApi;
+
+        /// <summary>Единая шкала (Stress). null — Stress не установлен, работаем как раньше.</summary>
+        public IHarveyCareTrustApi? UnifiedTrust => _coreApi?.GetCareTrustApi();
+
         public int GetTrust() => _stateManager.State.CareTrust;
 
         public CareTrustLevel GetLevel()
@@ -47,6 +65,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (trust <= _config.CareTrustLowThreshold)
                 return CareTrustLevel.Low;
+
+            if (UnifiedTrust is { } unified)
+                return unified.Level >= UnifiedHighLevel ? CareTrustLevel.High : CareTrustLevel.Medium;
 
             if (trust >= _config.CareTrustHighThreshold)
                 return CareTrustLevel.High;
@@ -108,6 +129,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
 
             ApplyTrust(GetTrust() + amount, reason);
+            if (amount > 0)
+                UnifiedTrust?.Award(SourceId, reason, amount * UnifiedPointsPerCareTrust);
         }
 
         public void PenalizeTrust(int amount, string reason)
@@ -116,6 +139,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
 
             ApplyTrust(GetTrust() - amount, reason);
+            if (amount > 0)
+                UnifiedTrust?.Penalize(SourceId, reason, amount * UnifiedPointsPerCareTrust);
         }
 
         public void SetTrust(int value, string reason)

@@ -3897,6 +3897,20 @@ namespace HarveyOverhaul.InjuryCare
             // События взаимодействия
             events.Input.ButtonPressed += _interactionHandler.OnButtonPressed;
             events.Input.ButtonPressed += _medicalItemManager.OnButtonPressed;
+
+            // Рубцы на холоде (TraumaBackstory): проверка при выходе на улицу и раз в 10 минут.
+            var scarCareManager = new ScarCareManager(Monitor, _config, _dialogueManager);
+            _medicalItemManager.SetScarCareManager(scarCareManager);
+            events.GameLoop.DayStarted += (_, _) => scarCareManager.OnDayStarted();
+            events.Player.Warped += (_, e) => { if (e.IsLocalPlayer) scarCareManager.Check(); };
+            events.GameLoop.TimeChanged += (_, _) => scarCareManager.Check();
+
+            // Харви тоже устаёт и болеет: забота в обе стороны.
+            var wellbeingManager = new HarveyWellbeingManager(Monitor, _careTrustManager, _dialogueManager, _stateManager);
+            _injuryPanelProvider.SetWellbeingManager(wellbeingManager);
+            events.GameLoop.DayStarted += (_, _) => wellbeingManager.OnDayStarted();
+            events.Input.ButtonPressed += (_, e) => wellbeingManager.OnButtonPressed(e);
+            events.GameLoop.UpdateTicked += (_, _) => wellbeingManager.OnUpdateTicked();
             events.GameLoop.UpdateTicked += _medicalItemManager.OnUpdateTicked;
             events.GameLoop.UpdateTicked += _mishapManager.OnUpdateTicked;
             events.GameLoop.TimeChanged += _mishapManager.OnTimeChanged;
@@ -4655,6 +4669,7 @@ namespace HarveyOverhaul.InjuryCare
             _timeEventHandler.SetCoreApi(coreApi);
             _treatmentStartHandler.SetCoreApi(coreApi);
             _injuryMedicalIntentProvider.SetCoreApi(coreApi);
+            _careTrustManager.SetCoreApi(coreApi);
 
             int directiveCount = _injuryCareDirectiveProvider.GetCareDirectives().Count;
             Monitor.Log(

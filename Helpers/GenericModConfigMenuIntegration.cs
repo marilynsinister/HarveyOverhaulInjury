@@ -84,6 +84,12 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 value => config.EnableMinorMishaps = value,
                 () => "Мелкие неприятности",
                 () => "Заноза, укус пчелы, солнечный удар, обморожение. Проходят за ночь или лечатся предметами.");
+            gmcm.AddBoolOption(
+                manifest,
+                () => config.EnableScarTightness,
+                value => config.EnableScarTightness = value,
+                () => "Рубцы на холоде",
+                () => "Зимой на улице старые ожоги на руках стягивает: -1 к земледелию и рыбалке до вечера. Снимается мазью Харви. Только при TraumaBackstory в Harvey Overhaul [CP].");
             gmcm.AddNumberOption(
                 manifest,
                 () => config.MineForbiddenDurationDays,
@@ -129,6 +135,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             config.ForceHospitalization = defaults.ForceHospitalization;
             config.EnableFarmingToolUseInjuries = defaults.EnableFarmingToolUseInjuries;
             config.EnableMinorMishaps = defaults.EnableMinorMishaps;
+            config.EnableScarTightness = defaults.EnableScarTightness;
             config.MineForbiddenDurationDays = defaults.MineForbiddenDurationDays;
             config.MedicalLetters = defaults.MedicalLetters;
             config.SendRomanticCareLetters = defaults.SendRomanticCareLetters;

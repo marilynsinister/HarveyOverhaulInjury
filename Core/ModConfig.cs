@@ -5,8 +5,9 @@ namespace HarveyOverhaul.InjuryCare.Core
     /// </summary>
     public sealed class ModConfig
     {
-        /// <summary>MCP HTTP server for Cursor/agents (injury_* debug tools). localhost only.</summary>
-        public bool EnableInjuryMcp { get; set; } = true;
+        /// <summary>MCP HTTP server for Cursor/agents (injury_* debug tools). localhost only.
+        /// Выключен по умолчанию: игрокам не нужен открытый порт. Для тестов включить в config.json.</summary>
+        public bool EnableInjuryMcp { get; set; } = false;
 
         /// <summary>Port for Injury MCP (default 24843; StardewMCP uses 24842).</summary>
         public int InjuryMcpPort { get; set; } = 24843;
@@ -165,6 +166,12 @@ namespace HarveyOverhaul.InjuryCare.Core
 
         /// <summary>Мелкие неприятности: заноза, укус пчелы, солнечный удар, обморожение.</summary>
         public bool EnableMinorMishaps { get; set; } = true;
+
+        /// <summary>
+        /// Зимой на холоде старые ожоги на руках стягивает (лёгкий дебафф, снимается мазью Харви).
+        /// Только при TraumaBackstory = true в Harvey Overhaul [CP].
+        /// </summary>
+        public bool EnableScarTightness { get; set; } = true;
 
         /// <summary>Пресет сложности: Cozy, Realistic, Hardcore или Custom (свои множители ниже).</summary>
         public string Difficulty { get; set; } = DifficultyPresets.Realistic;
