@@ -189,6 +189,9 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// <summary>Награда за завершение текущего плана уже выдана.</summary>
         public bool CompletionRewardApplied { get; set; } = false;
 
+        /// <summary>День, когда визит к Харви по плану состоялся (-1 = нет): пункт «Поговори с Харви» показывается выполненным.</summary>
+        public int HarveyVisitDoneDay { get; set; } = -1;
+
         /// <summary>Ждёт обязательного разговора с Харви после завершения плана.</summary>
         public bool CompletionTalkPending { get; set; } = false;
 

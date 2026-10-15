@@ -194,10 +194,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
             plan.CurrentPhase = debuffState.CurrentPhase;
             plan.TotalPhases = debuffState.TotalPhases;
             plan.IsActive = true;
-            plan.NeedsHarveyVisit = debuffState.ReadyForNextPhase
-                || debuffState.ReadyForRecovery
-                || _stateManager.State.ActiveComplications.Count > 0
-                || !debuffState.HarveyConversationHappened;
+            // Только явный повод (нарушение режима). Готовность фазы, осложнения и старт лечения — свои
+            // медицинские визиты: раньше они пересчитывались сюда при каждом обновлении, и после разговора
+            // с Харви флаг тут же возвращался вместе с баффом «Нужен приём у Харви».
+            plan.NeedsHarveyVisit = _stateManager.State.RecoveryPlanNeedsHarveyVisit;
             plan.Tasks = tasks;
             plan.Status = CalculateStatus(plan, debuffState);
             plan.LastUpdatedDay = today;
@@ -2426,9 +2426,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _stateManager.ClearActiveRecoveryPlan();
                 ResetCompletionTalkTracking();
             }
+            else
+            {
+                plan.HarveyVisitDoneDay = GameUtils.Today();
+            }
 
             _stateManager.Save();
             _monitor.Log($"[RecoveryPlan] RecoveryPlanTalk action handled: mode={mode}", LogLevel.Info);
+
+            // Статус и пункты плана пересобираем сразу, а не при следующем открытии/утре.
+            if (mode == RecoveryPlanTalkModes.NeedVisit)
+                RefreshPlanForToday();
         }
 
         private void ClearHarveyVisitFlags(RecoveryPlanState plan, HospitalDischargePlanState? hospital)
@@ -2491,11 +2499,42 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (state.RecoveryPlanNeedsHarveyVisit)
                 return true;
 
-            if (plan.NeedsHarveyVisit)
-                return true;
-
-            return plan.IsActive && plan.Status == RecoveryPlanMoodStatus.NeedsHarveyTalk;
+            // plan.Status не учитываем: он вычисляется из тех же медицинских поводов и устаревает
+            // до следующего Refresh — из-за него разговор «не засчитывался».
+            return plan.NeedsHarveyVisit;
         }
+
+        /// <summary>
+        /// Разговор с Харви закончился, а реплика темы NeedVisit (с $action) не прозвучала — например, Харви
+        /// ответил другой репликой. Разговор всё равно состоялся: закрываем визит по плану.
+        /// </summary>
+        public bool CompleteNeedVisitTalkIfPending()
+        {
+            if (!Context.IsWorldReady || IsCompletionTalkPending() || !NeedsRecoveryPlanVisitReminder())
+                return false;
+
+            FinishRecoveryPlanTalk(RecoveryPlanTalkModes.NeedVisit, applyCompletionRewards: false);
+            _monitor.Log("[RecoveryPlan] NeedVisit закрыт по факту разговора с Харви (без реплики темы)", LogLevel.Info);
+            return true;
+        }
+
+        /// <summary>Визит к Харви сегодня состоялся — пункт плана показывается выполненным до конца дня.</summary>
+        public void MarkHarveyVisitDoneToday()
+        {
+            if (!Context.IsWorldReady)
+                return;
+
+            var plan = _stateManager.GetRecoveryPlan();
+            int today = GameUtils.Today();
+            if (plan.HarveyVisitDoneDay == today)
+                return;
+
+            plan.HarveyVisitDoneDay = today;
+            _stateManager.Save();
+        }
+
+        public bool IsHarveyVisitDoneToday()
+            => Context.IsWorldReady && _stateManager.GetRecoveryPlan().HarveyVisitDoneDay == GameUtils.Today();
 
         /// <summary>Плану нужен разговор с Харви, и его не перекрывает медицинский интент (тогда говорит NeedVisit-реплика).</summary>
         public bool NeedsRecoveryPlanVisitReminder()

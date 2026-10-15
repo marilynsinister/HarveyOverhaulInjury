@@ -49,8 +49,34 @@ public sealed class InjuryCareDirectiveProvider : IHarveyCareDirectiveProvider
         AppendMineForbidden(state, today, directives);
         AppendFailureReasons(recoveryVm, directives);
         AppendWarnings(recoveryVm, directives);
+        AppendVisitDoneToday(directives);
 
         return directives;
+    }
+
+    /// <summary>
+    /// Визит к Харви сегодня уже был, и нового повода нет — оставляем пункт с галочкой,
+    /// чтобы было видно, что разговор засчитан (раньше пункт просто исчезал).
+    /// </summary>
+    private void AppendVisitDoneToday(List<HarveyCareDirective> directives)
+    {
+        if (directives.Count == 0 || !_recoveryPlanManager.IsHarveyVisitDoneToday())
+            return;
+
+        if (directives.Any(d => d.Type == HarveyCareDirectiveType.Appointment && d.State == HarveyCareDirectiveState.Active))
+            return;
+
+        directives.Add(new HarveyCareDirective
+        {
+            Id = "injury.appointment.done_today",
+            Source = HarveyCareDirectiveSource.Injury,
+            Type = HarveyCareDirectiveType.Appointment,
+            Title = "Поговори с Харви",
+            Text = "Разговор с Харви состоялся — он проверил, как идёт восстановление.",
+            Priority = HarveyCareDirectivePriority.Normal,
+            State = HarveyCareDirectiveState.Done,
+            HarveyTone = HarveyCareDirectiveTone.Calm,
+        });
     }
 
     private void AppendComplicationDirectives(InjuryState state, List<HarveyCareDirective> directives)

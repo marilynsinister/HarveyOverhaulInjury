@@ -72,6 +72,13 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private PendingMedicalAction? _pendingMedicalAction;
         private bool _pendingSawDialogueBox;
 
+        // Разговор с Харви: после него план и бафф «Нужен приём у Харви» пересчитываются сразу.
+        private const int TalkSyncNoDialogueTimeoutTicks = 120;
+        private bool _talkSyncArmed;
+        private bool _talkSyncSawDialogue;
+        private bool _visitNeededBeforeTalk;
+        private int _talkSyncStartTick;
+
         /// <summary>Последний результат проверок при клике (для дебаг-HUD).</summary>
         public string? LastClickDebug { get; private set; }
 
@@ -155,6 +162,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         public void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
         {
             _recoveryPlanManager.OnCompletionTalkDialogueUpdate();
+            TickHarveyTalkPlanSync();
 
             if (Game1.eventUp || Game1.CurrentEvent != null)
             {
@@ -303,6 +311,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
+            ArmHarveyTalkPlanSync();
+
             if (_hospitalizationManager.IsHospitalized
                 && _hospitalActivityManager?.TryShowHospitalTalkMenu(harvey, _hospitalizationManager) == true)
             {
@@ -353,6 +363,64 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 null,
                 null,
                 "ALLOWED: vanilla/CP dialogue — treatment only via $action or hidden-injury choice");
+        }
+
+        private void ArmHarveyTalkPlanSync()
+        {
+            _talkSyncArmed = true;
+            _talkSyncSawDialogue = false;
+            _talkSyncStartTick = Game1.ticks;
+            _visitNeededBeforeTalk = _doctorVisitReminderManager.IsVisitNeeded()
+                || _buffManager.HasBuff(ReminderBuffs.DoctorVisitNeeded);
+        }
+
+        /// <summary>
+        /// Ждём, пока закроются все реплики Харви и применится отложенное медицинское действие,
+        /// затем пересобираем план и бафф. Раньше это происходило только утром или при открытии окна,
+        /// а NeedVisit закрывался лишь репликой темы — если Харви говорил другое, визит не засчитывался.
+        /// </summary>
+        private void TickHarveyTalkPlanSync()
+        {
+            if (!_talkSyncArmed)
+                return;
+
+            if (!Context.IsWorldReady || Game1.eventUp || Game1.CurrentEvent != null)
+            {
+                _talkSyncArmed = false;
+                return;
+            }
+
+            if (Game1.activeClickableMenu is DialogueBox)
+            {
+                _talkSyncSawDialogue = true;
+                return;
+            }
+
+            if (!_talkSyncSawDialogue)
+            {
+                if (Game1.ticks - _talkSyncStartTick > TalkSyncNoDialogueTimeoutTicks)
+                    _talkSyncArmed = false;
+                return;
+            }
+
+            if (_pendingMedicalAction != null || Game1.activeClickableMenu != null)
+                return;
+
+            _talkSyncArmed = false;
+            try
+            {
+                bool planTalkClosed = _recoveryPlanManager.CompleteNeedVisitTalkIfPending();
+                _recoveryPlanManager.EnsurePlanFreshForDisplay();
+                _recoveryPlanManager.SyncHarveyTalkTopic();
+                _doctorVisitReminderManager.SyncReminderBuff();
+
+                if ((_visitNeededBeforeTalk || planTalkClosed) && !_doctorVisitReminderManager.IsVisitNeeded())
+                    _recoveryPlanManager.MarkHarveyVisitDoneToday();
+            }
+            catch (Exception ex)
+            {
+                _monitor.Log($"[TalkSync] Ошибка обновления плана после разговора с Харви: {ex}", LogLevel.Error);
+            }
         }
 
         /// <summary>Игрок держит предмет для активного квеста доставки Харви — не перехватываем клик.</summary>

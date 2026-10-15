@@ -193,6 +193,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         _recoveryPlanManager.RefreshPlanForToday();
                         _recoveryPlanManager.ScheduleMorningPlanHud();
                         _recoveryPlanManager.SyncHarveyTalkTopic();
+                        // Повторно после пересборки плана: первый Sync шёл до неё и видел вчерашние флаги.
+                        _doctorVisitReminderManager.SyncReminderBuff();
 
                         // 8. Предписания: снять истёкшие, начислить TreatmentComplianceScore за вчера
                         _prescriptionManager.RemoveExpiredPrescriptions();
