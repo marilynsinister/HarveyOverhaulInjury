@@ -216,6 +216,15 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// <summary>Причина последней proximity-реакции (debug).</summary>
         public string LastProximityReactionReason { get; set; } = "";
 
+        /// <summary>День, к которому относится <see cref="ProximityReactionsToday"/>.</summary>
+        public int ProximityReactionDay { get; set; } = -1;
+
+        /// <summary>Сколько proximity-облачков Харви показал за день.</summary>
+        public int ProximityReactionsToday { get; set; }
+
+        /// <summary>Текст последнего облачка — чтобы не повторять ту же фразу подряд.</summary>
+        public string LastProximityReactionText { get; set; } = "";
+
         /// <summary>BuffId травмы, после которой назначена реабилитация; null — реабилитации нет.</summary>
         public string? ActiveRehabInjuryId { get; set; }
 

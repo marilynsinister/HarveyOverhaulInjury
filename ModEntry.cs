@@ -3637,6 +3637,7 @@ namespace HarveyOverhaul.InjuryCare
                 _injuryManager);
             _treatmentManager.InjuryRecovered += _medicalCardManager.OnInjuryRecovered;
             _injuryManager.MainInjuryApplied += _medicalCardManager.OnMainInjuryApplied;
+            _injuryManager.InjuryEpisodeStarted += _complianceManager.StartNewEpisode;
             _mishapManager = new MishapManager(Monitor, _config, _stateManager, _buffManager, _dialogueManager);
 
             _injuryPanelProvider = new InjuryPanelProvider(
@@ -3913,6 +3914,15 @@ namespace HarveyOverhaul.InjuryCare
             events.GameLoop.UpdateTicked += (_, _) => wellbeingManager.OnUpdateTicked();
             events.GameLoop.UpdateTicked += _medicalItemManager.OnUpdateTicked;
             events.GameLoop.UpdateTicked += _mishapManager.OnUpdateTicked;
+            var topicRelevanceGuard = new TopicRelevanceGuard(Monitor, _stateManager, _buffManager, _dialogueManager);
+            events.GameLoop.SaveLoaded += (_, _) => topicRelevanceGuard.OnSaveLoaded();
+            events.GameLoop.DayStarted += (_, _) => topicRelevanceGuard.OnDayStarted();
+            events.GameLoop.ReturnedToTitle += (_, _) => topicRelevanceGuard.OnReturnedToTitle();
+            events.GameLoop.UpdateTicked += topicRelevanceGuard.OnUpdateTicked;
+            var medicalTopicPacer = new MedicalTopicPacer(Monitor, _stateManager);
+            events.GameLoop.DayStarted += (_, _) => medicalTopicPacer.OnDayStarted();
+            events.GameLoop.ReturnedToTitle += (_, _) => medicalTopicPacer.OnReturnedToTitle();
+            events.GameLoop.UpdateTicked += medicalTopicPacer.OnUpdateTicked;
             events.GameLoop.TimeChanged += _mishapManager.OnTimeChanged;
             var rainHouseCallManager = new RainHouseCallManager(Monitor, _stateManager, _dialogueManager, _hospitalizationManager);
             events.GameLoop.OneSecondUpdateTicked += rainHouseCallManager.OnOneSecondUpdateTicked;

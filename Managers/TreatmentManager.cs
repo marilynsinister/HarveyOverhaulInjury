@@ -558,7 +558,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     dsAfter.TreatmentApplied = true;
                 _injuryManager.EnsureTreatmentBuffForInjury(injuryId);
                 _prescriptionManager.AssignPrescriptionsForInjury(injuryId);
-                _complianceManager.ApplyTreatmentComplianceTopics();
                 _treatmentPlanManager.SendTreatmentPlanForInjury(injuryId);
 
                 int today = (int)Game1.stats.DaysPlayed;

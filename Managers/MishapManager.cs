@@ -227,6 +227,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return false;
 
             _buffManager.RemoveBuff(buffId);
+            // Вылечено (самой фермершей или Харви) — реплика «сейчас вытащу занозу» больше не к месту.
+            _dialogueManager.RemoveTopic(GetTopic(buffId));
             _monitor.Log($"[Mishap] {buffId} снят", LogLevel.Debug);
             return true;
         }
@@ -234,7 +236,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private double ScaleChance(double chance) =>
             Math.Clamp(chance * _config.GetInjuryChanceMultiplier(), 0.0, 1.0);
 
-        private static string GetTopic(string buffId) => "topicHarvey_" + buffId.Replace("HarveyMod_", "");
+        public static string GetTopic(string buffId) => "topicHarvey_" + buffId.Replace("HarveyMod_", "");
 
         private static int ToMinutes(int time) => time / 100 * 60 + time % 100;
     }

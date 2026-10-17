@@ -1588,6 +1588,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return false;
             }
 
+            if (!_harveyReactionManager.CanShowProximityReactionToday())
+            {
+                _monitor.Log("[Proximity] Пропуск: дневной лимит облачков исчерпан", LogLevel.Debug);
+                return false;
+            }
+
             int elapsed = _harveyReactionManager.GetProximityCooldownElapsedMinutes();
             if (elapsed < ProximityReactionCooldownMinutes)
             {
@@ -1621,7 +1627,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (!string.IsNullOrEmpty(plan.TopicId))
                 _dialogueManager.AddTopic(plan.TopicId, plan.TopicDays);
 
-            _harveyReactionManager.RecordReactionShown(plan);
+            _harveyReactionManager.RecordReactionShown(plan, textMessage);
 
             _monitor.Log(
                 $"[Proximity] Облачко: emote={plan.Emote}, context={plan.Context}, tone={plan.Tone}, " +

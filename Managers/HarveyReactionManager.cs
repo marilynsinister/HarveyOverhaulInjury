@@ -48,6 +48,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
     {
         private const int TopicDaysNormal = 1;
         private const int TopicDaysStrict = 2;
+        private const int MaxProximityReactionsPerDay = 3;
 
         private readonly IMonitor _monitor;
         private readonly StateManager _stateManager;
@@ -218,17 +219,43 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (plan.CpPrefixCandidates.Count == 0)
                 return fallback;
 
-            return _dialogueManager.PickRandomProximityLineByPrefixes(
-                plan.CpPrefixCandidates,
-                fallback);
+            // Случайный выбор из 2–3 вариантов часто выдаёт ту же фразу, что в прошлый раз, — перевыбираем.
+            string last = _stateManager.State.LastProximityReactionText;
+            string text = fallback;
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                text = _dialogueManager.PickRandomProximityLineByPrefixes(plan.CpPrefixCandidates, fallback);
+                if (!string.Equals(text, last, StringComparison.Ordinal))
+                    break;
+            }
+
+            return text;
         }
 
-        public void RecordReactionShown(ProximityReactionPlan plan)
+        /// <summary>Облачков за день не больше <see cref="MaxProximityReactionsPerDay"/> — иначе Харви комментирует каждый проход мимо.</summary>
+        public bool CanShowProximityReactionToday()
+        {
+            var state = _stateManager.State;
+            return state.ProximityReactionDay != GameUtils.Today()
+                   || state.ProximityReactionsToday < MaxProximityReactionsPerDay;
+        }
+
+        public void RecordReactionShown(ProximityReactionPlan plan, string? text = null)
         {
             int today = GameUtils.Today();
             var state = _stateManager.State;
             state.LastProximityReactionMinute = GameUtils.CurrentTimeInMinutes();
             state.LastProximityReactionReason = plan.Reason;
+            if (text != null)
+                state.LastProximityReactionText = text;
+
+            if (state.ProximityReactionDay != today)
+            {
+                state.ProximityReactionDay = today;
+                state.ProximityReactionsToday = 0;
+            }
+
+            state.ProximityReactionsToday++;
 
             if (plan.IsStrict)
                 state.LastStrictReactionDay = today;

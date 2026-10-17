@@ -100,12 +100,38 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _stateManager.Save();
         }
 
-        /// <summary>Топики для CP-диалогов при лечении (не меняет PickTreatmentDialogue).</summary>
-        public void ApplyTreatmentComplianceTopics()
+        /// <summary>
+        /// Новая травма после периода без травм: прошлые заслуги и промахи к ней не относятся.
+        /// Иначе Харви при первом же осмотре хвалит («мы справляемся») или упрекает за прошлое лечение.
+        /// </summary>
+        public void StartNewEpisode(string injuryId)
+        {
+            ClearTreatmentComplianceTopics();
+            if (Score == 0)
+                return;
+
+            _monitor.Log($"TreatmentComplianceScore {Score} → 0 (новая травма {injuryId})", LogLevel.Info);
+            SetScore(0);
+        }
+
+        private void ClearTreatmentComplianceTopics()
         {
             _dialogueManager.RemoveTopic(ComplianceTopics.High);
             _dialogueManager.RemoveTopic(ComplianceTopics.Low);
             _dialogueManager.RemoveTopic(ComplianceTopics.Neutral);
+        }
+
+        /// <summary>
+        /// Топики для CP-диалогов на повторных осмотрах (смена фазы, выписка, нарушения) — не при первом
+        /// лечении, когда соблюдать ещё нечего. Нейтральная реплика говорит о «пробелах», поэтому только
+        /// при отрицательном счёте; при 0..4 Харви про режим молчит.
+        /// </summary>
+        public void ApplyTreatmentComplianceTopics()
+        {
+            ClearTreatmentComplianceTopics();
+
+            if (GetComplianceLevel() == ComplianceLevel.Neutral && Score >= 0)
+                return;
 
             switch (GetComplianceLevel())
             {

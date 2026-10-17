@@ -95,6 +95,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>Новая основная травма наложена (подписчик — медкарта: Харви вспоминает повторы).</summary>
         public event Action<string>? MainInjuryApplied;
 
+        /// <summary>Основная травма появилась, когда другой не было (не ухудшение текущей).</summary>
+        public event Action<string>? InjuryEpisodeStarted;
+
         /// <summary>
         /// Попытаться применить основную травму с учётом правила «только одна основная».
         /// </summary>
@@ -113,6 +116,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _stateManager.SetMainInjury(newInjuryId);
                 EnsureTreatmentNeededTopic(newInjuryId);
                 MainInjuryApplied?.Invoke(newInjuryId);
+                InjuryEpisodeStarted?.Invoke(newInjuryId);
                 return true;
             }
 
