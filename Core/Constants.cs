@@ -334,6 +334,14 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string KnownSevereInjury = "HarveyMod_KnownSevereInjury";
         /// <summary>После внешнего спасения вне шахты — реакция Харви дома ночью.</summary>
         public const string ExternalRescueConcern = "topicHarvey_ExternalRescueConcern";
+        /// <summary>Повторная гибель в шахте (утренний rescue уже показан) → eventHarveyCheckHealthFarmer на ферме.</summary>
+        public const string CheckHealthAfterCollapse = "topicHarvey_CheckHealthAfterCollapse";
+        /// <summary>Обморок в 2:00 на улице вне города (лес, пляж, гора, ферма…).</summary>
+        public const string PassedOutOutside = "topicPassedOutOutside";
+        /// <summary>Второй обморок/гибель за 14 дней.</summary>
+        public const string RepeatCollapse = "topicHarvey_RepeatCollapse";
+        /// <summary>Третий и более за 14 дней — серьёзный, но мягкий разговор.</summary>
+        public const string CollapsePattern = "topicHarvey_CollapsePattern";
         /// <summary>После выписки из госпитализации — домашний визит Харви вечером.</summary>
         public const string AfterHospitalDischargeHome = "topicHarvey_AfterHospitalDischargeHome";
         /// <summary>После выписки из госпитализации — мягкое наблюдение.</summary>

@@ -30,6 +30,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private const int MaxHospitalClockDeltaMinutes = 120;
 
         private bool _hospitalHoldActive;
+
+        public const string StayModeDay = "day";
+        public const string StayModeOvernight = "overnight";
+
+        /// <summary>Объяснение Харви ждёт, пока пациент окажется в палате и будет свободен.</summary>
+        private string? _admissionIntroReason;
+        private bool _admissionPromptPending;
         private string? _currentHospitalCaseInjury;
         private bool _dischargeAllowed;
 
@@ -205,11 +212,20 @@ namespace HarveyOverhaul.InjuryCare.Managers
             state.LastHospitalTimeOfDay = Game1.timeOfDay;
             state.HospitalizationCaseId = caseId;
             state.DischargedToday = false;
+            state.HospitalOvernightCreditDay = -1;
+            state.HospitalStayMode = IsOvernightAdmission(state.HospitalMinStayMinutes)
+                ? StayModeOvernight
+                : StayModeDay;
             _stateManager.Save();
 
             _hospitalHoldActive = true;
             _currentHospitalCaseInjury = injuryId;
             _dischargeAllowed = false;
+            _activityManager?.Reset();
+
+            _monitor.Log(
+                $"[Hospital] режим пребывания: {state.HospitalStayMode} (поступление {Game1.timeOfDay}, срок {state.HospitalMinStayMinutes} мин)",
+                LogLevel.Info);
 
             ApplyHospitalizedBuff(Game1.timeOfDay);
 
@@ -227,11 +243,20 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     $"hospital_{reason}");
             }
 
-            // Телепортируем в больницу
-            WarpToHospitalBed();
+            // Объяснение Харви и вопрос «чем займёмся» — когда пациент уже в палате и свободен.
+            _admissionIntroReason = reason;
+            _admissionPromptPending = false;
 
-            // Показываем объяснение в зависимости от причины
-            ShowHospitalizationExplanation(harvey, reason);
+            if (IsInEventOrWarp())
+            {
+                // Событие/фестиваль: не ломаем катсцену — блокировка вернёт в палату, когда оно закончится.
+                _pendingReturnToHospital = true;
+                _monitor.Log("[Hospital] поступление во время события — варп в палату отложен", LogLevel.Info);
+            }
+            else
+            {
+                WarpToHospitalBed();
+            }
 
             Game1.playSound("debuffHit");
         }
@@ -248,7 +273,21 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _ => GetGeneralExplanation()
             };
 
-            _dialogueManager.SpeakHarveyDelayed(explanation, 500, harvey);
+            _dialogueManager.SpeakHarvey(explanation, harvey);
+        }
+
+        /// <summary>Фраза о сроке: дневной постельный режим или ночь в палате.</summary>
+        private string GetStayLine()
+        {
+            var state = _stateManager.State;
+            if (string.Equals(state.HospitalStayMode, StayModeOvernight, StringComparison.OrdinalIgnoreCase))
+                return "Уже поздно — останешься на ночь. Утром посмотрим, как ты.$u#$b#";
+
+            int minutes = state.HospitalMinStayMinutes;
+            string duration = minutes == 90
+                ? "полтора часа"
+                : $"{minutes / 60} {GetHoursWord(minutes / 60)}";
+            return $"Побудь здесь, под присмотром, хотя бы {duration}.$u#$b#";
         }
 
         /// <summary>
@@ -256,13 +295,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         private string GetMineRescueExplanation()
         {
-            int hours = _stateManager.State.HospitalMinStayMinutes / 60;
-            
-            return $"@! Твои раны после вчерашнего инцидента в шахте очень серьёзны.$a#$b#" +
-                   $"Я не могу отпустить тебя в таком состоянии!$a#$b#" +
-                   $"Ты остаёшься здесь под моим наблюдением минимум на {hours} {GetHoursWord(hours)}.$u#$b#" +
-                   $"Я буду следить за твоим состоянием и обрабатывать раны.$l#$b#" +
-                   $"Это не обсуждается.$a";
+            return $"Твои раны после вчерашнего в шахте серьёзнее, чем кажется.$s#$b#" +
+                   $"Я не хочу отпускать тебя в таком состоянии.$s#$b#" +
+                   GetStayLine() +
+                   $"Я буду рядом — обработаю раны и прослежу, чтобы всё заживало как надо.$l#$b#" +
+                   $"Если станет хуже — сразу зови меня.$l";
         }
 
         /// <summary>
@@ -270,12 +307,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         private string GetGeneralExplanation()
         {
-            int hours = _stateManager.State.HospitalMinStayMinutes / 60;
-            
-            return $"@! Твоё состояние критическое. Немедленно в палату!$a#$b#" +
-                   $"Тебе нужен постельный режим минимум на {hours} {GetHoursWord(hours)}.$u#$b#" +
+            return $"Тише, тише... Я здесь. Сейчас — в палату, ладно?$s#$b#" +
+                   GetStayLine() +
                    $"Я буду рядом.$l#$b#" +
-                   $"Это не обсуждается.$a";
+                   $"Мне так спокойнее — правда.$s";
         }
 
         /// <summary>
@@ -391,15 +426,238 @@ namespace HarveyOverhaul.InjuryCare.Managers
             NotifyDischargeReadyIfNeeded();
         }
 
+        // ============================================================================
+        // НОЧЬ В ПАЛАТЕ
+        // ============================================================================
+
+        /// <summary>С этого времени пациент в палате засыпает сам (ванильный обморок — в 26:00).</summary>
+        public const int WardAutoSleepTime = 2500;
+
+        /// <summary>С этого времени в меню палаты есть «Спать до утра».</summary>
+        public const int WardNightSleepFromTime = 1800;
+
+        private bool _wardSleepStarted;
+
+        public bool IsWardSleepStarted => _wardSleepStarted;
+
+        /// <summary>Можно ли сейчас лечь спать в палате (пациент, в клинике, сон ещё не начат).</summary>
+        public bool CanSleepInWard() =>
+            IsHospitalized && !_wardSleepStarted && IsInClinic(Game1.currentLocation);
+
+        /// <summary>
+        /// Уложить пациента спать в палате до утра: ванильный сон в текущей локации.
+        /// doSleep запоминает lastSleepLocation/lastSleepPoint, а sleptInTemporaryBed позволяет
+        /// BedFurniture.ApplyWakeUpPosition разбудить игрока в клинике, а не дома.
+        /// </summary>
+        public bool TryStartWardSleep(string source)
+        {
+            if (!CanSleepInWard())
+                return false;
+
+            var startSleep = typeof(GameLocation).GetMethod(
+                "startSleep",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (startSleep == null)
+            {
+                _monitor.Log("[Hospital] GameLocation.startSleep не найден — сон в палате недоступен", LogLevel.Error);
+                return false;
+            }
+
+            _wardSleepStarted = true;
+            WarpToHospitalBed();
+            Game1.player.faceDirection(2);
+            Game1.player.sleptInTemporaryBed.Value = true;
+            Game1.dialogueUp = false;
+
+            _monitor.Log($"🏥 Сон в палате до утра ({source}) в {Game1.timeOfDay}", LogLevel.Info);
+            startSleep.Invoke(Game1.currentLocation, null);
+            return true;
+        }
+
+        /// <summary>
+        /// Каждый тик: в позднее время пациент в палате засыпает сам, чтобы не упасть в 02:00
+        /// (ванильный обморок = штраф деньгами и пробуждение дома).
+        /// </summary>
+        public void UpdateWardAutoSleep()
+        {
+            if (Game1.timeOfDay < WardAutoSleepTime || !CanSleepInWard())
+                return;
+
+            if (_admissionIntroReason != null || _admissionPromptPending)
+                return;
+
+            if (!Context.IsWorldReady || IsGameBusy() || Game1.fadeToBlack || Game1.newDay)
+                return;
+
+            Game1.addHUDMessage(new HUDMessage(
+                "Глаза слипаются... Тиканье часов в палате убаюкивает.",
+                HUDMessage.health_type));
+            TryStartWardSleep("auto");
+        }
+
+        /// <summary>
+        /// Каждый тик: когда пациент в палате и свободен — объяснение Харви, затем вопрос
+        /// «поспать / побыть в сознании». Работает и после отложенного (из события) поступления.
+        /// </summary>
+        public void UpdateAdmissionIntro()
+        {
+            if (!IsHospitalized)
+            {
+                _admissionIntroReason = null;
+                _admissionPromptPending = false;
+                return;
+            }
+
+            if (_admissionIntroReason == null && !_admissionPromptPending)
+                return;
+
+            if (_wardSleepStarted || !IsInClinic(Game1.currentLocation))
+                return;
+
+            if (!Context.IsWorldReady || IsGameBusy() || Game1.fadeToBlack || Game1.globalFade)
+                return;
+
+            if (_admissionIntroReason != null)
+            {
+                string reason = _admissionIntroReason;
+                _admissionIntroReason = null;
+                _admissionPromptPending = true;
+                ShowHospitalizationExplanation(HarveyHelper.FindHarveyInLocation(Game1.currentLocation), reason);
+                return;
+            }
+
+            _admissionPromptPending = false;
+            _activityManager?.ShowAdmissionPrompt(this);
+        }
+
+        private static bool IsInEventOrWarp() =>
+            Game1.eventUp || Game1.CurrentEvent != null || Game1.locationRequest != null;
+
+        /// <summary>
+        /// DayStarted (синхронно, до отложенной инициализации): снять временную кровать,
+        /// засчитать ночь в срок и решить — выписка по записке или «проснулась в палате».
+        /// </summary>
+        public void OnDayStartedHospital()
+        {
+            _wardSleepStarted = false;
+
+            bool wokeInWard = Game1.player.sleptInTemporaryBed.Value
+                && string.Equals(Game1.player.lastSleepLocation.Value, _config.HospitalLocationName,
+                    StringComparison.OrdinalIgnoreCase);
+            if (wokeInWard)
+                Game1.player.sleptInTemporaryBed.Value = false;
+
+            if (!IsHospitalized)
+                return;
+
+            ApplyOvernightCreditIfNeeded();
+            if (!IsOvernightCreditedToday())
+                return;
+
+            if (!IsInClinic(Game1.currentLocation))
+            {
+                DischargeAfterNight();
+                return;
+            }
+
+            ApplyHospitalNightRest();
+            string woke = Game1.player.IsMale ? "проснулся" : "проснулась";
+            Game1.delayedActions.Add(new DelayedAction(1200, () =>
+                Game1.addHUDMessage(new HUDMessage(
+                    $"Ты {woke} в палате. Ночь прошла спокойно — Харви разрешил выписку.",
+                    HUDMessage.health_type))));
+        }
+
+        /// <summary>
+        /// Засчитать ночь в стационаре: если поступление было в прошлые дни, срок считается выполненным.
+        /// Возвращает true, только если засчитали сейчас (идемпотентно в пределах дня).
+        /// </summary>
+        private bool ApplyOvernightCreditIfNeeded()
+        {
+            if (!IsHospitalized)
+                return false;
+
+            var state = _stateManager.State;
+            int today = GameUtils.Today();
+            if (state.HospitalAdmissionDay < 0 || state.HospitalAdmissionDay >= today)
+                return false;
+            if (state.HospitalOvernightCreditDay == today)
+                return false;
+
+            RestoreHospitalStayCounters();
+            int before = state.HospitalStayProgressMinutes;
+            state.HospitalStayProgressMinutes = Math.Max(before, GetMinStayMinutes());
+            state.LastHospitalTimeOfDay = Game1.timeOfDay;
+            state.HospitalDischargeReadyShown = true;
+            state.HospitalOvernightCreditDay = today;
+            _dischargeAllowed = true;
+            _pendingReturnToHospital = false;
+            _pendingBlockedExitReaction = false;
+            ResetReturnWarpState();
+            _stateManager.Save();
+
+            _monitor.Log(
+                $"🏥 Ночь в стационаре засчитана: progress {before} → {state.HospitalStayProgressMinutes} мин " +
+                $"(поступление: день {state.HospitalAdmissionDay}, сегодня {today})",
+                LogLevel.Info);
+            return true;
+        }
+
+        private bool IsOvernightCreditedToday() =>
+            IsHospitalized && _stateManager.State.HospitalOvernightCreditDay == GameUtils.Today();
+
+        /// <summary>Ночь под присмотром: силы и здоровье полностью восстановлены.</summary>
+        private static void ApplyHospitalNightRest()
+        {
+            Game1.player.health = Game1.player.maxHealth;
+            Game1.player.Stamina = Game1.player.MaxStamina;
+        }
+
+        /// <summary>Выписка утром после ночи в стационаре — без сцены, записка от Харви.</summary>
+        private void DischargeAfterNight()
+        {
+            bool wokeInWard = IsInClinic(Game1.currentLocation);
+            Discharge();
+            ApplyHospitalNightRest();
+
+            bool male = Game1.player.IsMale;
+            string note = wokeInWard
+                ? "Записка от Харви:^«Ночь прошла спокойно, показатели в норме. Можешь идти домой.^" +
+                  "Сегодня — без шахты и тяжёлой работы. Если что-то заболит — сразу ко мне.»"
+                : $"Записка от Харви:^«Ночь ты {(male ? "провёл" : "провела")} дома — ничего, главное, что " +
+                  $"{(male ? "выспался" : "выспалась")}. Вчера показатели уже стабилизировались.^" +
+                  "Сегодня отдыхай: без шахты и тяжёлой работы. Загляни ко мне, если станет хуже.»";
+
+            Game1.delayedActions.Add(new DelayedAction(1500, () =>
+            {
+                if (Context.IsPlayerFree && Game1.activeClickableMenu == null)
+                    Game1.drawObjectDialogue(note);
+                else
+                    Game1.addHUDMessage(new HUDMessage("Харви разрешил выписку после ночи под присмотром.", HUDMessage.health_type));
+            }));
+        }
+
         /// <summary>Сколько минут ещё осталось до разрешения на выписку.</summary>
-        public int RemainingStayMinutes =>
-            Math.Max(0, GetMinStayMinutes() - _stateManager.State.HospitalStayProgressMinutes);
+        public int RemainingStayMinutes => GetRemainingMinutes();
+
+        /// <summary>Ночной режим: выписка только утром, после засчитанной ночи.</summary>
+        public bool IsOvernightStay =>
+            IsHospitalized
+            && string.Equals(_stateManager.State.HospitalStayMode, StayModeOvernight, StringComparison.OrdinalIgnoreCase)
+            && !IsOvernightCreditedToday();
+
+        /// <summary>Ночь в палате, если поступили после 20:00 или срок заканчивается позже 22:00.</summary>
+        private static bool IsOvernightAdmission(int minStayMinutes) =>
+            Game1.timeOfDay >= 2000
+            || ToClockMinutes(Game1.timeOfDay) + minStayMinutes > 22 * 60;
 
         /// <summary>QA: установить накопленный прогресс госпитализации в минутах.</summary>
         public void SetHospitalStayProgressMinutes(int minutes)
         {
             var state = _stateManager.State;
             state.HospitalStayProgressMinutes = Math.Max(0, minutes);
+            if (state.HospitalStayProgressMinutes >= GetMinStayMinutes())
+                state.HospitalStayMode = StayModeDay;
             _dischargeAllowed = state.HospitalStayProgressMinutes >= GetMinStayMinutes();
             _stateManager.Save();
         }
@@ -436,7 +694,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private void ShowHospitalizedStatusHud(int timeOfDay, int remainingMinutes)
         {
             Game1.addHUDMessage(new HUDMessage(
-                HospitalizationHelper.FormatRemainingHud(remainingMinutes),
+                IsOvernightStay
+                    ? "Госпитализация: ночь в палате, выписка утром."
+                    : HospitalizationHelper.FormatRemainingHud(remainingMinutes),
                 HUDMessage.health_type));
 
             _stateManager.State.HospitalLastStatusHudMinute =
@@ -458,6 +718,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!IsHospitalized)
                 return true;
 
+            if (IsOvernightStay)
+                return false;
+
             if (!_hospitalHoldActive)
                 RestoreHospitalStayCounters();
 
@@ -472,6 +735,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             if (!_hospitalHoldActive) return;
             if (!_dischargeAllowed) return;
+            if (IsOvernightStay) return;
 
             var state = _stateManager.State;
             if (state.HospitalDischargeReadyShown) return;
@@ -654,15 +918,22 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
             }
 
+            // Утро после ночи: проснулся вне клиники (обморок/ванильный будильник дома) — не тащим обратно.
+            if (ApplyOvernightCreditIfNeeded() || IsOvernightCreditedToday())
+            {
+                if (!IsInClinic(Game1.currentLocation) && Context.IsWorldReady && !IsGameBusy())
+                    DischargeAfterNight();
+                return;
+            }
+
             if (CanDischarge())
                 return;
 
+            // Игрок вне клиники не по своей воле (обморок, утро нового дня, внешний варп) —
+            // возвращаем в палату без упрёков. Реакция Харви — только на попытку уйти (HandleWarpAttempt).
             bool outsideHospital = !IsInClinic(Game1.currentLocation);
             if (outsideHospital)
-            {
                 _pendingReturnToHospital = true;
-                _pendingBlockedExitReaction = true;
-            }
 
             if (!_pendingReturnToHospital)
                 return;
@@ -721,6 +992,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!wasInClinic || !goingOutside)
                 return false; // Варп не из клиники — не блокируем
 
+            // Утро после ночи в стационаре: выписка «по записке», без сцены у двери.
+            if (ApplyOvernightCreditIfNeeded() || IsOvernightCreditedToday())
+            {
+                _monitor.Log("✅ Выход из клиники утром после ночи в стационаре — выписка по записке", LogLevel.Info);
+                DischargeAfterNight();
+                return false;
+            }
+
             // Игрок пытается уйти из больницы
             if (CanDischarge())
             {
@@ -743,7 +1022,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             _pendingReturnToHospital = true;
             _pendingBlockedExitReaction = true;
-            Game1.addHUDMessage(new HUDMessage("Тебе пока нельзя покидать больницу.", HUDMessage.error_type));
+            Game1.addHUDMessage(new HUDMessage("Харви просит ещё немного полежать в палате.", HUDMessage.error_type));
 
             if (Context.IsWorldReady && !IsGameBusy())
                 TryStartReturnToHospital();
@@ -849,11 +1128,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     harvey,
                     HarveyEmotes.StayInBed,
                     HarveyTextMessages.DontMove,
-                    "Назад в палату. Я не обсуждаю это.$a");
+                    $"Подожди... Мне правда нужно, чтобы ты ещё {(Game1.player.IsMale ? "полежал" : "полежала")}.$s#$b#" +
+                    "Ещё немного — и отпущу, обещаю.$l");
             }
             else
             {
-                Game1.addHUDMessage(new HUDMessage("Харви не разрешает тебе покидать палату.", HUDMessage.error_type));
+                Game1.addHUDMessage(new HUDMessage("Харви просил ещё немного побыть в палате.", HUDMessage.error_type));
             }
         }
 
@@ -892,6 +1172,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private int GetRemainingMinutes()
         {
+            // Ночной режим: до выписки — до утра (для баффа считаем до 02:00, дальше сон).
+            if (IsOvernightStay)
+                return Math.Max(10, ToClockMinutes(2600) - ToClockMinutes(Game1.timeOfDay));
+
             return Math.Max(0, GetMinStayMinutes() - _stateManager.State.HospitalStayProgressMinutes);
         }
 
@@ -915,6 +1199,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             state.HospitalStayProgressMinutes = 0;
             state.LastHospitalTimeOfDay = -1;
             state.HospitalizationCaseId = "";
+            state.HospitalStayMode = "";
+            _admissionIntroReason = null;
+            _admissionPromptPending = false;
 
             RemoveHospitalizedBuffFromPlayerAndSaved();
         }

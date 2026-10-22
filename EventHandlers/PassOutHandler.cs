@@ -18,6 +18,16 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private const string FallbackCritical = "critical";
         private const string FallbackExhaustion = "exhaustion";
 
+        private const int CollapseWindowDays = 14;
+        private const int FriendCollapseMinPoints = 1500; // 6 сердец
+        private const float LowStaminaNudgeFraction = 0.1f;
+        private const int LateNightNudgeTime = 2500;
+        private const string MailFriendCollapse = "mailHarveyFriendCollapse";
+        private const string MailCollapsePattern = "mailHarveyCollapsePattern";
+
+        private int _lowStaminaNudgeDay = -1;
+        private int _lateNightNudgeDay = -1;
+
         private readonly IMonitor _monitor;
         private readonly ModConfig _config;
         private readonly StateManager _stateManager;
@@ -28,6 +38,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private TreatmentStartHandler? _treatmentStartHandler;
         private RecoveryPlanManager? _recoveryPlanManager;
         private MedicalLetterScheduler? _medicalLetterScheduler;
+        private HospitalizationManager? _hospitalizationManager;
 
         public PassOutHandler(
             IMonitor monitor,
@@ -55,6 +66,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         public void SetTreatmentStartHandler(TreatmentStartHandler treatmentStartHandler)
         {
             _treatmentStartHandler = treatmentStartHandler;
+        }
+
+        public void SetHospitalizationManager(HospitalizationManager hospitalizationManager)
+        {
+            _hospitalizationManager = hospitalizationManager;
         }
 
         public void SetMedicalLetterScheduler(MedicalLetterScheduler medicalLetterScheduler)
@@ -107,26 +123,56 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 RunHospitalPassOutFallback(_stateManager.State.PendingHospitalPassOutFallbackKind);
                 ClearHospitalPassOutPending();
                 ClearPassOutFlags();
+            }
+        }
+
+        /// <summary>
+        /// Утро после ночного обморока (истощение / 2:00). Вызывается из DayStarted, а не из Warped:
+        /// игра ставит фермера в кровать прямым присваиванием локации, и если он отключился дома,
+        /// Warped не приходит вовсе — флаги висели до первого выхода из дома.
+        /// Боевая гибель сюда не попадает: её обрабатывает <see cref="ProcessDeathRevive"/> в тот же день.
+        /// </summary>
+        public void ProcessOvernightPassOut()
+        {
+            var state = _stateManager.State;
+            if (!Context.IsWorldReady || !state.WasPassedOut) return;
+
+            if (!state.WasExhausted && !state.WasUpTooLate)
+            {
+                // Флаг остался от боевой гибели (нужен был только для нарушения плана в DayEnding).
+                ClearPassOutFlags();
                 return;
             }
 
-            if (!Context.IsWorldReady || !_stateManager.State.WasPassedOut) return;
+            // Госпитализированного (или только что выписанного) пациента ведёт HospitalizationManager.
+            if (_hospitalizationManager?.IsHospitalized == true || state.DischargedToday)
+            {
+                _monitor.Log("[PassOut] Утро после обморока: пациент госпитализирован/выписан — cutscene пропущен", LogLevel.Info);
+                ClearPassOutFlags();
+                return;
+            }
 
-            _monitor.Log($"🏥 Обнаружена телепортация после обморока: {e.OldLocation?.NameOrUniqueName} → {e.NewLocation?.NameOrUniqueName}", LogLevel.Info);
+            // Обморок случился вчера (DayEnding), обрабатываем утром.
+            RegisterCollapse(Helpers.GameUtils.Today() - 1, state.WasExhausted ? "обморок от истощения" : "обморок в 2:00");
+
+            _monitor.Log(
+                $"🏥 Утро после ночного обморока: loc={state.LastPassedOutLocation}, health={state.LastPassedOutHealth}, " +
+                $"exhausted={state.WasExhausted}, upTooLate={state.WasUpTooLate}",
+                LogLevel.Info);
 
             bool isDatingOrMarried = _dialogueManager.IsDatingOrMarriedToHarvey();
             bool isMinePassOut = IsMineRelatedPassOut();
 
-            // === 1. Критический pass-out вне шахты → eventHarveyEmergencyCare ===
+            // === 1. Критический обморок (почти без здоровья) вне шахты → eventHarveyEmergencyCare ===
             if (isDatingOrMarried &&
                 !isMinePassOut &&
-                _stateManager.State.LastPassedOutHealth >= 0 &&
-                _stateManager.State.LastPassedOutHealth <= 10)
+                state.LastPassedOutHealth >= 0 &&
+                state.LastPassedOutHealth <= 10)
             {
-                _monitor.Log($"⚠️ Критический pass-out вне шахты (здоровье было {_stateManager.State.LastPassedOutHealth})", LogLevel.Warn);
+                _monitor.Log($"⚠️ Критический pass-out вне шахты (здоровье было {state.LastPassedOutHealth})", LogLevel.Warn);
                 _injuryManager.ApplyBadlyHurtSafe();
                 MineForbiddenHelper.ApplyHardMineForbidden(
-                    _stateManager.State, _config, _buffManager, _stateManager, _monitor,
+                    state, _config, _buffManager, _stateManager, _monitor,
                     (int)Game1.stats.DaysPlayed, "critical_passout");
 
                 if (QueueHospitalEvent(EventIds.EmergencyCare, FallbackCritical))
@@ -135,16 +181,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     return;
                 }
 
-                TryMarkExternalRescueIfEligible();
                 RunCriticalPassOutFallback();
             }
-            // === 2. Истощение → eventHarveyExhaustion (вне шахты) ===
-            else if (isDatingOrMarried &&
-                     _stateManager.State.WasExhausted &&
+            // === 2. Истощение: Dating+ → eventHarveyExhaustion в клинике; остальные — бафф + топик ===
+            else if (state.WasExhausted &&
                      !Helpers.GameUtils.HasConversationTopic(ConversationTopics.FarmerExhausted) &&
                      !Game1.player.hasBuff("buffFarmerExhausted"))
             {
-                if (!isMinePassOut)
+                if (isDatingOrMarried && !isMinePassOut)
                 {
                     _monitor.Log("💤 Pass-out от истощения — пробуем hospital cutscene", LogLevel.Info);
 
@@ -154,28 +198,20 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         ClearPassOutFlags();
                         return;
                     }
-
-                    RunExhaustionPassOutFallback();
                 }
                 else
                 {
-                    _monitor.Log("💤 Истощение в шахте — hospital cutscene пропущен", LogLevel.Info);
-                    RunExhaustionPassOutFallback();
+                    _monitor.Log(
+                        isMinePassOut
+                            ? "💤 Истощение в шахте — hospital cutscene пропущен"
+                            : "💤 Истощение без романа с Харви — бафф и топик без cutscene",
+                        LogLevel.Info);
                 }
-            }
-            // === 3. Шахтная гибель / rescue pipeline (без hospital cutscene) ===
-            else if (isMinePassOut &&
-                     _stateManager.State.LastPassedOutHealth >= 0 &&
-                     _stateManager.State.LastPassedOutHealth <= 10)
-            {
-                _monitor.Log($"⚠️ Критический pass-out в шахте — mine rescue, не hospital cutscene", LogLevel.Warn);
-                _injuryManager.ApplyBadlyHurtFromMinePassOut();
 
-                if (CanHarveyMineRescue())
-                    _stateManager.State.NeedsMineRescueEvent = true;
+                RunExhaustionPassOutFallback();
             }
-            // === 4. Обморок в городе из-за позднего времени ===
-            else if (_stateManager.State.WasUpTooLate &&
+            // === 3. Обморок в городе из-за позднего времени ===
+            else if (state.WasUpTooLate &&
                      _stateManager.State.LastPassedOutLocation.Contains("Town", StringComparison.OrdinalIgnoreCase) &&
                      !Helpers.GameUtils.HasConversationTopic(ConversationTopics.PassedOutInTown) &&
                      !Game1.player.hasBuff("buffSleepy"))
@@ -196,57 +232,422 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 Game1.playSound("debuffHit");
                 Game1.addHUDMessage(new HUDMessage("Ты упала без сил посреди города...", HUDMessage.health_type));
             }
+            // === 4. Обморок в 2:00 на улице вне города (лес, пляж, гора, ферма, локации модов) ===
+            // Только под открытым небом: сарай, теплица, салун, дома NPC сюда не относятся.
+            else if (state.WasUpTooLate &&
+                     !isMinePassOut &&
+                     !IsHomeLocationName(state.LastPassedOutLocation) &&
+                     IsOutdoorLocationName(state.LastPassedOutLocation) &&
+                     !state.LastPassedOutLocation.Contains("Town", StringComparison.OrdinalIgnoreCase) &&
+                     !Helpers.GameUtils.HasConversationTopic(ConversationTopics.PassedOutOutside) &&
+                     !Game1.player.hasBuff("buffSleepy"))
+            {
+                _monitor.Log($"🌙 Триггер: обморок в 2:00 вне дома ({state.LastPassedOutLocation})", LogLevel.Info);
 
-            TryMarkExternalRescueIfEligible();
+                _buffManager.AddBuff("buffSleepy", -2);
+                _dialogueManager.AddTopic(ConversationTopics.PassedOutOutside, 2);
+
+                Game1.playSound("debuffHit");
+                Game1.addHUDMessage(new HUDMessage("Ты уснула прямо под открытым небом...", HUDMessage.health_type));
+            }
+
             ClearPassOutFlags();
         }
 
         /// <summary>
-        /// Вызывается каждый тик. Фиксирует боевую смерть в шахте в момент достижения health &lt;= 0,
-        /// чтобы при варпе Робин/Марлон и восстановлении здоровья к DayEnding флаги уже были установлены.
+        /// Каждый тик: фиксирует боевую гибель (health &lt;= 0) в ЛЮБОЙ локации, ждёт ванильного возрождения
+        /// (Data/LocationContexts → ReviveLocations: шахты 1–120 → Mine, Пещера Черепа/город/ферма → Hospital,
+        /// вулкан → IslandSouth, моды → свои клиники) и после сцены PlayerKilled запускает реакцию Харви.
+        /// Ванильная гибель НЕ заканчивает день и восстанавливает 10 HP, поэтому проверка в DayEnding её не видит.
         /// </summary>
         public void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
         {
             if (!Context.IsWorldReady || Game1.player == null)
                 return;
 
-            // Нельзя throttling-ить: health <= 0 может длиться один тик до ванильного rescue/warp.
-            var loc = Game1.currentLocation?.NameOrUniqueName ?? "";
-            bool isMine = loc.Contains("Mine", StringComparison.OrdinalIgnoreCase) || loc == "UndergroundMine";
-            if (!isMine) return;
+            var state = _stateManager.State;
 
-            if (Game1.player.health > 0) return;
-            if (_stateManager.State.NeedsMineRescueEvent) return;
-
-            _stateManager.State.WasPassedOut = true;
-            _stateManager.State.WasExhausted = false;
-            _stateManager.State.WasUpTooLate = false;
-            _stateManager.State.LastPassedOutHealth = 0;
-            _stateManager.State.LastPassedOutLocation = loc;
-            _stateManager.State.PassedOutInMineYesterday = true;
-
-            _injuryManager.ApplyBadlyHurtFromMinePassOut();
-
-            if (CanHarveyMineRescue())
+            // Нельзя throttling-ить: health <= 0 держится лишь до ванильного warp.
+            if (Game1.player.health <= 0)
             {
-                _stateManager.State.NeedsMineRescueEvent = true;
-                int today = (int)Game1.stats.DaysPlayed;
-                if (_buffManager.HasBuff(InjuryBuffs.MineRestricted))
-                {
-                    MineForbiddenHelper.ApplyHardMineForbidden(
-                        _stateManager.State, _config, _buffManager, _stateManager, _monitor, today,
-                        "passout_in_mine_restricted");
-                }
-                _monitor.Log($"[MineRescue] Зафиксирована боевая смерть в шахте в реальном времени: {loc}", LogLevel.Info);
+                if (!state.PendingDeathRevive)
+                    RecordCombatDeath(Game1.currentLocation);
+                return;
             }
-            else
+
+            if (state.PendingDeathRevive)
             {
-                _monitor.Log(
-                    $"[MineRescue] Боевая смерть в шахте ({loc}): buffBadlyHurt применён, rescue Харви недоступен (мало дружбы / нет лечения)",
-                    LogLevel.Debug);
+                if (Game1.killScreen)
+                    return;
+
+                // killScreen снят и HP восстановлено → фермер уже в локации возрождения.
+                if (string.IsNullOrEmpty(state.PendingDeathReviveLocation))
+                {
+                    state.PendingDeathReviveLocation = Game1.currentLocation?.NameOrUniqueName ?? "";
+                    _stateManager.Save();
+                    _monitor.Log(
+                        $"[Death] Возрождение: {state.PendingDeathLocation} → {state.PendingDeathReviveLocation}",
+                        LogLevel.Info);
+                }
+
+                // Ждём окончания ванильной сцены PlayerKilled.
+                if (Game1.eventUp || !Context.IsPlayerFree)
+                    return;
+
+                ProcessDeathRevive();
+                return;
+            }
+
+            if (!e.IsMultipleOf(60) || !Context.IsPlayerFree)
+                return;
+
+            if (CanTriggerMinorMineRescue())
+                TryTriggerMinorMineRescue();
+
+            TryPreventionNudges();
+        }
+
+        /// <summary>
+        /// Профилактика (Dating+): одно мягкое напоминание за день при почти пустой энергии и одно — в час ночи вне дома.
+        /// </summary>
+        private void TryPreventionNudges()
+        {
+            if (Game1.eventUp || !_dialogueManager.IsDatingEngagedOrMarriedToHarvey())
+                return;
+
+            if (_hospitalizationManager?.IsHospitalized == true)
+                return;
+
+            int today = Helpers.GameUtils.Today();
+            var player = Game1.player;
+
+            if (_lowStaminaNudgeDay != today && player.stamina <= player.MaxStamina * LowStaminaNudgeFraction)
+            {
+                _lowStaminaNudgeDay = today;
+                Game1.addHUDMessage(new HUDMessage(
+                    "В голове звучит голос Харви: «Остановись. Вода, еда, присесть — потом всё остальное».",
+                    HUDMessage.stamina_type));
+            }
+
+            if (_lateNightNudgeDay != today
+                && Game1.timeOfDay >= LateNightNudgeTime
+                && Game1.timeOfDay < 2600
+                && !IsHomeLocationName(Game1.currentLocation?.NameOrUniqueName)
+                // Харви рядом — «он ждёт дома» звучит нелепо; напомним, когда она уйдёт.
+                && (Game1.currentLocation == null || HarveyHelper.FindHarveyInLocation(Game1.currentLocation) == null))
+            {
+                _lateNightNudgeDay = today;
+                Game1.addHUDMessage(new HUDMessage(
+                    "Уже час ночи. Харви наверняка не спит и ждёт: «Домой, солнышко. Пожалуйста».",
+                    HUDMessage.newQuest_type));
+            }
+        }
+
+        /// <summary>
+        /// Учёт гибелей и обмороков за 14 дней: второй раз — отдельная реплика, третий — серьёзный разговор и письмо.
+        /// Друзьям (6+ сердец без романа) — короткое письмо после каждого случая.
+        /// </summary>
+        private void RegisterCollapse(int day, string reason)
+        {
+            var state = _stateManager.State;
+            state.RecentCollapseDays.RemoveAll(d => day - d >= CollapseWindowDays || d > day);
+            if (!state.RecentCollapseDays.Contains(day))
+                state.RecentCollapseDays.Add(day);
+
+            int count = state.RecentCollapseDays.Count;
+            bool close = _dialogueManager.IsDatingEngagedOrMarriedToHarvey();
+
+            if (!close && _dialogueManager.GetHarveyFriendship() >= FriendCollapseMinPoints)
+                SendRepeatableMail(MailFriendCollapse);
+
+            if (count >= 3)
+            {
+                _dialogueManager.RemoveTopic(ConversationTopics.RepeatCollapse);
+                _dialogueManager.AddTopic(ConversationTopics.CollapsePattern, 3);
+
+                if (close && (state.LastCollapsePatternMailDay < 0 || day - state.LastCollapsePatternMailDay >= CollapseWindowDays))
+                {
+                    state.LastCollapsePatternMailDay = day;
+                    SendRepeatableMail(MailCollapsePattern);
+                }
+            }
+            else if (count == 2)
+            {
+                _dialogueManager.AddTopic(ConversationTopics.RepeatCollapse, 2);
             }
 
             _stateManager.Save();
+            _monitor.Log($"[Collapse] {reason}: день {day}, за {CollapseWindowDays} дней — {count}", LogLevel.Info);
+        }
+
+        /// <summary>
+        /// Письмо сразу в почтовый ящик, даже если такое уже приходило: реплика Харви о письме
+        /// (CollapsePattern) включается в тот же момент, и письмо не должно приходить на день позже.
+        /// </summary>
+        private static void SendRepeatableMail(string mailId)
+        {
+            var player = Game1.player;
+            if (player.mailbox.Contains(mailId))
+                return;
+
+            player.mailForTomorrow.Remove(mailId);
+            player.mailReceived.Remove(mailId);
+            player.mailbox.Add(mailId);
+        }
+
+        private static bool IsOutdoorLocationName(string? name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return false;
+
+            return Game1.getLocationFromName(name)?.IsOutdoors == true;
+        }
+
+        private static bool IsHomeLocationName(string? name)
+        {
+            if (string.IsNullOrEmpty(name))
+                return false;
+
+            return string.Equals(name, GetFarmHouseLocationName(), StringComparison.OrdinalIgnoreCase)
+                || name.Contains("FarmHouse", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("Cabin", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("Cellar", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Шахты долины 1–120 и вход (куда ведёт сцена eventHarveyMinorMineRescue).</summary>
+        private static bool IsValleyMinesLocation(GameLocation? location)
+        {
+            if (location is MineShaft shaft)
+                return shaft.mineLevel <= MineShaft.bottomOfMineLevel;
+
+            return string.Equals(location?.NameOrUniqueName, "Mine", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>QA: проверка цепочек обморока без реальной гибели (без потери вещей и денег).</summary>
+        public void RegisterQaCommands(ICommandHelper commands)
+        {
+            commands.Add(
+                "injury_qa_death",
+                "Симуляция гибели без потери вещей: injury_qa_death <локация_гибели> [локация_возрождения]. " +
+                "По умолчанию возрождение как в ванили: UndergroundMine1–120 → Mine, VolcanoDungeon* → IslandSouth, иначе Hospital.",
+                (_, args) => QaDeath(args));
+            commands.Add(
+                "injury_qa_passout",
+                "Симуляция ночного обморока и утренней обработки: injury_qa_passout <exhaust|late> [локация] [здоровье].",
+                (_, args) => QaPassOut(args));
+            commands.Add(
+                "injury_qa_collapse_status",
+                "Состояние обмороков: pending-флаги, счётчик за 14 дней, ожидающие сцены.",
+                (_, _) => _monitor.Log(BuildCollapseStatus(), LogLevel.Info));
+        }
+
+        private void QaDeath(string[] args)
+        {
+            if (!Context.IsWorldReady || args.Length == 0)
+            {
+                _monitor.Log("Использование: injury_qa_death <локация_гибели> [локация_возрождения]", LogLevel.Warn);
+                return;
+            }
+
+            string deathLoc = args[0];
+            string reviveLoc = args.Length > 1 ? args[1] : GuessVanillaReviveLocation(deathLoc);
+
+            RecordCombatDeath(Game1.getLocationFromName(deathLoc) ?? Game1.currentLocation);
+            _stateManager.State.PendingDeathLocation = deathLoc;
+            _stateManager.State.PendingDeathReviveLocation = reviveLoc;
+            Game1.player.health = Math.Max(Game1.player.health, 10);
+            ProcessDeathRevive();
+
+            _monitor.Log($"[QA] Гибель {deathLoc} → {reviveLoc} обработана.\n{BuildCollapseStatus()}", LogLevel.Info);
+        }
+
+        private string GuessVanillaReviveLocation(string deathLoc)
+        {
+            if (deathLoc.StartsWith("UndergroundMine", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(deathLoc.Substring("UndergroundMine".Length), out int level)
+                && level <= MineShaft.bottomOfMineLevel)
+            {
+                return "Mine";
+            }
+
+            if (deathLoc.StartsWith("VolcanoDungeon", StringComparison.OrdinalIgnoreCase)
+                || deathLoc.StartsWith("Island", StringComparison.OrdinalIgnoreCase))
+            {
+                return "IslandSouth";
+            }
+
+            return GetHospitalLocationName();
+        }
+
+        private void QaPassOut(string[] args)
+        {
+            if (!Context.IsWorldReady || args.Length == 0
+                || (args[0] != "exhaust" && args[0] != "late"))
+            {
+                _monitor.Log("Использование: injury_qa_passout <exhaust|late> [локация] [здоровье]", LogLevel.Warn);
+                return;
+            }
+
+            var state = _stateManager.State;
+            state.WasPassedOut = true;
+            state.WasExhausted = args[0] == "exhaust";
+            state.WasUpTooLate = args[0] == "late";
+            state.LastPassedOutLocation = args.Length > 1 ? args[1] : Game1.currentLocation?.NameOrUniqueName ?? "";
+            state.LastPassedOutHealth = args.Length > 2 && int.TryParse(args[2], out int hp) ? hp : Game1.player.health;
+            _stateManager.Save();
+
+            ProcessOvernightPassOut();
+            _monitor.Log($"[QA] Обморок ({args[0]}) обработан.\n{BuildCollapseStatus()}", LogLevel.Info);
+        }
+
+        private string BuildCollapseStatus()
+        {
+            var s = _stateManager.State;
+            return string.Join("\n",
+                $"PendingDeathRevive={s.PendingDeathRevive} death={s.PendingDeathLocation} revive={s.PendingDeathReviveLocation}",
+                $"WasPassedOut={s.WasPassedOut} exhausted={s.WasExhausted} upTooLate={s.WasUpTooLate} loc={s.LastPassedOutLocation} hp={s.LastPassedOutHealth}",
+                $"RecentCollapseDays=[{string.Join(", ", s.RecentCollapseDays)}] today={Helpers.GameUtils.Today()} patternMailDay={s.LastCollapsePatternMailDay}",
+                $"NeedsMineRescueEvent={s.NeedsMineRescueEvent} PassedOutInMineYesterday={s.PassedOutInMineYesterday} PendingMineRescue={s.PendingMineRescueEventId}",
+                $"PendingHospitalPassOut={s.PendingHospitalPassOutEventId} ExternalRescueHome={s.NeedsHarveyAfterExternalRescueHomeEvent} DischargeHome={s.NeedsHarveyAfterHospitalDischargeHomeEvent}",
+                $"MorningAfterExhaustion={s.NeedsHarveyMorningAfterExhaustionEvent} mailForTomorrow=[{string.Join(", ", Game1.player.mailForTomorrow)}]");
+        }
+
+        private void RecordCombatDeath(GameLocation? location)
+        {
+            var state = _stateManager.State;
+            string loc = location?.NameOrUniqueName ?? "";
+
+            state.PendingDeathRevive = true;
+            state.PendingDeathLocation = loc;
+            state.PendingDeathReviveLocation = "";
+
+            // WasPassedOut нужен RecoveryPlanManager.CheckViolationOnPassOut в DayEnding.
+            state.WasPassedOut = true;
+            state.WasExhausted = false;
+            state.WasUpTooLate = false;
+            state.LastPassedOutHealth = 0;
+            state.LastPassedOutLocation = loc;
+
+            _injuryManager.ApplyBadlyHurtFromMinePassOut();
+            _stateManager.Save();
+
+            _monitor.Log($"[Death] Боевая гибель зафиксирована в реальном времени: {loc}", LogLevel.Info);
+        }
+
+        /// <summary>
+        /// Реакция на возрождение после гибели — по тому, КУДА игра перенесла фермера.
+        /// </summary>
+        private void ProcessDeathRevive()
+        {
+            var state = _stateManager.State;
+            string deathLoc = state.PendingDeathLocation ?? "";
+            string reviveLoc = state.PendingDeathReviveLocation;
+            if (string.IsNullOrEmpty(reviveLoc))
+                reviveLoc = Game1.currentLocation?.NameOrUniqueName ?? "";
+
+            state.PendingDeathRevive = false;
+            state.PendingDeathLocation = "";
+            state.PendingDeathReviveLocation = "";
+
+            bool dungeon = IsDungeonLocationName(deathLoc);
+
+            if (string.Equals(reviveLoc, "Mine", StringComparison.OrdinalIgnoreCase))
+                HandleMineDeath(deathLoc);
+            else if (string.Equals(reviveLoc, GetHospitalLocationName(), StringComparison.OrdinalIgnoreCase))
+                HandleHospitalRevive(deathLoc, dungeon);
+            else
+                HandleExternalRevive(deathLoc, reviveLoc, dungeon);
+
+            RegisterCollapse(Helpers.GameUtils.Today(), $"гибель в {deathLoc}");
+            _stateManager.Save();
+        }
+
+        /// <summary>Шахты 1–120: спасли Линус/Робин/Клинт/Мару → утренний rescue Харви у кровати.</summary>
+        private void HandleMineDeath(string deathLoc)
+        {
+            var state = _stateManager.State;
+            state.PassedOutInMineYesterday = true;
+
+            if (!CanHarveyMineRescue())
+            {
+                _monitor.Log(
+                    $"[MineRescue] Гибель в шахте ({deathLoc}): buffBadlyHurt применён, rescue Харви недоступен (мало дружбы / нет лечения)",
+                    LogLevel.Debug);
+                return;
+            }
+
+            state.NeedsMineRescueEvent = true;
+            if (_buffManager.HasBuff(InjuryBuffs.MineRestricted))
+            {
+                MineForbiddenHelper.ApplyHardMineForbidden(
+                    state, _config, _buffManager, _stateManager, _monitor, (int)Game1.stats.DaysPlayed,
+                    "passout_in_mine_restricted");
+            }
+
+            _monitor.Log($"[MineRescue] Гибель в шахте ({deathLoc}) — утренний rescue запланирован", LogLevel.Info);
+        }
+
+        /// <summary>
+        /// Пещера Черепа, город, ферма и т.п.: фермер очнулся в клинике после ванильной сцены с Харви.
+        /// Харви сам осматривал — травма известна ему, лечение начато; Dating+ → вечером Харви приходит домой.
+        /// </summary>
+        private void HandleHospitalRevive(string deathLoc, bool dungeon)
+        {
+            var state = _stateManager.State;
+            bool close = _dialogueManager.IsDatingEngagedOrMarriedToHarvey();
+
+            HarveyInjuryAwarenessHelper.MarkAllActiveInjuriesHarveyAware(
+                _stateManager, _dialogueManager, _injuryManager, _buffManager, "hospital_revive", _monitor);
+            StartMineRescueTreatmentIfNeeded();
+
+            if (close || (dungeon && CanHarveyMineRescue()))
+            {
+                MineForbiddenHelper.ApplyHardMineForbidden(
+                    state, _config, _buffManager, _stateManager, _monitor, (int)Game1.stats.DaysPlayed,
+                    dungeon ? "death_in_dungeon" : "critical_passout");
+            }
+
+            // addMailForTomorrow не шлёт уже полученное письмо — при повторной гибели рекомендаций не было бы.
+            SendRepeatableMail("mailHarveyPostTrauma");
+
+            if (close)
+            {
+                int today = Helpers.GameUtils.Today();
+                state.NeedsHarveyAfterHospitalDischargeHomeEvent = true;
+                state.LastHospitalDischargeDay = today;
+                state.LastHospitalDischargeInjuryId = _injuryManager.GetActiveInjury() ?? "buffBadlyHurt";
+
+                if (!Helpers.GameUtils.HasConversationTopic(ConversationTopics.AfterHospitalDischargeHome))
+                    _dialogueManager.AddTopic(ConversationTopics.AfterHospitalDischargeHome, 2);
+            }
+
+            _monitor.Log(
+                $"[Death] Возрождение в клинике после гибели в {deathLoc}: лечение начато, close={close}, dungeon={dungeon}",
+                LogLevel.Info);
+        }
+
+        /// <summary>Вулкан (Вилли/Лео), клиники других модов: Харви не было рядом → Dating+ ночная забота дома.</summary>
+        private void HandleExternalRevive(string deathLoc, string reviveLoc, bool dungeon)
+        {
+            if (dungeon && CanHarveyMineRescue())
+            {
+                MineForbiddenHelper.ApplyHardMineForbidden(
+                    _stateManager.State, _config, _buffManager, _stateManager, _monitor, (int)Game1.stats.DaysPlayed,
+                    "death_in_dungeon");
+            }
+
+            MarkExternalRescueIfEligible(deathLoc);
+
+            _monitor.Log(
+                $"[Death] Внешнее спасение: гибель в {deathLoc}, очнулась в {reviveLoc}",
+                LogLevel.Info);
+        }
+
+        private static bool IsDungeonLocationName(string location)
+        {
+            return location.StartsWith("UndergroundMine", StringComparison.OrdinalIgnoreCase)
+                || location.StartsWith("VolcanoDungeon", StringComparison.OrdinalIgnoreCase)
+                || location.Contains("SkullCave", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -256,6 +657,21 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             var currentLocation = Game1.currentLocation?.NameOrUniqueName ?? "";
 
+            // Гибель, после которой день кончился раньше, чем игрок стал свободен (например, в 1:50).
+            if (_stateManager.State.PendingDeathRevive)
+                ProcessDeathRevive();
+
+            // Пациент в палате под присмотром Харви: поздний отбой/усталость там — не обморок
+            // и не нарушение плана (обычно сюда не доходит — в 25:00 срабатывает сон в палате).
+            if (_hospitalizationManager?.IsHospitalized == true
+                && _hospitalizationManager.IsInClinic(Game1.currentLocation))
+            {
+                _monitor.Log(
+                    $"[PassOut] Пропуск: пациент в палате (time={Game1.timeOfDay}, stamina={Game1.player.stamina})",
+                    LogLevel.Info);
+                return;
+            }
+
             if (Game1.player.stamina <= -15f)
             {
                 _stateManager.State.WasPassedOut = true;
@@ -264,14 +680,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _stateManager.State.LastPassedOutLocation = currentLocation;
 
                 _monitor.Log($"Обнаружен обморок от истощения (stamina={Game1.player.stamina})", LogLevel.Info);
-            }
-            else if (Game1.player.health <= 0)
-            {
-                _stateManager.State.WasPassedOut = true;
-                _stateManager.State.LastPassedOutHealth = 0;
-                _stateManager.State.LastPassedOutLocation = currentLocation;
-
-                _monitor.Log($"Обнаружен обморок от урона (health=0)", LogLevel.Info);
             }
             else if (Game1.timeOfDay >= 2600)
             {
@@ -283,67 +691,33 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _monitor.Log($"Обнаружен обморок от позднего времени (time={Game1.timeOfDay})", LogLevel.Info);
             }
 
-            // Событие спасения нужно ТОЛЬКО при боевой гибели в шахте (health=0).
-            // Обмороки от усталости или позднего времени — другие триггеры, не спасение.
-            bool isMineLocation = currentLocation.Contains("Mine", StringComparison.OrdinalIgnoreCase)
-                || currentLocation == "UndergroundMine";
-            bool isCombatDeath = _stateManager.State.WasPassedOut
-                && !_stateManager.State.WasExhausted
-                && !_stateManager.State.WasUpTooLate;
-
-            if (isMineLocation && isCombatDeath)
+            // День обморока нужен уже в DayStarted (HarveyWellbeingManager: «Харви тревожится»),
+            // эскалация и реплики — утром в ProcessOvernightPassOut → RegisterCollapse.
+            int collapseDay = Helpers.GameUtils.Today();
+            if (_stateManager.State.WasPassedOut
+                && (_stateManager.State.WasExhausted || _stateManager.State.WasUpTooLate)
+                && !_stateManager.State.RecentCollapseDays.Contains(collapseDay))
             {
-                _stateManager.State.PassedOutInMineYesterday = true;
-                _injuryManager.ApplyBadlyHurtFromMinePassOut();
-
-                if (CanHarveyMineRescue())
-                {
-                    _stateManager.State.NeedsMineRescueEvent = true;
-                    _stateManager.State.SavedActiveBuffs = _buffManager.GetActiveModBuffs();
-                    _monitor.Log($"[MineRescue] Snapshot баффов обновлён после TrackPassOut fallback: {string.Join(", ", _stateManager.State.SavedActiveBuffs)}", LogLevel.Debug);
-                    _monitor.Log("[MineRescue] Шахтная смерть зафиксирована в TrackPassOut fallback", LogLevel.Warn);
-                }
-                else
-                {
-                    _monitor.Log(
-                        "[MineRescue] Боевая смерть в шахте (TrackPassOut): buffBadlyHurt применён, rescue Харви недоступен",
-                        LogLevel.Debug);
-                }
-
-                _stateManager.Save();
+                _stateManager.State.RecentCollapseDays.Add(collapseDay);
             }
 
+            // Боевая гибель обрабатывается в реальном времени (OnUpdateTicked → ProcessDeathRevive):
+            // к DayEnding игра уже вернула 10 HP, здесь её не увидеть.
             _recoveryPlanManager?.CheckViolationOnPassOut();
         }
 
         /// <summary>
-        /// Внешнее спасение (другой мод / ваниль): критический обморок вне шахты → ночная реакция Харви дома.
+        /// Внешнее спасение (Вилли/Лео на острове, клиники модов): Dating+ → ночная реакция Харви дома.
         /// </summary>
-        private void TryMarkExternalRescueIfEligible()
+        private void MarkExternalRescueIfEligible(string deathLocation)
         {
-            var state = _stateManager.State;
-            if (!state.WasPassedOut)
-                return;
-
-            if (state.WasExhausted || state.WasUpTooLate)
-                return;
-
-            if (state.NeedsMineRescueEvent || state.PassedOutInMineYesterday)
-                return;
-
-            int health = state.LastPassedOutHealth;
-            if (health < 0 || health > 10)
-                return;
-
             if (!_dialogueManager.IsDatingEngagedOrMarriedToHarvey())
                 return;
 
-            if (IsExternalRescueExcludedLocation(state.LastPassedOutLocation))
-                return;
-
+            var state = _stateManager.State;
             int today = Helpers.GameUtils.Today();
             state.NeedsHarveyAfterExternalRescueHomeEvent = true;
-            state.LastExternalRescueLocation = state.LastPassedOutLocation ?? "";
+            state.LastExternalRescueLocation = deathLocation;
             state.LastExternalRescueDay = today;
 
             if (!Helpers.GameUtils.HasConversationTopic(ConversationTopics.ExternalRescueConcern))
@@ -351,19 +725,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             _stateManager.Save();
             _monitor.Log(
-                $"[ExternalRescue] Помечено для ночного события дома: loc={state.LastExternalRescueLocation}, health={health}, day={today}",
+                $"[ExternalRescue] Помечено для ночного события дома: loc={deathLocation}, day={today}",
                 LogLevel.Info);
-        }
-
-        private static bool IsExternalRescueExcludedLocation(string? location)
-        {
-            if (string.IsNullOrWhiteSpace(location))
-                return true;
-
-            return string.Equals(location, "Mine", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(location, "UndergroundMine", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(location, "VolcanoDungeon", StringComparison.OrdinalIgnoreCase)
-                || location.Contains("SkullCave", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -398,7 +761,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return;
             }
 
-            // Боевая смерть в шахте → только major rescue (minor — отдельный триггер в HandleMineEntryWarning)
+            // Боевая смерть в шахте → только major rescue (minor — отдельный триггер в OnUpdateTicked)
             bool hasSevere = _injuryManager.IsMainInjurySerious();
             string eventId = ResolveSevereMineRescueEventId();
 
@@ -409,6 +772,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 _monitor.Log($"[MineRescue] Событие {eventId} уже просматривалось — добавляем topicMineInjuryRescue", LogLevel.Info);
                 EnsureMineRescueTopic();
+
+                // Повторная гибель: вместо повтора сцены у кровати — осмотр на ферме (eventHarveyCheckHealthFarmer).
+                if (_dialogueManager.IsDatingEngagedOrMarriedToHarvey()
+                    && !Helpers.GameUtils.HasConversationTopic(ConversationTopics.CheckHealthAfterCollapse))
+                {
+                    _dialogueManager.AddTopic(ConversationTopics.CheckHealthAfterCollapse, 1);
+                }
+
                 ClearMineRescueState();
                 return;
             }
@@ -495,6 +866,17 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (mineLocation == null)
             {
                 _monitor.Log("[MinorMineRescue] Локация Mine не найдена", LogLevel.Error);
+                RunMinorMineRescueFallback();
+                return false;
+            }
+
+            // Сцена начинается у входа в шахты долины. Из Пещеры Черепа и вулкана туда не переносим —
+            // только реплика и HUD (LastMinorMineRescueDay уже не даст повторить сегодня).
+            if (!IsValleyMinesLocation(Game1.currentLocation))
+            {
+                _monitor.Log(
+                    $"[MinorMineRescue] {Game1.currentLocation?.NameOrUniqueName} — не шахты долины, только HUD",
+                    LogLevel.Debug);
                 RunMinorMineRescueFallback();
                 return false;
             }

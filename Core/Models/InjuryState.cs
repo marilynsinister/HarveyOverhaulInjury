@@ -265,6 +265,24 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         public int LastPassedOutHealth { get; set; } = -1;
         public string LastPassedOutLocation { get; set; } = "";
 
+        /// <summary>
+        /// Боевая гибель (health &lt;= 0) зафиксирована, ванильное возрождение ещё не обработано.
+        /// День при этом не заканчивается: игра переносит фермера в ReviveLocation (Mine / Hospital / IslandSouth / клиника мода).
+        /// </summary>
+        public bool PendingDeathRevive { get; set; } = false;
+
+        /// <summary>Локация, где фермер потерял сознание от ран.</summary>
+        public string PendingDeathLocation { get; set; } = "";
+
+        /// <summary>Локация, где фермер пришёл в себя (заполняется после ванильного warp).</summary>
+        public string PendingDeathReviveLocation { get; set; } = "";
+
+        /// <summary>Дни (DaysPlayed) гибелей и обмороков — для эскалации при повторах и тревоги Харви наутро.</summary>
+        public List<int> RecentCollapseDays { get; set; } = new();
+
+        /// <summary>День последнего письма «давай вместе решим» после серии обмороков.</summary>
+        public int LastCollapsePatternMailDay { get; set; } = -1;
+
         // ⭐ НОВОЕ: События спасения в шахте
         public bool PassedOutInMineYesterday { get; set; } = false;
         public bool NeedsMineRescueEvent { get; set; } = false;
@@ -410,6 +428,19 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
 
         /// <summary>Последний обработанный timeOfDay для прогресса госпитализации (HHMM).</summary>
         public int LastHospitalTimeOfDay { get; set; } = -1;
+
+        /// <summary>Режим пребывания: "day" — дневной срок, "overnight" — ночь в палате, выписка утром.</summary>
+        public string HospitalStayMode { get; set; } = "";
+
+        // Активности текущего пребывания (HospitalActivityManager) — переживают перезагрузку сейва.
+        public int HospitalActivityCount { get; set; } = 0;
+        public int HospitalLastActivityProgress { get; set; } = -1;
+        public bool HospitalTalkedThisStay { get; set; } = false;
+        public bool HospitalReadThisStay { get; set; } = false;
+        public bool HospitalVisitorThisStay { get; set; } = false;
+
+        /// <summary>День, за который ночь в стационаре уже засчитана в срок (-1 = не засчитывали).</summary>
+        public int HospitalOvernightCreditDay { get; set; } = -1;
 
         /// <summary>ID кейса госпитализации (injury+day+reason) — защита от повторного старта после выписки.</summary>
         public string HospitalizationCaseId { get; set; } = "";

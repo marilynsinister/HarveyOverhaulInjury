@@ -13,6 +13,8 @@
     <EnableModZip>false</EnableModZip>
     <GamePath>D:\Games\Steam\steamapps\common\Stardew Valley</GamePath>
     <GameModsPath>$(GamePath)\Mods\HarveyOverhaul</GameModsPath>
+    <!-- config.json не деплоим: иначе каждая сборка затирала настройки игрока (SMAPI создаст файл сам). -->
+    <IgnoreModFilePaths>config.json</IgnoreModFilePaths>
   </PropertyGroup>
 
   <ItemGroup>

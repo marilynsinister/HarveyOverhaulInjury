@@ -23,3 +23,7 @@ Desktop.ini
 *.log
 *.tmp
 ~$*
+
+# Python
+__pycache__/
+*.pyc

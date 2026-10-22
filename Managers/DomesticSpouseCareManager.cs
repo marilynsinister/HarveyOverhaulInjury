@@ -198,6 +198,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             sb.AppendLine($"lowHealth: {ctx.LowHealth}");
             sb.AppendLine($"lowStamina: {ctx.LowStamina}");
             sb.AppendLine($"hasInjury: {ctx.HasAnyInjury} (severe={ctx.HasSevereInjury})");
+            sb.AppendLine($"pregnant: {ctx.IsPregnant} (mood={PickPregnancyMood(ctx)}), children: {ctx.HasChildren}");
             sb.AppendLine($"hasStress: {ctx.HasStress} (thunder={ctx.HasThunderFear} darkness={ctx.HasDarknessFear} social={ctx.HasSocialAnxiety}, stressApi={(_coreApi?.GetStressStateApi() != null)})");
             sb.AppendLine($"weather: rain={ctx.IsRaining} storm={ctx.IsStorm} snow={ctx.IsSnowing}");
             sb.AppendLine($"season: {ctx.Season} day: {ctx.DayOfWeek}");
@@ -278,6 +279,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             public bool HasThunderFear { get; set; }
             public bool HasDarknessFear { get; set; }
             public bool HasSocialAnxiety { get; set; }
+            public bool IsPregnant { get; set; }
+            public bool HasChildren { get; set; }
         }
 
         private DomesticContext BuildContext()
@@ -325,6 +328,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 HasThunderFear = HasStressCondition(HarveyStressConditions.Thunder),
                 HasDarknessFear = HasStressCondition(HarveyStressConditions.Darkness),
                 HasSocialAnxiety = HasStressCondition(HarveyStressConditions.SocialAnxiety),
+                IsPregnant = IsPregnantWithHarvey(),
+                HasChildren = HasChildrenWithHarvey(),
             };
 
             return ctx;
@@ -484,6 +489,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 prefix = $"{basePrefix}_AfterViolation";
             else if (ctx.HasAfterClinicTopic)
                 prefix = $"{basePrefix}_AfterClinic";
+            else if (ctx.HasChildren && GameUtils.Roll(Math.Clamp(_config.ChildDomesticLineShare, 0.0, 1.0)))
+                prefix = $"{basePrefix}_Kids";
             else if (ctx.IsStorm)
                 prefix = $"{basePrefix}_Storm";
             else if (ctx.IsRaining)
@@ -542,7 +549,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (harvey == null)
                 return;
 
-            string line = PickLineWithFallback(prefix, ctx);
+            string line = PickPregnancyLineOrDefault(ctx, ref prefix);
             if (string.IsNullOrWhiteSpace(line))
                 return;
 
@@ -581,7 +588,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!GameUtils.Roll(Math.Clamp(_config.FarmProximityLineChance, 0.0, 1.0)))
                 return;
 
-            string line = PickLineWithFallback(prefix, ctx);
+            string line = PickPregnancyLineOrDefault(ctx, ref prefix);
             if (string.IsNullOrWhiteSpace(line))
                 return;
 
@@ -595,6 +602,58 @@ namespace HarveyOverhaul.InjuryCare.Managers
             Save();
 
             _monitor.Log($"{LogTag} Show proximity line: {prefix}", LogLevel.Info);
+        }
+
+        /// <summary>
+        /// Во время беременности половина бытовых реплик — короткие облачка из
+        /// Data/HarveyOverhaul/HarveyProximityPregnancyDialogue; остальное — обычный домашний слой.
+        /// </summary>
+        private string PickPregnancyLineOrDefault(DomesticContext ctx, ref string prefix)
+        {
+            if (ctx.IsPregnant && GameUtils.Roll(Math.Clamp(_config.PregnancyProximityLineShare, 0.0, 1.0)))
+            {
+                string mood = PickPregnancyMood(ctx);
+                string pregnancyLine = _dialogueManager.PickPregnancyProximityLine(mood);
+                if (!string.IsNullOrWhiteSpace(pregnancyLine))
+                {
+                    prefix = $"PregnancyProximity_{mood}";
+                    return pregnancyLine;
+                }
+            }
+
+            return PickLineWithFallback(prefix, ctx);
+        }
+
+        /// <summary>Strict — в руках кирка/топор; Concern — устала, ранена, гроза или летний зной; иначе Tender.</summary>
+        private static string PickPregnancyMood(DomesticContext ctx)
+        {
+            var tool = Game1.player?.CurrentTool;
+            if (tool is StardewValley.Tools.Pickaxe or StardewValley.Tools.Axe)
+                return "Strict";
+
+            bool summerHeat = ctx.IsFarm
+                && ctx.Season.Equals("summer", StringComparison.OrdinalIgnoreCase)
+                && !ctx.IsRaining
+                && Game1.timeOfDay is >= 1200 and < 1600;
+
+            if (ctx.LowHealth || ctx.LowStamina || ctx.HasAnyInjury || ctx.IsStorm || summerHeat)
+                return "Concern";
+
+            return "Tender";
+        }
+
+        /// <summary>В доме есть ребёнок (CP: fatherhood.json, реплики HarveyMod_Spouse_*_Kids_*).</summary>
+        private bool HasChildrenWithHarvey()
+            => IsMarriedToHarvey() && Game1.player.getChildrenCount() > 0;
+
+        /// <summary>Как токен CP <c>Pregnant</c>: замужем за Харви, назначены роды, рожает фермерша (не усыновление).</summary>
+        private bool IsPregnantWithHarvey()
+        {
+            var player = Game1.player;
+            if (player == null || player.IsMale || !IsMarriedToHarvey())
+                return false;
+
+            return player.GetSpouseFriendship()?.NextBirthingDate != null;
         }
 
         private static DomesticTimeBucket GetTimeBucket(int time)

@@ -1151,7 +1151,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     && NeedsSleepRule(injuryId, _stateManager.State);
             }
 
-            if (Game1.timeOfDay >= RestBeforeTime && needsSleepRule)
+            // Пациент стационара спит в палате по режиму — поздний отбой не нарушение.
+            if (Game1.timeOfDay >= RestBeforeTime && needsSleepRule && !_stateManager.State.IsHospitalized)
             {
                 string lateHud = IsDailyPlanActive() ? "" : HudMediumDayFailed;
                 RegisterSeverityViolation(
@@ -1192,6 +1193,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void CheckLateNightReminder(int newTime)
         {
             if (!IsDailyPlanActive() || newTime < LateNightReminderTime || newTime >= RestBeforeTime)
+                return;
+
+            if (_stateManager.State.IsHospitalized)
                 return;
 
             var plan = _stateManager.GetRecoveryPlan();
@@ -1508,6 +1512,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         public bool HasDisplayablePlan()
         {
+            if (Context.IsWorldReady)
+                PruneStaleInjuryTalkAssignments();
+
             var hospital = GetActivePlan();
             if (hospital is { IsActive: true } or { CompletionTalkPending: true })
                 return true;
@@ -1520,6 +1527,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         public RecoveryPlanViewModel BuildViewModel()
         {
+            if (Context.IsWorldReady)
+                PruneStaleInjuryTalkAssignments();
+
             var daily = _stateManager.GetRecoveryPlan();
             var hospital = GetActivePlan();
             bool hasHospital = hospital is { IsActive: true } or { CompletionTalkPending: true };

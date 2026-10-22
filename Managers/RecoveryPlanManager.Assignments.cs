@@ -4,7 +4,6 @@ using System.Linq;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Helpers;
-using HarveyOverhaul.InjuryCare.Helpers;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -294,8 +293,51 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return result;
         }
 
+        /// <summary>
+        /// Снять «осмотр у Харви» по травмам, которых больше нет в ActiveDebuffs: Sync ниже видит только текущую
+        /// травму, и задания выздоровевших травм висели в плане навсегда (закрыть их было нечем).
+        /// </summary>
+        public void PruneStaleInjuryTalkAssignments()
+        {
+            var plan = _stateManager.GetRecoveryPlan();
+            var stale = plan.ActiveAssignments
+                .Where(a => RecoveryPlanAssignmentIds.IsHarveyTalkAssignment(a))
+                .Where(a =>
+                {
+                    string? injuryId = TryGetTalkAssignmentInjuryId(a);
+                    return injuryId != null && _stateManager.GetDebuffState(injuryId) == null;
+                })
+                .ToList();
+
+            if (stale.Count == 0)
+                return;
+
+            foreach (string id in stale)
+            {
+                plan.ActiveAssignments.RemoveAll(a => string.Equals(a, id, StringComparison.OrdinalIgnoreCase));
+                plan.Progress.Remove(id);
+                plan.Goals.Remove(id);
+            }
+
+            _stateManager.Save();
+            _monitor.Log($"[RecoveryPlan] Сняты задания по вылеченным травмам: {string.Join(", ", stale)}", LogLevel.Info);
+        }
+
+        private static string? TryGetTalkAssignmentInjuryId(string assignmentId)
+        {
+            foreach (string prefix in new[] { "TalkHarvey_Recovery_", "TalkHarvey_NextPhase_" })
+            {
+                if (assignmentId.StartsWith(prefix, StringComparison.Ordinal))
+                    return assignmentId.Substring(prefix.Length);
+            }
+
+            return null;
+        }
+
         public void SyncInjuryTalkAssignments(string injuryId, DebuffState debuffState)
         {
+            PruneStaleInjuryTalkAssignments();
+
             if (debuffState.ReadyForRecovery)
             {
                 string id = RecoveryPlanAssignmentIds.TalkHarveyRecovery(injuryId);

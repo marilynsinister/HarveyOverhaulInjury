@@ -301,6 +301,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (harvey == null)
             {
+                if (IsHospitalBedClick(loc, tile)
+                    && _hospitalActivityManager?.TryShowWardBedMenu(_hospitalizationManager) == true)
+                {
+                    _helper.Input.Suppress(e.Button);
+                    LastClickDebug = "HOSPITAL: меню больничной койки";
+                    return;
+                }
+
                 LastClickDebug = $"Клик: Action GrabTile({tile.X:F0},{tile.Y:F0}) — не Харви";
                 return;
             }
@@ -531,6 +539,25 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 return true;
 
             return clickResolution?.Selected?.Kind == HarveyMedicalIntentKind.Complication;
+        }
+
+        /// <summary>
+        /// Клик по больничной койке пациента: тайлы вокруг HospitalBedX/Y, игрок рядом.
+        /// Без привязки к свойствам тайлов — карту Hospital патчат Alchemistry/SVE/Therapist.
+        /// </summary>
+        private bool IsHospitalBedClick(GameLocation loc, Microsoft.Xna.Framework.Vector2 tile)
+        {
+            if (!_hospitalizationManager.IsHospitalized || !_hospitalizationManager.IsInClinic(loc))
+                return false;
+
+            int bedX = Math.Max(0, _config.HospitalBedX);
+            int bedY = Math.Max(0, _config.HospitalBedY);
+            bool onBed = Math.Abs((int)tile.X - bedX) <= 1 && (int)tile.Y >= bedY - 1 && (int)tile.Y <= bedY + 2;
+            if (!onBed)
+                return false;
+
+            var player = Game1.player.TilePoint;
+            return Math.Abs(player.X - bedX) <= 2 && Math.Abs(player.Y - bedY) <= 3;
         }
 
         private void SuppressHarveyClickButtons(ButtonPressedEventArgs e)

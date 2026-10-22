@@ -138,6 +138,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>
         /// Миграция старых данных InjuryPhaseTracker в новую систему DebuffState
         /// </summary>
+        // Миграция читает устаревшие поля сохранения специально.
+#pragma warning disable CS0618
         private void MigrateOldPhaseData()
         {
             if (_state.ActivePhases != null && _state.ActivePhases.Count > 0)
@@ -181,6 +183,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _monitor.Log($"Миграция завершена, {_state.ActiveDebuffs.Count} дебаффов перенесено", LogLevel.Info);
             }
         }
+#pragma warning restore CS0618
         
         /// <summary>
         /// Определить количество фаз травмы по длительности

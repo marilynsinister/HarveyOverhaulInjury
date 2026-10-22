@@ -16,22 +16,52 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly IMonitor _monitor;
         private readonly ModConfig _config;
         private readonly DialogueManager _dialogueManager;
+        private readonly StateManager _stateManager;
 
-        private int _lastActivityAtProgressMinutes = -1;
-        private int _activityCounter = 0;
+        // Счётчики текущего пребывания живут в InjuryState — переживают перезагрузку сейва.
+        private int _lastActivityAtProgressMinutes
+        {
+            get => _stateManager.State.HospitalLastActivityProgress;
+            set => _stateManager.State.HospitalLastActivityProgress = value;
+        }
+
+        private int _activityCounter
+        {
+            get => _stateManager.State.HospitalActivityCount;
+            set => _stateManager.State.HospitalActivityCount = value;
+        }
 
         // Разовые за одно пребывание: разговор, чтение, визит друга.
-        private bool _talkedThisStay;
-        private bool _readThisStay;
-        private bool _visitorThisStay;
+        private bool _talkedThisStay
+        {
+            get => _stateManager.State.HospitalTalkedThisStay;
+            set => _stateManager.State.HospitalTalkedThisStay = value;
+        }
+
+        private bool _readThisStay
+        {
+            get => _stateManager.State.HospitalReadThisStay;
+            set => _stateManager.State.HospitalReadThisStay = value;
+        }
+
+        private bool _visitorThisStay
+        {
+            get => _stateManager.State.HospitalVisitorThisStay;
+            set => _stateManager.State.HospitalVisitorThisStay = value;
+        }
         private const int VisitorAfterProgressMinutes = 30;
         private readonly System.Collections.Generic.List<string> _availableActivities = new();
 
-        public HospitalActivityManager(IMonitor monitor, ModConfig config, DialogueManager dialogueManager)
+        public HospitalActivityManager(
+            IMonitor monitor,
+            ModConfig config,
+            DialogueManager dialogueManager,
+            StateManager stateManager)
         {
             _monitor = monitor;
             _config = config;
             _dialogueManager = dialogueManager;
+            _stateManager = stateManager;
             InitializeActivities();
         }
 
@@ -62,6 +92,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (Game1.eventUp || Game1.CurrentEvent != null || Game1.activeClickableMenu != null) return;
             if (!Context.IsPlayerFree) return;
             if (_activityCounter >= _config.MaxHospitalActivitiesPerStay) return;
+            if (hospitalization.IsWardSleepStarted) return;
 
             int intervalMinutes = Math.Max(1, _config.HospitalActivityIntervalMinutes);
             int progressMinutes = hospitalization.HospitalStayProgressMinutes;
@@ -75,20 +106,28 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!_visitorThisStay && progressMinutes >= VisitorAfterProgressMinutes)
                 TryFriendVisit();
 
-            while (_lastActivityAtProgressMinutes + intervalMinutes <= progressMinutes
+            // Обход — только когда Харви действительно в клинике и не глубокой ночью;
+            // пропущенные интервалы не копим, чтобы утром не было пачки активностей подряд.
+            NPC? harveyInClinic = Game1.currentLocation != null
+                ? HarveyHelper.FindHarveyInLocation(Game1.currentLocation)
+                : null;
+            if (harveyInClinic == null || newTimeOfDay >= 2200)
+            {
+                _lastActivityAtProgressMinutes = progressMinutes;
+                return;
+            }
+
+            if (_lastActivityAtProgressMinutes + intervalMinutes <= progressMinutes
                 && _activityCounter < _config.MaxHospitalActivitiesPerStay)
             {
-                _lastActivityAtProgressMinutes += intervalMinutes;
-                TriggerRandomActivity();
+                _lastActivityAtProgressMinutes = progressMinutes;
+                TriggerRandomActivity(harveyInClinic);
             }
         }
 
-        private void TriggerRandomActivity()
+        private void TriggerRandomActivity(NPC harvey)
         {
             if (_availableActivities.Count == 0) return;
-
-            NPC? harvey = HarveyHelper.GetHarvey();
-            if (harvey == null) return;
 
             string activity = _availableActivities[Game1.random.Next(_availableActivities.Count)];
             _activityCounter++;
@@ -170,7 +209,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             var conversations = new[]
             {
                 "Знаешь, я очень волновался...$s#$b#Когда увидел тебя в таком состоянии...$s",
-                "Ты должна быть осторожнее.$u#$b#Я не хочу снова видеть тебя в больничной койке.$s",
+                "Пожалуйста, береги себя.$s#$b#Мне очень не хочется снова видеть тебя на больничной койке.$s",
                 "*улыбается* Хорошие новости - скоро ты поправишься.$h#$b#Но нужно ещё немного терпения.$l",
                 "Мару спрашивала о тебе.$h#$b#Все переживают. Ты важна для долины.$l",
                 "После выписки я дам тебе витамины.$u#$b#И строгие инструкции по восстановлению.$a"
@@ -194,22 +233,25 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return false;
 
             var choices = new List<Response>();
-            int remaining = hospitalization.RemainingStayMinutes;
-            if (remaining > 0)
-                choices.Add(new Response("rest", $"Поспать (до выписки {FormatMinutes(remaining)})"));
+            bool canDischarge = hospitalization.CanDischarge();
+            AddSleepChoices(choices, hospitalization);
             if (!_talkedThisStay)
                 choices.Add(new Response("talk", "Поговорить с Харви"));
             if (!_readThisStay)
                 choices.Add(new Response("read", "Попросить что-нибудь почитать"));
-            if (remaining <= 0)
+            if (canDischarge)
                 choices.Add(new Response("discharge", "Спросить про выписку"));
             choices.Add(new Response("nothing", "Ничего, просто лежу"));
 
+            string prompt = canDischarge
+                ? $"Харви: Показатели хорошие. Можешь идти, если {(Game1.player.IsMale ? "готов" : "готова")}."
+                : hospitalization.IsOvernightStay
+                    ? "Харви: Ночь ты проведёшь здесь, под присмотром. Чем займёмся до сна?"
+                    : "Харви: Как ты? Тебе ещё нужно полежать. Чем займёмся?";
+
             harvey.facePlayer(Game1.player);
             Game1.currentLocation.createQuestionDialogue(
-                remaining > 0
-                    ? "Харви: Как ты? Тебе ещё нужно полежать. Чем займёмся?"
-                    : $"Харви: Показатели хорошие. Можешь идти, если {(Game1.player.IsMale ? "готов" : "готова")}.",
+                prompt,
                 choices.ToArray(),
                 (_, answer) => OnHospitalTalkAnswer(harvey, hospitalization, answer));
             return true;
@@ -221,6 +263,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
             {
                 case "rest":
                     RestUntilDischarge(hospitalization);
+                    break;
+                case "night":
+                    // Как ванильный «Лечь спать?»: startSleep прямо из ответа на вопрос.
+                    Game1.addHUDMessage(new HUDMessage(
+                        "Харви: «Спи. Я загляну ночью проверить, как ты.»",
+                        HUDMessage.health_type));
+                    hospitalization.TryStartWardSleep("harvey_menu");
                     break;
                 case "talk":
                     _talkedThisStay = true;
@@ -237,10 +286,121 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
         }
 
-        /// <summary>Сон в палате: затемнение, прокрутка часов до конца срока, полное восстановление сил.</summary>
+        // ============================================================================
+        // СОН В ПАЛАТЕ
+        // ============================================================================
+
+        /// <summary>Вздремнуть до выписки можно, только если срок закончится до полуночи.</summary>
+        private static bool NapFitsBeforeMidnight(int remainingMinutes)
+        {
+            int now = Game1.timeOfDay / 100 * 60 + Game1.timeOfDay % 100;
+            return remainingMinutes > 0 && now + remainingMinutes <= 24 * 60;
+        }
+
+        private static void AddSleepChoices(List<Response> choices, HospitalizationManager hospitalization)
+        {
+            if (hospitalization.IsOvernightStay)
+            {
+                // Ночной режим: выписка только утром, дремать «до выписки» нечего.
+                choices.Add(new Response("night", "Лечь спать до утра"));
+                return;
+            }
+
+            int remaining = hospitalization.RemainingStayMinutes;
+            if (NapFitsBeforeMidnight(remaining))
+                choices.Add(new Response("rest", $"Вздремнуть до выписки ({FormatMinutes(remaining)})"));
+            if (Game1.timeOfDay >= HospitalizationManager.WardNightSleepFromTime || remaining > 0 && !NapFitsBeforeMidnight(remaining))
+                choices.Add(new Response("night", "Лечь спать до утра"));
+        }
+
+        /// <summary>
+        /// Клик по больничной койке (работает и без Харви — вечером он уходит из клиники).
+        /// </summary>
+        public bool TryShowWardBedMenu(HospitalizationManager hospitalization)
+        {
+            if (!hospitalization.CanSleepInWard() || hospitalization.HasPendingReturnToHospital)
+                return false;
+
+            var choices = new List<Response>();
+            AddSleepChoices(choices, hospitalization);
+            if (choices.Count == 0)
+                return false;
+            choices.Add(new Response("nothing", "Пока полежу"));
+
+            int remaining = hospitalization.RemainingStayMinutes;
+            string prompt = hospitalization.IsOvernightStay
+                ? "Больничная койка. Харви оставил тебя здесь на ночь."
+                : remaining > 0
+                    ? $"Больничная койка. До выписки — {FormatMinutes(remaining)}."
+                    : "Больничная койка. Харви уже разрешил выписку, но можно и отдохнуть.";
+
+            Game1.currentLocation.createQuestionDialogue(
+                prompt,
+                choices.ToArray(),
+                (_, answer) =>
+                {
+                    if (answer == "rest")
+                        RestUntilDischarge(hospitalization);
+                    else if (answer == "night")
+                        hospitalization.TryStartWardSleep("bed_menu");
+                });
+            return true;
+        }
+
+        /// <summary>
+        /// Сразу после объяснения Харви: можно проспать всю госпитализацию одним выбором
+        /// или остаться в сознании (обходы, разговоры, визит друга).
+        /// </summary>
+        public void ShowAdmissionPrompt(HospitalizationManager hospitalization)
+        {
+            if (!hospitalization.CanSleepInWard())
+                return;
+
+            var choices = new List<Response>();
+            string prompt;
+            if (hospitalization.IsOvernightStay)
+            {
+                prompt = "Харви поправляет одеяло и приглушает свет. Ночь — в палате.";
+                choices.Add(new Response("night", "Лечь спать"));
+                choices.Add(new Response("stay", "Ещё немного полежу"));
+            }
+            else
+            {
+                int remaining = hospitalization.RemainingStayMinutes;
+                if (!NapFitsBeforeMidnight(remaining))
+                    return;
+
+                prompt = $"Харви поправляет одеяло. До выписки — {FormatMinutes(remaining)}.";
+                choices.Add(new Response("rest", "Поспать до выписки"));
+                choices.Add(new Response("stay", "Побуду в сознании"));
+            }
+
+            Game1.currentLocation.createQuestionDialogue(
+                prompt,
+                choices.ToArray(),
+                (_, answer) =>
+                {
+                    if (answer == "rest")
+                        RestUntilDischarge(hospitalization);
+                    else if (answer == "night")
+                        hospitalization.TryStartWardSleep("admission_prompt");
+                    else
+                        Game1.addHUDMessage(new HUDMessage(
+                            "Чтобы уснуть, подойди к койке или позови Харви.",
+                            HUDMessage.newQuest_type));
+                });
+        }
+
+        /// <summary>Дневной сон в палате: затемнение, прокрутка часов до конца срока (не дальше полуночи).</summary>
         private void RestUntilDischarge(HospitalizationManager hospitalization)
         {
             int remaining = hospitalization.RemainingStayMinutes;
+            if (!NapFitsBeforeMidnight(remaining))
+            {
+                hospitalization.TryStartWardSleep("nap_fallback");
+                return;
+            }
+
             int steps = (remaining + 9) / 10;
 
             Game1.globalFadeToBlack(() =>

@@ -41,7 +41,8 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 () => config.Difficulty,
                 value => config.Difficulty = value,
                 () => "Пресет",
-                () => "Уютно: травмы вдвое реже и заживают вдвое быстрее.\nРеалистично: как задумано.\nХардкор: травмы в 1.5 раза чаще, лечение на 25% дольше.\nСвоё: множители ниже.",
+                () => "Действует, только если в настройках Harvey Overhaul Core выбран режим «Настройки каждой части».\n"
+                      + "Уютно: травмы вдвое реже и заживают вдвое быстрее.\nРеалистично: как задумано.\nХардкор: травмы в 1.5 раза чаще, лечение на 25% дольше.\nСвоё: множители ниже.",
                 DifficultyPresets.All,
                 FormatDifficulty);
             gmcm.AddNumberOption(
@@ -114,6 +115,18 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 () => config.EnableSpouseDomesticCare,
                 value => config.EnableSpouseDomesticCare = value,
                 () => "Домашняя забота супруга");
+            gmcm.AddBoolOption(
+                manifest,
+                () => config.EnableSpouseChoresWhileInjured,
+                value => config.EnableSpouseChoresWhileInjured = value,
+                () => "Харви помогает по хозяйству",
+                () => "В браке: пока ты на больничном (тяжёлая травма, выписка, обморок), Харви утром поливает грядки, кормит животных сеном из силоса и наливает воду питомцу.");
+            gmcm.AddBoolOption(
+                manifest,
+                () => config.AskMineNote,
+                value => config.AskMineNote = value,
+                () => "Записка перед шахтой",
+                () => "От 4 сердец: при первом спуске за день — оставить ли Харви записку. С запиской риск грязной раны ниже, а дома — немного доверия и спокойствия.");
         }
 
         private static string FormatDifficulty(string value) => value switch
@@ -140,6 +153,8 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             config.MedicalLetters = defaults.MedicalLetters;
             config.SendRomanticCareLetters = defaults.SendRomanticCareLetters;
             config.EnableSpouseDomesticCare = defaults.EnableSpouseDomesticCare;
+            config.EnableSpouseChoresWhileInjured = defaults.EnableSpouseChoresWhileInjured;
+            config.AskMineNote = defaults.AskMineNote;
         }
     }
 }

@@ -108,6 +108,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 _monitor.Log("=== Начало дня ===", LogLevel.Debug);
 
+                // Синхронно, до первых UpdateTicked: иначе блокировка госпитализации успеет
+                // утащить проснувшегося дома пациента обратно в палату.
+                _stateManager.State.DischargedToday = false;
+                _hospitalizationManager.OnDayStartedHospital();
+
                 // Все операции выполняем с задержкой, чтобы не блокировать начало дня
                 Game1.delayedActions.Add(new StardewValley.DelayedAction(100, () =>
                 {
@@ -119,7 +124,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         // 0. Orphan MineForbidden / Hospitalized не должны восстанавливаться из снапшота
                         SanitizeOrphanMineForbiddenBuff();
                         _hospitalizationManager.SanitizeOrphanHospitalizedBuff();
-                        _stateManager.State.DischargedToday = false;
                         // 1. Восстанавливаем баффы из снапшота конца прошлого дня
                         RestoreBuffsFromSnapshot();
 
@@ -149,6 +153,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         // 4. Запуск события спасения из шахты — ПОСЛЕ восстановления баффов,
                         //    чтобы HasAnyBuff(Severe) корректно видел все активные травмы
                         _passOutHandler?.TriggerMineRescueEvents();
+
+                        // 4a. Утро после ночного обморока (истощение / 2:00) — не через Warped:
+                        //     если фермер отключился дома, смены локации нет и Warped не приходит.
+                        _passOutHandler?.ProcessOvernightPassOut();
 
                         // 4b. Утреннее мини-событие после истощения — после пробуждения, когда мир готов
                         Game1.delayedActions.Add(new StardewValley.DelayedAction(1000, () =>
@@ -288,8 +296,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 CheckNeglect();
 
                 _selfCareManager.TryApplyRestCareOnDayEnding();
-                CheckRestPrescriptionViolation();
-                _rehabManager.CheckRehabViolationLateSleep();
+
+                // Ночь в палате — это и есть режим: поздний отбой там не нарушение.
+                bool sleepingInWard = _hospitalizationManager.IsHospitalized
+                    && _hospitalizationManager.IsInClinic(Game1.currentLocation);
+                if (!sleepingInWard)
+                {
+                    CheckRestPrescriptionViolation();
+                    _rehabManager.CheckRehabViolationLateSleep();
+                }
                 _recoveryPlanManager.ProcessDayEndingDaily();
 
                 // Письмо о запрете шахты — на следующий день после предупреждения в шахте

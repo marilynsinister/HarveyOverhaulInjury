@@ -1,4 +1,5 @@
 using System;
+using HarveyOverhaul.Core.Models;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
 using HarveyOverhaul.InjuryCare.Managers;
@@ -134,6 +135,13 @@ namespace HarveyOverhaul.InjuryCare.Helpers
 
             if (!_dialogueManager.IsDatingOrMarriedToHarvey())
                 return;
+
+            // «Вечерние проверки»: на «пока нет» и «нет» Харви не заходит. Тяжёлая травма (NightRoundSevere) — отдельно.
+            if (_careTrustManager.UnifiedTrust?.IsConsentAllowed(HarveyCareConsentIds.EveningChecks) == false)
+            {
+                _monitor.Log("[HomeCare/ShortNightRound] Пропуск: вечерние проверки не разрешены", LogLevel.Trace);
+                return;
+            }
 
             var state = _stateManager.State;
             int today = GameUtils.Today();

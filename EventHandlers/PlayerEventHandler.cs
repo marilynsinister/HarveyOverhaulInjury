@@ -123,10 +123,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 _dialogueManager.ClearHarveyNeedsFirstTreatmentTopicIfObsolete("HarveyMod_FirstTreatment завершён");
 
                 // Одна proximity-реакция на локацию: сброс только «уже показано здесь» (кулдаун 2 ч сохраняется).
-                if (e.NewLocation?.Name != _lastLocationName)
+                if (e.NewLocation.Name != _lastLocationName)
                 {
                     _proximityReactionShown = false;
-                    _lastLocationName = e.NewLocation?.Name ?? "";
+                    _lastLocationName = e.NewLocation.Name ?? "";
                     _monitor.Log(
                         $"[Proximity] Локация «{_lastLocationName}»: сброс per-location, кулдаун с {_stateManager.State.LastProximityReactionMinute} игр. мин",
                         LogLevel.Debug);
@@ -246,7 +246,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     return;
 
                 if (_hospitalizationManager.IsHospitalized)
+                {
                     _hospitalizationManager.UpdateHospitalizationLock();
+                    _hospitalizationManager.UpdateAdmissionIntro();
+                    _hospitalizationManager.UpdateWardAutoSleep();
+                }
 
                 // Домашние care-события: retry, если игрок уже дома
                 if (e.IsMultipleOf(30) && LocationEventLauncher.IsFarmHouseLocation(Game1.currentLocation))
@@ -777,11 +781,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 if (onFinished != null)
                     gameEvent.onEventFinished += onFinished;
 
-                GameLocation startLocation = Game1.currentLocation;
+                GameLocation? startLocation = Game1.currentLocation;
                 bool onRequestedLocation =
                     string.Equals(locationName, "Mine", StringComparison.OrdinalIgnoreCase) && IsMineLocation(startLocation)
                     || string.Equals(startLocation?.NameOrUniqueName, locationName, StringComparison.OrdinalIgnoreCase);
-                if (!onRequestedLocation)
+                if (!onRequestedLocation || startLocation == null)
                     startLocation = location;
 
                 startLocation.startEvent(gameEvent);
@@ -906,6 +910,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 chance *= AntisepticDirtyWoundChanceMultiplier;
             }
+
+            // Записка Харви: он знает, где она, а она бережёт раны.
+            if (Managers.MineNoteManager.LeftNoteToday)
+                chance *= Managers.MineNoteManager.DirtyWoundMultiplier;
 
             return Math.Clamp(chance, 0.0, 0.95);
         }

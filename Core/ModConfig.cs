@@ -1,3 +1,4 @@
+using System;
 namespace HarveyOverhaul.InjuryCare.Core
 {
     /// <summary>
@@ -182,7 +183,24 @@ namespace HarveyOverhaul.InjuryCare.Core
         /// <summary>Custom: множитель длительности фаз лечения.</summary>
         public double CustomPhaseDurationMultiplier { get; set; } = 1.0;
 
-        public double GetInjuryChanceMultiplier() => Difficulty switch
+        /// <summary>
+        /// Общий режим сложности из HarveyOverhaul.Core (Cozy/Standard/Strict) или null («PerMod»).
+        /// Задаётся при запуске, в config.json не пишется.
+        /// </summary>
+        private Func<string?>? _coreDifficulty;
+
+        public void SetCoreDifficulty(Func<string?> getDifficulty) => _coreDifficulty = getDifficulty;
+
+        /// <summary>Пресет, который действует сейчас: общий из Core, если он задан, иначе <see cref="Difficulty"/>.</summary>
+        public string GetEffectiveDifficulty() => _coreDifficulty?.Invoke() switch
+        {
+            "Cozy" => DifficultyPresets.Cozy,
+            "Standard" => DifficultyPresets.Realistic,
+            "Strict" => DifficultyPresets.Hardcore,
+            _ => Difficulty,
+        };
+
+        public double GetInjuryChanceMultiplier() => GetEffectiveDifficulty() switch
         {
             DifficultyPresets.Cozy => 0.5,
             DifficultyPresets.Hardcore => 1.5,
@@ -190,7 +208,7 @@ namespace HarveyOverhaul.InjuryCare.Core
             _ => 1.0,
         };
 
-        public double GetPhaseDurationMultiplier() => Difficulty switch
+        public double GetPhaseDurationMultiplier() => GetEffectiveDifficulty() switch
         {
             DifficultyPresets.Cozy => 0.5,
             DifficultyPresets.Hardcore => 1.25,
@@ -218,6 +236,11 @@ namespace HarveyOverhaul.InjuryCare.Core
 
         // Домашняя забота супруга (married romance, не лечение)
         public bool EnableSpouseDomesticCare { get; set; } = true;
+        /// <summary>Пока жена на больничном (тяжёлая травма, выписка, обморок), Харви утром поливает, кормит животных и питомца.</summary>
+        public bool EnableSpouseChoresWhileInjured { get; set; } = true;
+
+        /// <summary>При первом спуске в шахту за день спрашивать, оставить ли Харви записку (от 4 сердец).</summary>
+        public bool AskMineNote { get; set; } = true;
         public bool EnableSpouseProximityLines { get; set; } = true;
         public bool AllowDomesticCareWhenEngaged { get; set; } = true;
         public bool RequireMarriedForIntimateLines { get; set; } = true;
@@ -225,6 +248,10 @@ namespace HarveyOverhaul.InjuryCare.Core
         public double EveningSpouseLineChance { get; set; } = 0.35;
         public double LateNightSpouseLineChance { get; set; } = 0.40;
         public double FarmProximityLineChance { get; set; } = 0.20;
+        /// <summary>Доля бытовых реплик при беременности, которые берутся из облачков беременности.</summary>
+        public double PregnancyProximityLineShare { get; set; } = 0.5;
+        /// <summary>Доля бытовых реплик про малыша, когда в доме есть ребёнок (если нет травмы, стресса и т.п.).</summary>
+        public double ChildDomesticLineShare { get; set; } = 0.35;
         public int SpouseProximityCooldownMinutes { get; set; } = 120;
         public int MaxDomesticReactionsPerDay { get; set; } = 2;
         public int MorningDomesticStartTime { get; set; } = 600;

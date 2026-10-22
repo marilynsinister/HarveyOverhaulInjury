@@ -169,7 +169,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (debuffState != null)
                 debuffState.TreatmentIntroShown = true;
 
-            return TryStartTreatment(injuryId, fromDialogueAction: true, out error);
+            bool result = TryStartTreatment(injuryId, fromDialogueAction: true, out string? reason);
+            error = reason ?? "";
+            return result;
         }
 
         public bool OnDialogueAdvancePhaseAction(string[] args, TriggerActionContext context, out string error)
@@ -205,7 +207,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _coreApi?.SetHarveyClickActionExecuted($"{TreatmentStartActions.AdvancePhase} {injuryId}");
             _coreApi?.LogHarveyClickDiagnostics("action");
 
-            return TryAdvancePhase(injuryId, fromDialogueAction: true, out error);
+            bool result = TryAdvancePhase(injuryId, fromDialogueAction: true, out string? reason);
+            error = reason ?? "";
+            return result;
         }
 
         public bool OnDialogueCompleteRecoveryAction(string[] args, TriggerActionContext context, out string error)
@@ -229,7 +233,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _monitor.Log($"[MedicalAction] CompleteRecovery action injury={injuryId}", LogLevel.Info);
             _coreApi?.SetHarveyClickActionExecuted($"{TreatmentStartActions.CompleteRecovery} {injuryId}");
             _coreApi?.LogHarveyClickDiagnostics("action");
-            return TryCompleteRecovery(injuryId, fromDialogueAction: true, out error);
+            bool result = TryCompleteRecovery(injuryId, fromDialogueAction: true, out string? reason);
+            error = reason ?? "";
+            return result;
         }
 
         public bool OnDialogueRevealAndStartTreatmentAction(string[] args, TriggerActionContext context, out string error)
@@ -256,7 +262,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _coreApi?.SetHarveyClickActionExecuted($"{TreatmentStartActions.RevealAndStartTreatment} {injuryId}");
             _coreApi?.LogHarveyClickDiagnostics("action");
 
-            return TryRevealAndStartTreatment(injuryId, fromDialogueAction: true, out error);
+            bool result = TryRevealAndStartTreatment(injuryId, fromDialogueAction: true, out string? reason);
+            error = reason ?? "";
+            return result;
         }
 
         public bool OnDialogueDenyHiddenInjuryAction(string[] args, TriggerActionContext context, out string error)
@@ -280,7 +288,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             _monitor.Log($"[HiddenInjury] DenyHiddenInjury action injury={injuryId}", LogLevel.Info);
             _coreApi?.SetHarveyClickActionExecuted($"{TreatmentStartActions.DenyHiddenInjury} {injuryId}");
-            return TryDenyHiddenInjury(injuryId, out error);
+            bool result = TryDenyHiddenInjury(injuryId, out string? reason);
+            error = reason ?? "";
+            return result;
         }
 
         public bool OnDialoguePostponeHiddenInjuryAction(string[] args, TriggerActionContext context, out string error)
@@ -304,7 +314,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             _monitor.Log($"[HiddenInjury] PostponeHiddenInjury action injury={injuryId}", LogLevel.Info);
             _coreApi?.SetHarveyClickActionExecuted($"{TreatmentStartActions.PostponeHiddenInjury} {injuryId}");
-            return TryPostponeHiddenInjury(injuryId, out error);
+            bool result = TryPostponeHiddenInjury(injuryId, out string? reason);
+            error = reason ?? "";
+            return result;
         }
 
         public bool OnDialogueMarkFestivalNoticeAction(string[] args, TriggerActionContext context, out string error)
@@ -328,7 +340,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             _monitor.Log($"[HiddenInjury] MarkFestivalNotice action injury={injuryId}", LogLevel.Info);
             _coreApi?.SetHarveyClickActionExecuted($"{TreatmentStartActions.MarkFestivalNotice} {injuryId}");
-            return TryMarkFestivalHiddenInjuryNotice(injuryId, out error);
+            bool result = TryMarkFestivalHiddenInjuryNotice(injuryId, out string? reason);
+            error = reason ?? "";
+            return result;
         }
 
         private bool ValidateDialogueAction(string stateId, string topicKey, string actionKey, out string error)
@@ -433,7 +447,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _coreApi?.SetHarveyClickActionExecuted($"{TreatmentStartActions.TreatComplication} {complicationId}");
             _coreApi?.LogHarveyClickDiagnostics("action");
 
-            return TryTreatComplication(complicationId, fromDialogueAction: true, out error);
+            bool result = TryTreatComplication(complicationId, fromDialogueAction: true, out string? reason);
+            error = reason ?? "";
+            return result;
         }
 
         /// <summary>Снять одно осложнение. fromDialogueAction=false — debug fallback.</summary>

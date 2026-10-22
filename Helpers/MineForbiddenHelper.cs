@@ -51,7 +51,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
         };
 
         public static int GetMineForbiddenDurationDays(ModConfig config) =>
-            Math.Max(1, config.MineForbiddenDurationDays);
+            TrustPerks.MineBlockDays(config.MineForbiddenDurationDays);
 
         public static int GetMineForbiddenDaysLeft(InjuryState state, ModConfig config, int today)
         {
@@ -566,7 +566,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 if (inTreatment && phase > 1)
                     return 0;
 
-                return phase <= 1 ? Math.Max(1, config.MineHardBlockAcuteDays) : 0;
+                return phase <= 1 ? TrustPerks.MineBlockDays(config.MineHardBlockAcuteDays) : 0;
             }
 
             if (string.Equals(injuryId, "buffInfectedWound", StringComparison.OrdinalIgnoreCase)
@@ -574,7 +574,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 || string.Equals(injuryId, "buffShrapnelWounds", StringComparison.OrdinalIgnoreCase))
             {
                 if (!inTreatment || phase <= 1)
-                    return Math.Max(1, config.MineHardBlockAcuteDays);
+                    return TrustPerks.MineBlockDays(config.MineHardBlockAcuteDays);
 
                 return 0;
             }
@@ -591,11 +591,11 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 || string.Equals(injuryId, "buffBadlyHurt", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(injuryId, "buffSurgicalWound", StringComparison.OrdinalIgnoreCase))
             {
-                return Math.Max(1, config.MineHardBlockAfterMajorInjuryDays);
+                return TrustPerks.MineBlockDays(config.MineHardBlockAfterMajorInjuryDays);
             }
 
             if (InjurySets.Severe.Contains(injuryId) || InjurySets.Critical.Contains(injuryId))
-                return Math.Max(1, config.MineHardBlockAfterMajorInjuryDays);
+                return TrustPerks.MineBlockDays(config.MineHardBlockAfterMajorInjuryDays);
 
             return 0;
         }

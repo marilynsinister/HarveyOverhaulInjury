@@ -63,6 +63,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!_config.EnableDomesticHiddenInjuryChecks || !_config.EnableEveningHiddenInjuryCheck)
                 return;
 
+            // Доверие «Надёжный человек»: вечером он больше не проверяет — она скажет сама.
+            if (TrustPerks.FewerChecks)
+                return;
+
             if (!DidEnterEveningWindow(e.OldTime, e.NewTime))
                 return;
 

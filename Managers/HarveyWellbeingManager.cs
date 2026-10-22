@@ -19,9 +19,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public const string TiredFlag = "HarveyState_Tired";
         public const string SickFlag = "HarveyState_Sick";
         public const string CaredFlag = "HarveyState_Cared";
+        /// <summary>Наутро после гибели или обморока фермерши — Харви не спал и всё ещё тревожится.</summary>
+        public const string WorriedFlag = "HarveyState_Worried";
 
         public const string TiredTopic = "HarveyWellbeing_Tired";
         public const string SickTopic = "HarveyWellbeing_Sick";
+        public const string WorriedTopic = "HarveyWellbeing_Worried";
         public const string ReliefTopic = "HarveyWellbeing_Relieved";
         public const string VisitTopic = "HarveyWellbeing_Visited";
 
@@ -70,6 +73,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         public static bool IsTired => Game1.player?.mailReceived.Contains(TiredFlag) == true;
         public static bool IsSick => Game1.player?.mailReceived.Contains(SickFlag) == true;
+        public static bool IsWorried => Game1.player?.mailReceived.Contains(WorriedFlag) == true;
+        private static bool NeedsCare => IsTired || IsSick || IsWorried;
         private static bool IsCared => Game1.player?.mailReceived.Contains(CaredFlag) == true;
 
         public void OnDayStarted()
@@ -78,6 +83,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             player.mailReceived.Remove(TiredFlag);
             player.mailReceived.Remove(SickFlag);
             player.mailReceived.Remove(CaredFlag);
+            player.mailReceived.Remove(WorriedFlag);
             _pendingGiftItemId = null;
             _talkedBefore = false;
 
@@ -85,6 +91,17 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 return;
 
             int today = (int)Game1.stats.DaysPlayed;
+
+            // Вчера она потеряла сознание — сегодня Харви тревожится (без кулдауна и случайности).
+            if (_stateManager.State.RecentCollapseDays.Contains(today - 1))
+            {
+                player.mailReceived.Add(WorriedFlag);
+                _dialogueManager.AddTopic(WorriedTopic, 1);
+                player.modData[LastStateDayKey] = today.ToString();
+                _monitor.Log("[Wellbeing] Харви сегодня: тревожится после вчерашнего обморока", LogLevel.Debug);
+                return;
+            }
+
             if (player.modData.TryGetValue(LastStateDayKey, out string? raw)
                 && int.TryParse(raw, out int lastDay)
                 && today - lastDay < CooldownDays)
@@ -118,7 +135,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>Действие с предметом рядом с Харви — запоминаем, что, возможно, это подарок.</summary>
         public void OnButtonPressed(ButtonPressedEventArgs e)
         {
-            if (!Context.IsPlayerFree || !e.Button.IsActionButton() || (!IsTired && !IsSick) || IsCared)
+            if (!Context.IsPlayerFree || !e.Button.IsActionButton() || !NeedsCare || IsCared)
                 return;
 
             if (Game1.player.ActiveObject is not { } item)
@@ -139,7 +156,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>Подарок засчитан игрой (GiftsToday вырос) → смотрим, было ли это заботой. Плюс первый разговор за день.</summary>
         public void OnUpdateTicked()
         {
-            if (!Context.IsWorldReady || (!IsTired && !IsSick) || IsCared)
+            if (!Context.IsWorldReady || !NeedsCare || IsCared)
                 return;
 
             if (!Game1.player.friendshipData.TryGetValue("Harvey", out var friendship))
@@ -183,7 +200,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 player.applyBuff(new Buff(GratefulBuffId));
                 _dialogueManager.AddTopic(ReliefTopic, 1);
                 Game1.addHUDMessage(new HUDMessage(
-                    IsSick
+                    IsWorried
+                        ? "Харви долго не отпускал твою руку. Кажется, он наконец выдохнул."
+                        : IsSick
                         ? "Харви согрелся. Кажется, впервые за день он позволил позаботиться о себе."
                         : "Харви выдохнул и улыбнулся. Усталость не ушла, но стала легче.",
                     HUDMessage.achievement_type));
@@ -198,7 +217,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>Секция для «Обзора»: подсказка, что Харви сегодня нужна забота.</summary>
         public HarveyPanelSectionDto? BuildOverviewSection()
         {
-            if (!Context.IsWorldReady || (!IsTired && !IsSick))
+            if (!Context.IsWorldReady || !NeedsCare)
                 return null;
 
             if (IsCared)
@@ -214,8 +233,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             return new HarveyPanelSectionDto
             {
-                Title = IsSick ? "Харви простыл" : "Харви сегодня устал",
-                Body = IsSick
+                Title = IsWorried ? "Харви не спал из-за тебя" : IsSick ? "Харви простыл" : "Харви сегодня устал",
+                Body = IsWorried
+                    ? "Вчера ты потеряла сознание, и он всю ночь прислушивался к телефону. Зайди показать, что ты в порядке, — или принеси ему чай и что-нибудь тёплое."
+                    : IsSick
                     ? "Он всё равно пошёл на приём. Горячий суп, чай или любое приготовленное блюдо — лучше любых слов. Можно и просто зайти."
                     : "Ночь была длинной. Кофе, чай или приготовленное блюдо помогут. Можно и просто зайти поговорить.",
                 Priority = 900,

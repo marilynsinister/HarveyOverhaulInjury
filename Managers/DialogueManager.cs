@@ -39,7 +39,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private Dictionary<string, string>? _cachedProximityDialogues;
         private bool _isLoadingProximityDialogues = false;
 
+        private Dictionary<string, string>? _cachedPregnancyProximityDialogues;
+
         private const string ProximityDialogueAssetPath = "Data/HarveyOverhaul/HarveyProximityInjuryDialogue";
+        private const string PregnancyProximityDialogueAssetPath = "Data/HarveyOverhaul/HarveyProximityPregnancyDialogue";
         public const string ProximityDialogueFallback = "Покажись мне в клинике.";
 
         /// <summary>CP: TreatmentStart_{InjuryName}_* (первый старт лечения по клику).</summary>
@@ -1010,6 +1013,52 @@ namespace HarveyOverhaul.InjuryCare.Managers
             {
                 _monitor.Log($"Ошибка при загрузке proximity-реплики: {ex}", LogLevel.Error);
                 return defaultText;
+            }
+        }
+
+        /// <summary>
+        /// Сбросить кэши CP-ассетов. CP пересобирает Characters/Dialogue/Harvey при смене стадии отношений,
+        /// сердец, беременности и т.д.; без сброса Харви говорил бы репликами той стадии, при которой кэш заполнился.
+        /// names == null — сбросить всё (загрузка сохранения).
+        /// </summary>
+        public void InvalidateCaches(IEnumerable<string>? names = null)
+        {
+            bool all = names == null;
+            var set = all ? null : new HashSet<string>(names!, StringComparer.OrdinalIgnoreCase);
+
+            if (all || set!.Contains("Characters/Dialogue/Harvey"))
+                _cachedDialogues = null;
+            if (all || set!.Contains(ProximityDialogueAssetPath))
+                _cachedProximityDialogues = null;
+            if (all || set!.Contains(PregnancyProximityDialogueAssetPath))
+                _cachedPregnancyProximityDialogues = null;
+        }
+
+        /// <summary>
+        /// Облачко беременности: PregnancyProximity_{mood}_* из CP (Concern / Strict / Tender).
+        /// Пустая строка, если реплик нет.
+        /// </summary>
+        public string PickPregnancyProximityLine(string mood)
+        {
+            try
+            {
+                _cachedPregnancyProximityDialogues ??=
+                    Game1.content.Load<Dictionary<string, string>>(PregnancyProximityDialogueAssetPath)
+                    ?? new Dictionary<string, string>();
+
+                string prefix = $"PregnancyProximity_{mood}_";
+                var matching = _cachedPregnancyProximityDialogues
+                    .Where(kvp => kvp.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    .Select(kvp => kvp.Value)
+                    .ToList();
+
+                return matching.Count > 0 ? matching[Game1.random.Next(matching.Count)] : "";
+            }
+            catch (Exception ex)
+            {
+                _monitor.Log($"Ошибка загрузки реплик беременности: {ex.Message}", LogLevel.Error);
+                _cachedPregnancyProximityDialogues = new Dictionary<string, string>();
+                return "";
             }
         }
 
