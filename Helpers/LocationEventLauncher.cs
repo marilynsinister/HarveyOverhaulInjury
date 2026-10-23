@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using HarveyOverhaul.Core.Services;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -66,8 +67,8 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                     return false;
                 }
 
-                if (!string.IsNullOrEmpty(scriptPrefix))
-                    eventScript = scriptPrefix + eventScript;
+                if (scriptPrefix != null)
+                    eventScript = HarveyEventStaging.AtPlayer(location, eventScript, scriptPrefix);
 
                 if (!ReferenceEquals(Game1.currentLocation, location)
                     && !string.Equals(Game1.currentLocation?.NameOrUniqueName, locationName, StringComparison.OrdinalIgnoreCase))

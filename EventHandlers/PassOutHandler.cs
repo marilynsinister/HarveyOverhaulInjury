@@ -1,4 +1,5 @@
 using System;
+using HarveyOverhaul.Core.Services;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Helpers;
 using HarveyOverhaul.InjuryCare.Managers;
@@ -1055,13 +1056,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private bool TryStartFarmhouseMineRescueEvent(string eventId, string locationName)
         {
-            int fx = (int)Game1.player.Tile.X;
-            int fy = (int)Game1.player.Tile.Y;
-            int hx = fx + 1;
-            int hy = fy;
-
-            string setup =
-                $"viewport {fx} {fy} true/skippable/pause 200/faceDirection farmer 2/warp Harvey {hx} {hy} 3/faceDirection Harvey 3/";
+            string setup = "pause 200/";
 
             return TryStartLocationEvent(eventId, locationName, OnMineRescueEventFinished, setup);
         }
@@ -1500,8 +1495,8 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 if (string.IsNullOrWhiteSpace(eventScript))
                     return false;
 
-                if (!string.IsNullOrEmpty(scriptPrefix))
-                    eventScript = scriptPrefix + eventScript;
+                if (scriptPrefix != null)
+                    eventScript = HarveyEventStaging.AtPlayer(Game1.currentLocation, eventScript, scriptPrefix);
 
                 if (!ReferenceEquals(Game1.currentLocation, location)
                     && !string.Equals(Game1.currentLocation?.NameOrUniqueName, locationName, StringComparison.OrdinalIgnoreCase))

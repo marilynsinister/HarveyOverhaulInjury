@@ -333,10 +333,8 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             string source)
         {
             string farmHouseName = LocationEventLauncher.GetFarmHouseLocationName();
-            int fx = (int)Game1.player.Tile.X;
-            int fy = (int)Game1.player.Tile.Y;
-            string setup =
-                $"viewport {fx} {fy} true/skippable/pause 200/faceDirection farmer 2/warp Harvey {fx + 1} {fy} 3/faceDirection Harvey 3/";
+            // A non-null prefix requests a complete save-aware header from LocationEventLauncher.
+            string setup = "pause 200/";
 
             switch (kind)
             {
