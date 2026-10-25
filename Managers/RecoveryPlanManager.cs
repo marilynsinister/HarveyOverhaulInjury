@@ -148,10 +148,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             string? injuryId = ResolveMainInjuryId();
             if (string.IsNullOrEmpty(injuryId))
             {
-                plan.IsActive = false;
-                plan.Status = RecoveryPlanMoodStatus.None;
-                _stateManager.Save();
-                SyncHarveyTalkTopic();
+                DeactivateDailyPlan(plan);
                 return;
             }
 
@@ -166,10 +163,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (debuffState == null)
             {
-                plan.IsActive = false;
-                plan.Status = RecoveryPlanMoodStatus.None;
-                _stateManager.Save();
-                SyncHarveyTalkTopic();
+                DeactivateDailyPlan(plan);
                 return;
             }
 
@@ -177,10 +171,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 && !debuffState.IsInTreatment
                 && !debuffState.TreatmentStarted)
             {
-                plan.IsActive = false;
-                plan.Status = RecoveryPlanMoodStatus.None;
-                _stateManager.Save();
-                SyncHarveyTalkTopic();
+                DeactivateDailyPlan(plan);
                 return;
             }
 
@@ -224,6 +215,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 _stateManager.Save();
             }
 
+            SyncHarveyTalkTopic();
+        }
+
+        /// <summary>
+        /// Травмы для плана больше нет. Задачи тоже очищаем: BuildViewModel берёт их из save-state,
+        /// пока идёт стресс-назначение, — и в плане висело вчерашнее «Поговори с Харви».
+        /// </summary>
+        private void DeactivateDailyPlan(RecoveryPlanState plan)
+        {
+            plan.IsActive = false;
+            plan.Status = RecoveryPlanMoodStatus.None;
+            plan.Tasks.Clear();
+            _stateManager.Save();
             SyncHarveyTalkTopic();
         }
 
@@ -1572,7 +1576,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             HarveyToneViewModel harveyTone = GetHarveyToneViewModel();
             var assignments = BuildAssignmentViewModels();
 
-            var tasks = daily.Tasks;
+            // Задачи неактивного плана — от прошлой травмы: не показываем их рядом со стресс-назначением.
+            var tasks = daily.IsActive ? daily.Tasks : new List<RecoveryPlanTask>();
             if (tasks.Count == 0 && debuff != null && !string.IsNullOrEmpty(injuryId))
                 tasks = BuildTasks(injuryId, debuff);
 

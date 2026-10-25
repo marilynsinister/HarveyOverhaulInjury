@@ -26,8 +26,14 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _injuryManager.EnsureActiveTreatmentBuffs();
 
             var plan = _stateManager.GetRecoveryPlan();
-            if (HasActiveInjuryTreatmentContext() || plan.ActiveAssignments.Count > 0 || plan.CompletionTalkPending)
+            // plan.IsActive: травма прошла без Харви — Refresh закроет план, иначе висят его старые задачи.
+            if (HasActiveInjuryTreatmentContext()
+                || plan.IsActive
+                || plan.ActiveAssignments.Count > 0
+                || plan.CompletionTalkPending)
+            {
                 RefreshPlanForToday();
+            }
         }
 
         public bool HasActiveInjuryTreatmentContext() => TryGetActiveTreatmentDebuff(out _, out _);

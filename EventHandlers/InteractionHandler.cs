@@ -465,6 +465,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 TreatmentStartActions.AdvancePhase => TryBeginAdvancePhase(harvey, selected.StateId),
                 TreatmentStartActions.CompleteRecovery => TryBeginCompleteRecovery(harvey, selected.StateId),
                 TreatmentStartActions.StartTreatment => TryBeginStartTreatmentFromIntent(harvey, selected),
+                TreatmentStartActions.TreatComplication => TrySpeakIntentActionLine(harvey, selected),
                 _ => false,
             };
 
@@ -873,6 +874,16 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (debuffState.HiddenFromHarvey && !debuffState.HarveyAware)
                 return false;
 
+            return TrySpeakIntentActionLine(harvey, selected);
+        }
+
+        /// <summary>
+        /// CP-реплика выбранного интента (с $action) — сразу по клику, а не через разговорную тему.
+        /// Тему игра произносит один раз: если осложнение вернулось в тот же день (повязка снова промокла),
+        /// Харви молчал, а план звал к нему.
+        /// </summary>
+        private bool TrySpeakIntentActionLine(NPC harvey, HarveyMedicalIntentRegistration selected)
+        {
             var topicKeys = new[] { selected.TopicKey }
                 .Concat(selected.AlternativeTopicKeys)
                 .Where(k => !string.IsNullOrWhiteSpace(k))
@@ -884,14 +895,20 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (line == null)
             {
                 _monitor.Log(
-                    $"[MedicalAction] StartTreatment {selected.StateId}: нет CP-реплики с $action — обычный диалог",
+                    $"[MedicalAction] {selected.ActionKey} {selected.StateId}: нет CP-реплики с $action — обычный диалог",
                     LogLevel.Info);
                 return false;
             }
 
-            // Реплика показана здесь — убираем темы, чтобы игра не повторила её следующим кликом.
+            // Реплика показана здесь — помечаем темы сказанными, чтобы игра не повторила её следующим кликом.
+            // Сами темы не убираем: $action проверяет, что тема интента на игроке, а синхронизация
+            // возвращает её только через секунду — при быстром пролистывании лечение отклонялось.
             foreach (string key in topicKeys)
-                _dialogueManager.RemoveTopic(key);
+            {
+                string spokenFlag = $"{harvey.Name}_{key}";
+                if (!Game1.player.mailReceived.Contains(spokenFlag))
+                    Game1.player.mailReceived.Add(spokenFlag);
+            }
 
             _dialogueManager.Speak(harvey, line);
             return true;
