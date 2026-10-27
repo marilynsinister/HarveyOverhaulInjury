@@ -107,7 +107,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return fallback;
         }
 
-        public const int CareTrustFriendlyFriendshipPoints = 1000;
+        /// <summary>3 сердца: с них Харви на «ты» (Formal-реплики — только 0–2 сердца).</summary>
+        public const int CareTrustFriendlyFriendshipPoints = 750;
         public const int CareTrustDatingFriendshipPoints = 2000;
 
         /// <summary>CP: HarveyCareTrust_{Context}_{TrustLevel}_*</summary>
@@ -274,7 +275,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         /// <summary>
         /// RelationshipLevel для CP HarveyCareTrust_*_{Formal|Friendly|Dating|Married}_XX.
-        /// Married → dating или points ≥ 2000 → points ≥ 1000 → Formal.
+        /// Married → dating или points ≥ 2000 → points ≥ 750 → Formal.
         /// </summary>
         public CareTrustRelationshipTier GetCareTrustRelationshipLevel()
         {

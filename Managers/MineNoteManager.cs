@@ -34,14 +34,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
         private readonly ModConfig _config;
         private readonly CareTrustManager _careTrustManager;
         private readonly DialogueManager _dialogueManager;
+        private readonly Func<bool> _isMineBlocked;
 
-        public MineNoteManager(IMonitor monitor, IModHelper helper, ModConfig config, CareTrustManager careTrustManager, DialogueManager dialogueManager)
+        /// <param name="isMineBlocked">Харви запретил шахту (MineForbidden, экстренное наблюдение, острая травма) —
+        /// её всё равно выведут, записка не имеет смысла.</param>
+        public MineNoteManager(IMonitor monitor, IModHelper helper, ModConfig config, CareTrustManager careTrustManager,
+            DialogueManager dialogueManager, Func<bool> isMineBlocked)
         {
             _monitor = monitor;
             _helper = helper;
             _config = config;
             _careTrustManager = careTrustManager;
             _dialogueManager = dialogueManager;
+            _isMineBlocked = isMineBlocked;
         }
 
         private static string Today => Game1.stats.DaysPlayed.ToString();
@@ -82,6 +87,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (!player.friendshipData.TryGetValue("Harvey", out var friendship) || friendship.Points < MinFriendship)
                 return;
 
+            if (_isMineBlocked())
+            {
+                _monitor.Log("[MineNote] Шахта под запретом Харви — записку не предлагаем", LogLevel.Trace);
+                return;
+            }
+
             player.modData[AskedDayKey] = Today;
             string question = friendship.IsMarried()
                 ? "Перед спуском ты вспоминаешь, о чём просил Харви: просто напиши, куда идёшь. Оставить ему записку на кухонном столе?"
@@ -94,7 +105,8 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             DelayedAction.functionAfterDelay(() =>
             {
-                if (Game1.activeClickableMenu != null || Game1.eventUp)
+                // За 400 мс её могли уже вывести из шахты (запрет) или начаться сцена перехвата.
+                if (Game1.activeClickableMenu != null || Game1.eventUp || !IsMine(Game1.currentLocation) || _isMineBlocked())
                     return;
 
                 Game1.currentLocation?.createQuestionDialogue(

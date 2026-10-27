@@ -1143,7 +1143,8 @@ namespace HarveyOverhaul.InjuryCare
             events.GameLoop.UpdateTicked += (_, e) => harveyBagManager.OnUpdateTicked(e.Ticks);
 
             // Записка Харви перед шахтой: выбор при первом спуске за день.
-            var mineNoteManager = new MineNoteManager(Monitor, Helper, _config, _careTrustManager, _dialogueManager);
+            var mineNoteManager = new MineNoteManager(Monitor, Helper, _config, _careTrustManager, _dialogueManager,
+                () => _mineEntryCoordinator.ShouldPhysicallyBlockMines());
             events.Player.Warped += (_, e) => mineNoteManager.OnWarped(e);
             events.GameLoop.UpdateTicked += _medicalItemManager.OnUpdateTicked;
             events.GameLoop.UpdateTicked += _mishapManager.OnUpdateTicked;
