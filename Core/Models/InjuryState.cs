@@ -207,6 +207,9 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// <summary>Очередь медицинских писем — валидируется перед addMailForTomorrow.</summary>
         public List<PendingMedicalLetter> PendingMedicalLetters { get; set; } = new();
 
+        /// <summary>Лестница последствий, ступени 4–5: визит Харви на ферму и обморок (NeglectLadderManager).</summary>
+        public NeglectLadderState NeglectLadder { get; set; } = new();
+
         /// <summary>Последняя proximity-реакция Харви (игровые минуты с полуночи).</summary>
         public int LastProximityReactionMinute { get; set; } = -1;
 

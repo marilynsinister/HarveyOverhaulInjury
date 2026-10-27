@@ -81,6 +81,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (today - _stateManager.State.LastRainHouseCallDay < CooldownDays)
                 return false;
 
+            // Сегодня Харви и так придёт осмотреть запущенную травму (лестница последствий) — один визит за утро.
+            var ladder = _stateManager.State.NeglectLadder;
+            if (ladder.HouseCallDay >= 0 && ladder.HouseCallDay <= today)
+                return false;
+
             return _stateManager.GetAllActiveDebuffStates()
                 .Any(d => InjurySets.HarveyTreatable.Contains(d.BuffId) && (d.HarveyAware || !d.HiddenFromHarvey));
         }

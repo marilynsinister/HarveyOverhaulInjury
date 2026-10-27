@@ -364,6 +364,14 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string NightRoundFollowup = "topicHarvey_NightRoundFollowup";
         /// <summary>Короткий ночной обход (C# fallback / повторные визиты).</summary>
         public const string NightRound = "topicHarvey_NightRound";
+        /// <summary>Триггер CP eventHarveyHouseCallInjury* (C# ставит перед запуском, снимает после).</summary>
+        public const string HouseCallInjuryPending = "topicHarvey_HouseCallInjuryPending";
+        /// <summary>После визита с осмотром — реплики Харви в ближайшие дни.</summary>
+        public const string HouseCallAccepted = "topicHarvey_HouseCallAccepted";
+        /// <summary>После «не сейчас» — Харви ждёт и вернётся.</summary>
+        public const string HouseCallDeferred = "topicHarvey_HouseCallDeferred";
+        /// <summary>После обморока от запущенной травмы — разговор на следующий день.</summary>
+        public const string NeglectCollapse = "topicHarvey_NeglectCollapse";
     }
 
     /// <summary>
@@ -394,6 +402,10 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string PostponeHiddenInjury = "HarveyOverhaulInjury_PostponeHiddenInjury";
         public const string MarkFestivalNotice = "HarveyOverhaulInjury_MarkFestivalNotice";
         public const string RecoveryPlanTalk = "HarveyOverhaulInjury_RecoveryPlanTalk";
+        /// <summary>Визит на ферму: «Хорошо, осмотри» (eventsHouseCall.json).</summary>
+        public const string HouseCallAccept = "HarveyOverhaulInjury_HouseCallAccept";
+        /// <summary>Визит на ферму: «Не сейчас» — Харви оставляет бинт и даёт пару дней.</summary>
+        public const string HouseCallDefer = "HarveyOverhaulInjury_HouseCallDefer";
     }
 
     /// <summary>Осложнения с CP topic HarveyMod_TreatmentNeeded_* + TreatComplication $action.</summary>
@@ -717,6 +729,14 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string NightRoundSevereFirst = "eventHarveyNightRoundSevereFirst";
         /// <summary>Утреннее мини-событие после обморока от истощения (FarmHouse, C# launcher).</summary>
         public const string MorningAfterExhaustion = "eventHarveyMorningAfterExhaustion";
+        /// <summary>Лестница последствий, ступень 4: Харви сам пришёл осмотреть запущенную травму (Farm, утро).</summary>
+        public const string HouseCallInjury = "eventHarveyHouseCallInjury";
+        /// <summary>То же в браке: Харви не ушёл на приём (FarmHouse).</summary>
+        public const string HouseCallInjuryMarried = "eventHarveyHouseCallInjuryMarried";
+        /// <summary>Повторный визит после «не сейчас» (Farm или FarmHouse в браке).</summary>
+        public const string HouseCallInjuryRevisit = "eventHarveyHouseCallInjuryRevisit";
+        /// <summary>«Строго» + инфекция: визит без варианта «не сейчас». Нет события — берётся обычный.</summary>
+        public const string HouseCallInjuryUrgent = "eventHarveyHouseCallInjuryUrgent";
     }
 
     /// <summary>
@@ -767,6 +787,8 @@ namespace HarveyOverhaul.InjuryCare.Core
         public const string NoMineViolation = "mailHarveyNoMineViolation";
         public const string KeepDryViolation = "mailHarveyKeepDryViolation";
         public const string RestViolation = "mailHarveyRestViolation";
+        /// <summary>«Загляну утром» накануне визита на ферму (tiered).</summary>
+        public const string HouseCallInjury = "mailHarveyHouseCallInjury";
     }
 
     /// <summary>

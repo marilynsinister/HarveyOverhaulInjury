@@ -2525,7 +2525,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// </summary>
         public bool CompleteNeedVisitTalkIfPending()
         {
-            if (!Context.IsWorldReady || IsCompletionTalkPending() || !NeedsRecoveryPlanVisitReminder())
+            // Медицинский интент тут не проверяем: синк идёт после всех реплик и отложенных действий.
+            // Если интент не прозвучал (заблокирован или его нет — например, обострение боли), осмотр
+            // всё равно состоялся, иначе «Поговори с Харви» висит вечно.
+            if (!Context.IsWorldReady || IsCompletionTalkPending() || !NeedsHarveyTalkSync())
                 return false;
 
             FinishRecoveryPlanTalk(RecoveryPlanTalkModes.NeedVisit, applyCompletionRewards: false);
@@ -2578,7 +2581,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     return true;
             }
 
-            return _stateManager.State.ActiveComplications.Count > 0;
+            // Обострение боли Харви не лечит (нет интента) — оно не должно откладывать визит по плану.
+            return _stateManager.State.ActiveComplications.Keys.Any(id =>
+                !string.Equals(id, InjuryBuffs.PainFlare, StringComparison.OrdinalIgnoreCase));
         }
 
         private string ResolvePendingCompletionResult(RecoveryPlanState plan)

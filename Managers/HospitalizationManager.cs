@@ -52,6 +52,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public int AdmissionDay => _stateManager.State.HospitalAdmissionDay;
         public int MinHospitalStayMinutes => GetMinStayMinutes();
 
+        /// <summary>Причина госпитализации после обморока от запущенной травмы (NeglectLadderManager).</summary>
+        public const string NeglectCollapseReason = "neglect_collapse";
+
         public static string BuildCaseId(string injuryId, string reason, int day) =>
             $"{injuryId}|{reason}|{day}";
 
@@ -269,6 +272,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             string explanation = reason switch
             {
                 "mine_rescue" => GetMineRescueExplanation(),
+                NeglectCollapseReason => GetNeglectCollapseExplanation(),
                 "general" => GetGeneralExplanation(),
                 _ => GetGeneralExplanation()
             };
@@ -300,6 +304,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
                    GetStayLine() +
                    $"Я буду рядом — обработаю раны и прослежу, чтобы всё заживало как надо.$l#$b#" +
                    $"Если станет хуже — сразу зови меня.$l";
+        }
+
+        /// <summary>Обморок от запущенной травмы (лестница последствий, ступень 5): тревога, а не упрёк.</summary>
+        private string GetNeglectCollapseExplanation()
+        {
+            return $"Ты упала прямо посреди работы. Тело просто сказало «хватит» — травма зашла слишком далеко.$s#$b#" +
+                   $"Я тебя не ругаю, правда. Я испугался, вот и всё.$s#$b#" +
+                   GetStayLine() +
+                   $"Рану я уже обработал. Остальное сделаем вместе, по шагу в день.$l";
         }
 
         /// <summary>
@@ -1072,6 +1085,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (reason == "infection_fever")
                 return Math.Max(baseMinutes, 180);
+
+            if (reason == NeglectCollapseReason)
+                return Math.Max(baseMinutes, 120);
 
             return baseMinutes;
         }

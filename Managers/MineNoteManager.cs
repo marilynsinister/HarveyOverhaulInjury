@@ -87,6 +87,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
                 ? "Перед спуском ты вспоминаешь, о чём просил Харви: просто напиши, куда идёшь. Оставить ему записку на кухонном столе?"
                 : "Харви как-то сказал: «Мне не нужно разрешение. Мне нужно знать, где тебя искать». Отправить ему записку, что ты в шахте?";
 
+            // «Вернусь к ужину» — это про общий дом; пока не женаты, Харви ждёт её вечером не за своим столом.
+            string noteText = friendship.IsMarried()
+                ? "Да: «Ушла в шахту, вернусь к ужину»"
+                : "Да: «Я в шахте, к вечеру поднимусь»";
+
             DelayedAction.functionAfterDelay(() =>
             {
                 if (Game1.activeClickableMenu != null || Game1.eventUp)
@@ -96,7 +101,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     question,
                     new[]
                     {
-                        new Response("note", "Да: «Ушла в шахту, вернусь к ужину»"),
+                        new Response("note", noteText),
                         new Response("skip", "Не сегодня"),
                         new Response("never", "Больше не спрашивать"),
                     },

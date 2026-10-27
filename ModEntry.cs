@@ -36,6 +36,7 @@ namespace HarveyOverhaul.InjuryCare
         private InjuryManager _injuryManager = null!;
         private TreatmentManager _treatmentManager = null!;
         private TreatmentStartHandler _treatmentStartHandler = null!;
+        private NeglectLadderManager _neglectLadderManager = null!;
         private HiddenInjuryDialogueFlow _hiddenInjuryDialogueFlow = null!;
         private InjuryMedicalIntentProvider _injuryMedicalIntentProvider = null!;
         private HarveyReactionManager _harveyReactionManager = null!;
@@ -910,6 +911,17 @@ namespace HarveyOverhaul.InjuryCare
 
             _treatmentStartHandler.SetMedicalLetterScheduler(_medicalLetterScheduler);
 
+            _neglectLadderManager = new NeglectLadderManager(
+                Monitor,
+                _config,
+                _stateManager,
+                _dialogueManager,
+                _complicationManager,
+                _hospitalizationManager,
+                _treatmentStartHandler,
+                _careTrustManager,
+                _medicalLetterScheduler);
+
             _injuryMedicalIntentProvider = new InjuryMedicalIntentProvider(
                 Monitor,
                 _config,
@@ -1068,6 +1080,26 @@ namespace HarveyOverhaul.InjuryCare
             _playerEventHandler.SetHomeCareLauncher(_homeCareEventLauncher);
             _timeEventHandler.SetHomeCareLauncher(_homeCareEventLauncher);
 
+            // Лестница последствий: утренняя оценка — из GameEventHandler (после осложнений),
+            // визит — при входе на ферму (в браке — дома), обморок — по игровому времени.
+            _gameEventHandler.SetNeglectLadderManager(_neglectLadderManager);
+            events.Player.Warped += (_, e) =>
+            {
+                if (e.IsLocalPlayer)
+                    _neglectLadderManager.TryLaunchHouseCall(e.NewLocation, "Warp");
+            };
+            events.GameLoop.UpdateTicked += (_, e) =>
+            {
+                // Раз в 5 секунд: игрок уже на месте, а визит не стартовал (меню, диалог, некуда поставить Харви).
+                if (Context.IsWorldReady && e.IsMultipleOf(300))
+                    _neglectLadderManager.TryLaunchHouseCall(null, "UpdateRetry");
+            };
+            events.GameLoop.TimeChanged += (_, _) =>
+            {
+                if (Context.IsWorldReady)
+                    _neglectLadderManager.OnTimeChanged();
+            };
+
             events.GameLoop.DayStarted += _domesticSpouseCareManager.OnDayStarted;
             events.GameLoop.TimeChanged += _domesticSpouseCareManager.OnTimeChanged;
             events.GameLoop.DayStarted += _domesticHiddenInjuryManager.OnDayStarted;
@@ -1194,6 +1226,7 @@ namespace HarveyOverhaul.InjuryCare
             GenericModConfigMenuIntegration.Register(Helper, ModManifest, _config);
 
             _treatmentStartHandler.RegisterTriggerActions();
+            _neglectLadderManager.RegisterTriggerActions();
             _mishapManager.RegisterTriggerActions();
             _recoveryPlanManager.RegisterTriggerActions();
         }
@@ -1215,6 +1248,7 @@ namespace HarveyOverhaul.InjuryCare
             _domesticSpouseCareManager.SetCoreApi(coreApi);
             _timeEventHandler.SetCoreApi(coreApi);
             _treatmentStartHandler.SetCoreApi(coreApi);
+            _neglectLadderManager.SetCoreApi(coreApi);
             _injuryMedicalIntentProvider.SetCoreApi(coreApi);
             _careTrustManager.SetCoreApi(coreApi);
             _config.SetCoreDifficulty(() => coreApi.DifficultyOverride);

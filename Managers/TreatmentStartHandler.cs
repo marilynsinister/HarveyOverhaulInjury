@@ -616,6 +616,49 @@ namespace HarveyOverhaul.InjuryCare.Managers
             return true;
         }
 
+        /// <summary>
+        /// Осмотр на дому (визит Харви на ферму) или после обморока: всё, что Харви сделал бы в клинике.
+        /// Не начато лечение — начать; фаза ждёт осмотра — перевести; готово к выписке — завершить; затем осложнения.
+        /// startTreatment=false — лечение уже начинает госпитализация, здесь только фазы и осложнения.
+        /// </summary>
+        /// <returns>Что сделано — для лога; пусто, если делать было нечего.</returns>
+        public string PerformHouseCallExam(string injuryId, bool startTreatment = true)
+        {
+            var done = new List<string>();
+            var debuffState = _stateManager.GetDebuffState(injuryId);
+
+            if (debuffState != null)
+            {
+                if (!debuffState.TreatmentStarted && !debuffState.TreatmentApplied)
+                {
+                    if (startTreatment && TryStartTreatment(injuryId, fromDialogueAction: true, out _))
+                        done.Add("лечение начато");
+                }
+                else if (debuffState.ReadyForRecovery)
+                {
+                    if (TryCompleteRecovery(injuryId, fromDialogueAction: true, out _))
+                        done.Add("выздоровление");
+                }
+                else if (debuffState.ReadyForNextPhase)
+                {
+                    if (TryAdvancePhase(injuryId, fromDialogueAction: true, out _))
+                        done.Add("следующая фаза");
+                }
+            }
+
+            foreach (string complicationId in _complicationManager.GetActiveTreatableComplicationIds().ToList())
+            {
+                if (TryTreatComplication(complicationId, fromDialogueAction: true, out _))
+                    done.Add(complicationId);
+            }
+
+            string summary = string.Join(", ", done);
+            _monitor.Log(
+                $"[HouseCall] осмотр {injuryId}: {(done.Count > 0 ? summary : "делать нечего")}",
+                LogLevel.Info);
+            return summary;
+        }
+
         public bool TryRevealAndStartTreatment(string injuryId, bool fromDialogueAction, out string? skipReason)
         {
             skipReason = null;

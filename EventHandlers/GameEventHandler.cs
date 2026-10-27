@@ -38,6 +38,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private InteractionHandler? _interactionHandler;
         private PassOutHandler? _passOutHandler;
         private HarveyHomeCareEventLauncher? _homeCareLauncher;
+        private NeglectLadderManager? _neglectLadderManager;
         public GameEventHandler(
             IMonitor monitor,
             ModConfig config,
@@ -97,6 +98,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         public void SetHomeCareLauncher(HarveyHomeCareEventLauncher homeCareLauncher)
         {
             _homeCareLauncher = homeCareLauncher;
+        }
+
+        public void SetNeglectLadderManager(NeglectLadderManager neglectLadderManager)
+        {
+            _neglectLadderManager = neglectLadderManager;
         }
 
         /// <summary>
@@ -184,6 +190,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                                 "[DayStarted] Пропуск CheckSimpleTreatmentCompletion/CheckInjuryPhases после эскалации инфекции",
                                 LogLevel.Debug);
                         }
+
+                        // 7a. Лестница последствий (ступени 4–5): осложнения и фазы на сегодня уже известны
+                        _neglectLadderManager?.OnDayStarted();
 
                         _doctorVisitReminderManager.SyncReminderBuff();
                         _careTrustManager.SyncCareTrustTopic();
@@ -533,6 +542,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             if (_stateManager.GetDebuffState(untreatedInjury) is { HiddenFromHarvey: true, HarveyAware: false })
             {
                 _monitor.Log($"[Neglect] {untreatedInjury} скрыта от Харви — штраф пропущен", LogLevel.Debug);
+                return;
+            }
+
+            if (_complicationManager.IsEscalationPaused())
+            {
+                _monitor.Log($"[Neglect] {untreatedInjury}: отсрочка после визита Харви — без штрафа", LogLevel.Debug);
                 return;
             }
 

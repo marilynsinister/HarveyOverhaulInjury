@@ -82,7 +82,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 _ => new[] { "LowHearts", null },
             };
 
-        private static bool MailEntryExists(string mailId)
+        public static bool MailEntryExists(string mailId)
         {
             try
             {

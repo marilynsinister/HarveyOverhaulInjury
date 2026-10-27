@@ -784,10 +784,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         private string ResolveQuestionKeyForFlow(FlowKind kind, string buffId, DetectionContext context)
         {
-            if (_domesticReason == "morning_home")
+            // «Я слышал, как ты ночью проснулась», «держалась за бок у двери» — реплики общего дома.
+            // Пока встречаются, Харви в доме фермы только в гостях: берём обычные вопросы.
+            if (_domesticReason == "morning_home" && context.IsMarriedToHarvey)
                 return ResolveDomesticMorningQuestionKey(buffId);
 
-            if (_domesticReason == "evening_home")
+            if (_domesticReason == "evening_home" && context.IsMarriedToHarvey)
             {
                 var state = _stateManager.GetDebuffState(buffId);
                 return ResolveDomesticEveningQuestionKey(buffId, state, context);

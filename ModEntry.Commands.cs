@@ -1992,6 +1992,22 @@ namespace HarveyOverhaul.InjuryCare
 
         private void RegisterHarveyPlanConsoleCommands(IModHelper helper)
         {
+            helper.ConsoleCommands.Add(
+                "harvey_ladder",
+                "Лестница последствий травмы: harvey_ladder [4|revisit|5|reset]. Без аргумента — состояние. "
+                + "Нужна main-травма, о которой знает Харви, и «Небрежность» (или нелеченая инфекция), иначе лестница сбросится.",
+                (_, args) =>
+                {
+                    if (!Context.IsWorldReady)
+                    {
+                        Monitor.Log("Мир не загружен.", LogLevel.Warn);
+                        return;
+                    }
+
+                    Monitor.Log(
+                        args.Length == 0 ? _neglectLadderManager.Describe() : _neglectLadderManager.QaSetStage(args[0]),
+                        LogLevel.Info);
+                });
             helper.ConsoleCommands.Add("harvey_plan_show", "Показать RecoveryPlan (save-state).", (_, _) => CmdInjuryPlanShow());
             helper.ConsoleCommands.Add("harvey_plan_reset", "Сбросить RecoveryPlan.", (_, _) => CmdHarveyPlanReset());
             helper.ConsoleCommands.Add(

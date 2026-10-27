@@ -52,6 +52,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _medicalLetterScheduler = medicalLetterScheduler;
         }
 
+        /// <summary>
+        /// Харви пришёл на ферму, фермерша попросила пару дней, он оставил бинт и обезболивающее:
+        /// пока идёт отсрочка, рана не загрязняется и не инфицируется, «Небрежность» не удлиняет лечение.
+        /// </summary>
+        public bool IsEscalationPaused() =>
+            _stateManager.State.NeglectLadder.PausedUntilDay > GameUtils.Today();
+
         public string? GetActiveMainInjuryId() =>
             _stateManager.GetMainInjuryId() ?? _injuryManager.GetActiveInjury();
 
@@ -1143,6 +1150,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
         {
             int today = GameUtils.Today();
             bool infectionEscalated = false;
+
+            if (IsEscalationPaused())
+            {
+                // Отсрочка после визита Харви: письма и предупреждения не нужны — он только что был.
+                _monitor.Log(
+                    $"[NeglectLadder] Ухудшение на паузе до дня {_stateManager.State.NeglectLadder.PausedUntilDay}",
+                    LogLevel.Debug);
+                return false;
+            }
 
             // Проверка осложнений от грязной раны
             infectionEscalated |= CheckDirtyWoundComplication(today);
