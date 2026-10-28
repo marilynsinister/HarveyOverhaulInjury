@@ -1,6 +1,8 @@
 using System;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Core.Models;
+using Microsoft.Xna.Framework;
+using StardewValley;
 
 namespace HarveyOverhaul.InjuryCare.Helpers
 {
@@ -8,6 +10,46 @@ namespace HarveyOverhaul.InjuryCare.Helpers
     public static class HospitalizationHelper
     {
         public const int StatusHudIntervalMinutes = 15;
+
+        /// <summary>
+        /// Свободная клетка у койки HospitalBedX/Y. Сама койка — Buildings (на Alchemistry и ванили),
+        /// поставленный на неё фермер после сцены не может сойти. Ищем ближайшую проходимую: сначала
+        /// рядом с койкой, потом в радиусе 3. Не нашли (чужая карта) — возвращаем саму койку, как раньше.
+        /// </summary>
+        public static Point GetBedsideTile(GameLocation? location, ModConfig config)
+        {
+            var bed = new Point(Math.Max(0, config.HospitalBedX), Math.Max(0, config.HospitalBedY));
+            if (location == null)
+                return bed;
+
+            Point[] beside = { new(0, 1), new(-1, 0), new(1, 0), new(0, -1), new(-1, 1), new(1, 1) };
+            foreach (var d in beside)
+            {
+                var tile = new Point(bed.X + d.X, bed.Y + d.Y);
+                if (IsStandable(location, tile))
+                    return tile;
+            }
+
+            for (int distance = 2; distance <= 3; distance++)
+            for (int dy = -distance; dy <= distance; dy++)
+            for (int dx = -distance; dx <= distance; dx++)
+            {
+                if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != distance)
+                    continue;
+
+                var tile = new Point(bed.X + dx, bed.Y + dy);
+                if (IsStandable(location, tile))
+                    return tile;
+            }
+
+            return bed;
+        }
+
+        private static bool IsStandable(GameLocation location, Point tile)
+        {
+            var vector = new Vector2(tile.X, tile.Y);
+            return location.isTileOnMap(vector) && location.isTilePassable(vector);
+        }
 
         public static int ToClockMinutes(int timeOfDay)
         {

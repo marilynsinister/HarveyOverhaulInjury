@@ -177,6 +177,23 @@ namespace HarveyOverhaul.InjuryCare.Core
         };
     }
 
+    /// <summary>
+    /// Временные дебаффы с собственным сроком: живут по Duration из JSON, в ночной снапшот не попадают
+    /// (остаток через ночь переносит PersistentBuffs). Раньше накладывались бесконечными и не снимались.
+    /// </summary>
+    public static class TransientBuffs
+    {
+        public const string FarmerExhausted = "buffFarmerExhausted";
+        public const string Sleepy = "buffSleepy";
+        public const string TooCold = "buffTooCold";
+        public const string AlcoholPoisoning = "buffAlcoholPoisoning";
+
+        public static readonly HashSet<string> All = new(StringComparer.OrdinalIgnoreCase)
+        {
+            FarmerExhausted, Sleepy, TooCold, AlcoholPoisoning,
+        };
+    }
+
     /// <summary>Медицинская карта: бафф «Закалка» и достижения.</summary>
     public static class MedicalCardBuffs
     {

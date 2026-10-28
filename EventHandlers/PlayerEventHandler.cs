@@ -1699,6 +1699,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// <summary>5 минут на улице в холоде → debuff buffTooCold.</summary>
         private const int COLD_EXPOSURE_THRESHOLD_SECONDS = 300;
 
+        /// <summary>Секунды непрерывно в тепле (помещение, тёплая погода или защита) — для снятия озноба.</summary>
+        private int _warmSeconds = 0;
+
+        /// <summary>Минута в тепле → buffTooCold снимается («Зайди в тепло»).</summary>
+        private const int WARM_UP_THRESHOLD_SECONDS = 60;
+
         /// <summary>
         /// Обработать травмы на основе полученного урона
         /// ПРИОРИТЕТ: От серьёзных к лёгким!
@@ -2330,6 +2336,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (outdoors && coldSeason && !hasProtection)
             {
+                _warmSeconds = 0;
                 _coldExposureSeconds += ENVIRONMENT_CHECK_INTERVAL_SECONDS;
 
                 if (_coldExposureSeconds % 60 == 0)
@@ -2341,7 +2348,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     && !Game1.player.hasBuff("buffTooCold")
                     && !Helpers.GameUtils.HasConversationTopic(ConversationTopics.TooCold))
                 {
-                    _buffManager.AddBuff("buffTooCold", -2);
+                    _buffManager.AddBuff(TransientBuffs.TooCold, -2);
                     Game1.player.activeDialogueEvents.TryAdd(ConversationTopics.TooCold, 2);
                     _monitor.Log($"Игрок замерз после {_coldExposureSeconds} секунд на холоде", LogLevel.Debug);
                     _coldExposureSeconds = 0;
@@ -2351,6 +2358,22 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 // Ушли в помещение, сезон/погода или защита сняли холод — сброс накопленных секунд.
                 _coldExposureSeconds = 0;
+
+                if (Game1.player.hasBuff(TransientBuffs.TooCold))
+                {
+                    _warmSeconds += ENVIRONMENT_CHECK_INTERVAL_SECONDS;
+                    if (_warmSeconds >= WARM_UP_THRESHOLD_SECONDS)
+                    {
+                        _buffManager.RemoveBuff(TransientBuffs.TooCold);
+                        Game1.addHUDMessage(new HUDMessage("Ты согрелась — озноб прошёл.", HUDMessage.newQuest_type));
+                        _monitor.Log($"[ColdExposure] buffTooCold снят после {_warmSeconds} сек. в тепле", LogLevel.Debug);
+                        _warmSeconds = 0;
+                    }
+                }
+                else
+                {
+                    _warmSeconds = 0;
+                }
             }
 
             // Алкоголь при лечении
@@ -2361,7 +2384,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 && !_stateManager.WasStoryTriggerApplied("{{ModId}}_triggerSituationReactionDrunk"))
             {
                 Game1.player.activeDialogueEvents.TryAdd("situationReaction_Drunk", 3);
-                _buffManager.AddBuff("buffAlcoholPoisoning", -2);
+                _buffManager.AddBuffWithDataDuration(TransientBuffs.AlcoholPoisoning);
                 _stateManager.MarkStoryTriggerApplied("{{ModId}}_triggerSituationReactionDrunk");
             }
         }

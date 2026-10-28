@@ -703,7 +703,15 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
         public void ClearDailyPlan()
         {
-            ResetDailyPlanState(_stateManager.GetRecoveryPlan());
+            var plan = _stateManager.GetRecoveryPlan();
+            ResetDailyPlanState(plan);
+            ClearHarveyVisitFlags(plan, GetActivePlan());
+            plan.CompletionTalkPending = false;
+            plan.PendingCompletionResult = "";
+            ClearRecoveryPlan();
+            RemoveDoctorVisitReminderBuff();
+            RemoveRecoveryPlanTalkTopics();
+            RemoveCompletionTopics();
             _stateManager.Save();
             _monitor.Log("[RecoveryPlan] Daily plan cleared (debug)", LogLevel.Info);
         }
@@ -2528,7 +2536,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
             // Медицинский интент тут не проверяем: синк идёт после всех реплик и отложенных действий.
             // Если интент не прозвучал (заблокирован или его нет — например, обострение боли), осмотр
             // всё равно состоялся, иначе «Поговори с Харви» висит вечно.
-            if (!Context.IsWorldReady || IsCompletionTalkPending() || !NeedsHarveyTalkSync())
+            if (!Context.IsWorldReady)
+                return false;
+
+            // Ждали разговор о завершении плана, а реплика темы с $action не прозвучала (тема истекла или Харви
+            // ответил другим). Разговор состоялся — закрываем план, иначе «Контрольный осмотр» висит навсегда.
+            if (IsCompletionTalkPending())
+            {
+                AcknowledgeCompletionTalk();
+                _monitor.Log("[RecoveryPlan] Завершение плана закрыто по факту разговора с Харви (без реплики темы)", LogLevel.Info);
+                return true;
+            }
+
+            if (!NeedsHarveyTalkSync())
                 return false;
 
             FinishRecoveryPlanTalk(RecoveryPlanTalkModes.NeedVisit, applyCompletionRewards: false);

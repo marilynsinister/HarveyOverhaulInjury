@@ -1,4 +1,5 @@
 using System;
+using Microsoft.Xna.Framework;
 using HarveyOverhaul.Core.Services;
 using HarveyOverhaul.InjuryCare.Core;
 using HarveyOverhaul.InjuryCare.Helpers;
@@ -219,7 +220,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 _monitor.Log("🌙 Триггер: Обморок в городе из-за позднего времени", LogLevel.Info);
 
-                _buffManager.AddBuff("buffSleepy", -2);
+                _buffManager.AddBuffWithDataDuration(TransientBuffs.Sleepy);
                 _dialogueManager.AddTopic(ConversationTopics.PassedOutInTown, 2);
 
                 if (_medicalLetterScheduler != null)
@@ -245,7 +246,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             {
                 _monitor.Log($"🌙 Триггер: обморок в 2:00 вне дома ({state.LastPassedOutLocation})", LogLevel.Info);
 
-                _buffManager.AddBuff("buffSleepy", -2);
+                _buffManager.AddBuffWithDataDuration(TransientBuffs.Sleepy);
                 _dialogueManager.AddTopic(ConversationTopics.PassedOutOutside, 2);
 
                 Game1.playSound("debuffHit");
@@ -1047,11 +1048,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _stateManager.State.PendingMineRescueEventId = eventId;
             _stateManager.Save();
 
-            var bed = Game1.player.mostRecentBed;
-            int bedX = bed.X >= 0 ? (int)bed.X : 9;
-            int bedY = bed.Y >= 0 ? (int)bed.Y : 9;
-            _monitor.Log($"[MineRescue] Warp домой ({bedX},{bedY}) для утреннего cutscene: {eventId}", LogLevel.Info);
-            Game1.warpFarmer(farmHouseName, bedX, bedY, 2);
+            // mostRecentBed — координаты в пикселях; GetPlayerBedSpot даёт клетку у кровати этого дома.
+            Point bed = farmHouse is FarmHouse home ? home.GetPlayerBedSpot() : new Point(9, 9);
+            _monitor.Log($"[MineRescue] Warp домой ({bed.X},{bed.Y}) для утреннего cutscene: {eventId}", LogLevel.Info);
+            Game1.warpFarmer(farmHouseName, bed.X, bed.Y, 2);
         }
 
         private bool TryStartFarmhouseMineRescueEvent(string eventId, string locationName)
@@ -1129,10 +1129,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             _stateManager.State.PendingHospitalPassOutFallbackKind = fallbackKind;
             _stateManager.Save();
 
-            int bedX = Math.Max(0, _config.HospitalBedX);
-            int bedY = Math.Max(0, _config.HospitalBedY);
-            _monitor.Log($"[PassOutEvent] Warp в {hospitalName} ({bedX},{bedY}) для {eventId}", LogLevel.Info);
-            Game1.warpFarmer(hospitalName, bedX, bedY, 0);
+            // У койки, не на ней: после сцены без end position игра вернёт фермера сюда.
+            var bedside = HospitalizationHelper.GetBedsideTile(hospitalLocation, _config);
+            _monitor.Log($"[PassOutEvent] Warp в {hospitalName} ({bedside.X},{bedside.Y}) для {eventId}", LogLevel.Info);
+            Game1.warpFarmer(hospitalName, bedside.X, bedside.Y, 0);
         }
 
         private void RunHospitalPassOutFallback(string fallbackKind)
@@ -1163,7 +1163,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private void RunExhaustionPassOutFallback()
         {
             MarkHarveyMorningAfterExhaustionIfEligible();
-            _buffManager.AddBuff("buffFarmerExhausted", -2);
+            _buffManager.AddBuffWithDataDuration(TransientBuffs.FarmerExhausted);
             _dialogueManager.AddTopic(ConversationTopics.FarmerExhausted, 3);
             Game1.playSound("debuffHit");
             Game1.addHUDMessage(new HUDMessage("Ты полностью измотана...", HUDMessage.health_type));
@@ -1297,13 +1297,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private void WarpFarmerToHospitalBed()
         {
             string hospital = _config.HospitalLocationName;
-            if (Game1.getLocationFromName(hospital) == null)
+            var hospitalLocation = Game1.getLocationFromName(hospital);
+            if (hospitalLocation == null)
             {
                 _monitor.Log($"[MineRescue] Локация '{hospital}' не найдена — warp в госпиталь пропущен", LogLevel.Warn);
                 return;
             }
 
-            Game1.warpFarmer(hospital, Math.Max(0, _config.HospitalBedX), Math.Max(0, _config.HospitalBedY), 0);
+            var bedside = HospitalizationHelper.GetBedsideTile(hospitalLocation, _config);
+            Game1.warpFarmer(hospital, bedside.X, bedside.Y, 0);
         }
 
         private void EnsureMineRescueTopic()

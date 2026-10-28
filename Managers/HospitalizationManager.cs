@@ -854,8 +854,10 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void WarpToHospitalBed()
         {
             string loc = _config.HospitalLocationName;
-            int x = Math.Max(0, _config.HospitalBedX);
-            int y = Math.Max(0, _config.HospitalBedY);
+            // У койки, не на ней: клетка койки — Buildings, с неё не сойти.
+            var bedside = HospitalizationHelper.GetBedsideTile(Game1.getLocationFromName(loc), _config);
+            int x = bedside.X;
+            int y = bedside.Y;
 
             if (string.Equals(Game1.currentLocation?.NameOrUniqueName, loc, StringComparison.OrdinalIgnoreCase))
             {

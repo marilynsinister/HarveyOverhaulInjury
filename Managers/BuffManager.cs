@@ -95,6 +95,55 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// Наложить бафф на срок из Data/Buffs (Duration в JSON), а не бесконечно.
+        /// </summary>
+        public void AddBuffWithDataDuration(string id)
+        {
+            try
+            {
+                int duration = _allBuffs.TryGetValue(id, out var data) ? data.Duration : Buff.ENDLESS;
+
+                if (Game1.player.hasBuff(id))
+                    Game1.player.buffs.Remove(id);
+
+                Game1.player.applyBuff(new Buff(id, duration: duration));
+                _monitor.Log($"AddBuffWithDataDuration: {id} ({duration} мс)", LogLevel.Trace);
+            }
+            catch (Exception ex)
+            {
+                _monitor.Log($"Ошибка AddBuffWithDataDuration({id}): {ex.Message}", LogLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// Временные дебаффы из старых сейвов висят бесконечными: переналожить на срок из JSON.
+        /// У Озноба срока нет — после ночи он просто снимается.
+        /// </summary>
+        public int MigrateEndlessTransientBuffs()
+        {
+            var applied = Game1.player?.buffs?.AppliedBuffs;
+            if (applied == null)
+                return 0;
+
+            int migrated = 0;
+            foreach (string id in TransientBuffs.All)
+            {
+                if (!applied.TryGetValue(id, out var buff) || buff.millisecondsDuration != Buff.ENDLESS)
+                    continue;
+
+                if (string.Equals(id, TransientBuffs.TooCold, StringComparison.OrdinalIgnoreCase))
+                    RemoveBuff(id);
+                else
+                    AddBuffWithDataDuration(id);
+
+                migrated++;
+                _monitor.Log($"[BuffMigration] {id}: бесконечный бафф заменён", LogLevel.Info);
+            }
+
+            return migrated;
+        }
+
+        /// <summary>
         /// Удалить баффы
         /// </summary>
         public void RemoveBuff(params string[] ids)

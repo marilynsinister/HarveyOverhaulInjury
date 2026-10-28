@@ -132,6 +132,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                         _hospitalizationManager.SanitizeOrphanHospitalizedBuff();
                         // 1. Восстанавливаем баффы из снапшота конца прошлого дня
                         RestoreBuffsFromSnapshot();
+                        _buffManager.MigrateEndlessTransientBuffs();
 
                         // 1a. Синхронизация фазовых/лечебных баффов по DebuffState (Stardew снимает баффы на ночь)
                         int resynced = _injuryManager.EnsureActiveTreatmentBuffs();
@@ -651,6 +652,14 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
             int restored = 0;
             foreach (string buffId in saved.ToList())
             {
+                // Старые сейвы: временные дебаффы попали в снапшот и возвращались бесконечными.
+                // Из снапшота убираем, сам бафф не трогаем — его остаток переносит PersistentBuffs.
+                if (TransientBuffs.All.Contains(buffId))
+                {
+                    saved.Remove(buffId);
+                    continue;
+                }
+
                 if (ShouldRestoreSavedBuff(buffId, out string? skipReason))
                 {
                     if (!_buffManager.HasBuff(buffId))
@@ -814,6 +823,10 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     _stateManager.State, _config, _injuryManager, _buffManager, GetToday());
 
             if (string.Equals(buffId, StatusBuffs.Hospitalized, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // Временные дебаффы живут по Duration из JSON — снапшот вернул бы их бесконечными.
+            if (TransientBuffs.All.Contains(buffId))
                 return false;
 
             // Мелкие неприятности проходят за ночь; «Закалку» восстанавливает MedicalCardManager.
