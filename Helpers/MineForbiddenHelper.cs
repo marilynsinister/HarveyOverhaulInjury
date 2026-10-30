@@ -29,17 +29,6 @@ namespace HarveyOverhaul.InjuryCare.Helpers
 
         private const int ConcussionAcuteHardBlockDays = 3;
 
-        /// <summary>
-        /// Короткие экстренные темы (1–2 дня). Темы HealthDamage*/PostOperativeCare сюда не входят:
-        /// они живут всё лечение (надрыв мышцы — 11 дн., перелом — 18) и закрывали шахту даже на восстановлении.
-        /// Острое окно травмы и так блокирует шахту через GetHardBlockDayLimit.
-        /// </summary>
-        private static readonly string[] EmergencyMineBlockTopics =
-        {
-            "topicOverprotectiveMode",
-            ConversationTopics.MineInjuryRescue,
-        };
-
         /// <summary>Фазовое лечение: острая фаза 1 → короткий жёсткий запрет при старте лечения.</summary>
         public static readonly HashSet<string> SevereAcutePhase1Treatment = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -66,7 +55,8 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             state.MineForbiddenAppliedDay >= 0 && GetMineForbiddenDaysLeft(state, config, today) > 0;
 
         /// <summary>
-        /// Жёсткий физический запрет шахты: активный MineForbidden, emergency-топики или острое окно травмы.
+        /// Жёсткий физический запрет шахты: активный MineForbidden, экстренный надзор или острое окно травмы.
+        /// Темы диалога могут оставаться после выздоровления и сами по себе шахту не закрывают.
         /// Не использует InjurySets.Severe напрямую.
         /// </summary>
         public static bool IsMineHardBlocked(
@@ -91,9 +81,9 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 return true;
             }
 
-            if (HasEmergencyMineBlock(buffManager))
+            if (buffManager.HasBuff("buffEmergencySupervision"))
             {
-                reason = "emergency topic or supervision";
+                reason = "buffEmergencySupervision active";
                 return true;
             }
 
@@ -636,20 +626,6 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 seen.Add(injuryId);
 
             return seen;
-        }
-
-        private static bool HasEmergencyMineBlock(BuffManager buffManager)
-        {
-            if (buffManager.HasBuff("buffEmergencySupervision"))
-                return true;
-
-            foreach (string topic in EmergencyMineBlockTopics)
-            {
-                if (GameUtils.HasConversationTopic(topic))
-                    return true;
-            }
-
-            return false;
         }
 
         private static void TryAddSource(HashSet<string> seen, List<string> sources, string entry)
