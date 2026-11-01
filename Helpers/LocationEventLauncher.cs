@@ -11,6 +11,10 @@ namespace HarveyOverhaul.InjuryCare.Helpers
     /// </summary>
     public static class LocationEventLauncher
     {
+        public static bool IsSceneBusy() => Game1.eventUp || Game1.CurrentEvent != null
+            || Game1.activeClickableMenu != null || Game1.locationRequest != null || Game1.killScreen
+            || Game1.fadeToBlack || Game1.globalFade || Game1.newDay;
+
         public static string GetFarmHouseLocationName()
         {
             return Game1.player?.homeLocation.Value ?? "FarmHouse";
@@ -47,10 +51,14 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             Action<string>? onFinished = null,
             string? scriptPrefix = null,
             bool addToEventsSeenOnFinished = false,
-            string logTag = "LocationEvent")
+            string logTag = "LocationEvent",
+            bool stageAtBed = false)
         {
             try
             {
+                if (IsSceneBusy())
+                    return false;
+
                 var location = Game1.getLocationFromName(locationName);
                 if (location == null)
                 {
@@ -68,7 +76,8 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 }
 
                 if (scriptPrefix != null)
-                    eventScript = HarveyEventStaging.AtPlayer(location, eventScript, scriptPrefix);
+                    eventScript = stageAtBed ? HarveyEventStaging.AtBed(location, eventScript, scriptPrefix)
+                        : HarveyEventStaging.AtPlayer(location, eventScript, scriptPrefix);
 
                 if (!ReferenceEquals(Game1.currentLocation, location)
                     && !string.Equals(Game1.currentLocation?.NameOrUniqueName, locationName, StringComparison.OrdinalIgnoreCase))
@@ -79,8 +88,8 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                     return false;
                 }
 
-                string resolvedEventId = ResolveEventId(eventIdPrefix, locationName) ?? eventIdPrefix;
-                var gameEvent = new Event(eventScript);
+                string resolvedEventId = (ResolveEventId(eventIdPrefix, locationName) ?? eventIdPrefix).Split('/')[0];
+                var gameEvent = new Event(eventScript, $"Data/Events/{locationName}", resolvedEventId, null);
                 gameEvent.onEventFinished += () =>
                 {
                     try

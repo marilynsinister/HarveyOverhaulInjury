@@ -402,6 +402,42 @@ namespace HarveyOverhaul.InjuryCare.Managers
         }
 
         /// <summary>
+        /// One consequence of a confirmed bomb hit, only for an injury that existed before it.
+        /// A fresh wound is not instantly infected; repeat hits cannot stack/reset complications.
+        /// </summary>
+        public bool TryApplyExplosionComplication(double chance)
+        {
+            string? main = GetActiveMainInjuryId();
+            if (string.IsNullOrEmpty(main) || !_injuryManager.HasInjuryOrPhase(main))
+                return false;
+
+            if (InjurySets.DirtyInMines.Contains(main))
+            {
+                if (IsEscalationPaused() || HasComplication(InjuryBuffs.DirtyWound))
+                    return false;
+
+                // A dressing and antiseptic reward preparation. Neither is consumed by a roll.
+                if (HasActiveBandageOrWoundDressing())
+                    chance *= 0.5;
+                if (_selfCareManager.HasSelfCareProtection(SelfCareProtectionTypes.Antiseptic))
+                    chance *= 0.5;
+                if (!GameUtils.Roll(chance))
+                    return false;
+
+                return TryApplyComplication(InjuryBuffs.DirtyWound, InjurySets.DirtyInMines, 4,
+                    new HUDMessage("Взрыв забил старую рану пылью. Её нужно обработать у Харви.", HUDMessage.error_type));
+            }
+
+            if (!InjurySets.IsPainFlareEligibleMain(main) || HasComplication(InjuryBuffs.PainFlare)
+                || !GameUtils.Roll(chance))
+                return false;
+
+            // A blast is a physical impact even on the farm; it does not need a mine/storm context.
+            return TryApplyComplication(InjuryBuffs.PainFlare, requiredMainInjurySet: null, topicDays: 2,
+                new HUDMessage("Взрыв обострил боль в старой травме. Пора отдохнуть.", HUDMessage.health_type));
+        }
+
+        /// <summary>
         /// Скрытая травма: повышенный риск осложнения при длительном сокрытии от Харви.
         /// </summary>
         public void TryRollHiddenInjuryComplicationRisk(string injuryId)

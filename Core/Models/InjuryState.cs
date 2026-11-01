@@ -323,6 +323,9 @@ namespace HarveyOverhaul.InjuryCare.Core.Models
         /// <summary>День последнего показа eventHarveyAfterHospitalDischargeHome. -1 = ещё не показывали.</summary>
         public int HarveyAfterHospitalDischargeShownDay { get; set; } = -1;
 
+        /// <summary>Один домашний визит по поводу травмы/спасения в день, сохраняется между загрузками.</summary>
+        public int LastHomeCareVisitDay { get; set; } = -1;
+
         /// <summary>День последней выписки из госпитализации.</summary>
         public int LastHospitalDischargeDay { get; set; } = -1;
 

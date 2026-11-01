@@ -37,6 +37,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// <summary>Объяснение Харви ждёт, пока пациент окажется в палате и будет свободен.</summary>
         private string? _admissionIntroReason;
         private bool _admissionPromptPending;
+        private bool _admissionPlacementPending;
         private string? _currentHospitalCaseInjury;
         private bool _dischargeAllowed;
 
@@ -176,6 +177,13 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void StartForcedHospitalizationWithExplanation(string injuryId, NPC? harvey, string reason)
         {
             var state = _stateManager.State;
+            // Several injury reactions can request admission during the same
+            // conversation. Keep the current stay, its clock and intro intact.
+            if (state.IsHospitalized)
+            {
+                _monitor.Log($"[Hospital] Поступление {injuryId} пропущено: пациент уже в стационаре", LogLevel.Debug);
+                return;
+            }
             int today = GameUtils.Today();
             string caseId = BuildCaseId(injuryId, reason, today);
 
@@ -249,8 +257,9 @@ namespace HarveyOverhaul.InjuryCare.Managers
             // Объяснение Харви и вопрос «чем займёмся» — когда пациент уже в палате и свободен.
             _admissionIntroReason = reason;
             _admissionPromptPending = false;
+            _admissionPlacementPending = true;
 
-            if (IsInEventOrWarp())
+            if (IsGameBusy())
             {
                 // Событие/фестиваль: не ломаем катсцену — блокировка вернёт в палату, когда оно закончится.
                 _pendingReturnToHospital = true;
@@ -259,6 +268,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             else
             {
                 WarpToHospitalBed();
+                _admissionPlacementPending = false;
             }
 
             Game1.playSound("debuffHit");
@@ -426,13 +436,19 @@ namespace HarveyOverhaul.InjuryCare.Managers
         /// Игрок поспал в палате: время уже прокручено, засчитываем его в срок пребывания.
         /// LastHospitalTimeOfDay = текущее время, чтобы TimeChanged не посчитал скачок второй раз.
         /// </summary>
-        public void ApplyRestedMinutes(int minutes)
+        public void ApplyRestedMinutes(int minutes) => ApplyRestedMinutes(minutes, null);
+
+        public void ApplyRestedMinutes(int minutes, int? progressBeforeRest)
         {
             if (!IsHospitalized || minutes <= 0)
                 return;
 
             var state = _stateManager.State;
-            state.HospitalStayProgressMinutes += minutes;
+            // Clock callbacks may run during a nap or after it. Credit only
+            // minutes not already counted by UpdateHospitalStayProgress.
+            int counted = progressBeforeRest.HasValue
+                ? Math.Max(0, state.HospitalStayProgressMinutes - progressBeforeRest.Value) : 0;
+            state.HospitalStayProgressMinutes += Math.Max(0, minutes - counted);
             state.LastHospitalTimeOfDay = Game1.timeOfDay;
             _dischargeAllowed = state.HospitalStayProgressMinutes >= GetMinStayMinutes();
             _stateManager.Save();
@@ -524,7 +540,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             if (_admissionIntroReason == null && !_admissionPromptPending)
                 return;
 
-            if (_wardSleepStarted || !IsInClinic(Game1.currentLocation))
+            if (_wardSleepStarted || _pendingReturnToHospital || !IsInClinic(Game1.currentLocation))
                 return;
 
             if (!Context.IsWorldReady || IsGameBusy() || Game1.fadeToBlack || Game1.globalFade)
@@ -542,9 +558,6 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _admissionPromptPending = false;
             _activityManager?.ShowAdmissionPrompt(this);
         }
-
-        private static bool IsInEventOrWarp() =>
-            Game1.eventUp || Game1.CurrentEvent != null || Game1.locationRequest != null;
 
         /// <summary>
         /// DayStarted (синхронно, до отложенной инициализации): снять временную кровать,
@@ -942,7 +955,12 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
 
             if (CanDischarge())
+            {
+                _pendingReturnToHospital = false;
+                _pendingBlockedExitReaction = false;
+                ResetReturnWarpState();
                 return;
+            }
 
             // Игрок вне клиники не по своей воле (обморок, утро нового дня, внешний варп) —
             // возвращаем в палату без упрёков. Реакция Харви — только на попытку уйти (HandleWarpAttempt).
@@ -1104,6 +1122,11 @@ namespace HarveyOverhaul.InjuryCare.Managers
 
             if (IsInClinic(Game1.currentLocation))
             {
+                if (_admissionPlacementPending)
+                {
+                    WarpToHospitalBed();
+                    _admissionPlacementPending = false;
+                }
                 _pendingReturnToHospital = false;
                 ResetReturnWarpState();
                 return false;
@@ -1116,6 +1139,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             _returnWarpStartedTick = (int)Game1.ticks;
             _monitor.Log("[Hospital] return warp → clinic bed", LogLevel.Debug);
             WarpToHospitalBed();
+            _admissionPlacementPending = false;
             return true;
         }
 
@@ -1220,6 +1244,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             state.HospitalStayMode = "";
             _admissionIntroReason = null;
             _admissionPromptPending = false;
+            _admissionPlacementPending = false;
 
             RemoveHospitalizedBuffFromPlayerAndSaved();
         }

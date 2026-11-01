@@ -85,10 +85,19 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// </summary>
         public void OnPlayerWarped(object? sender, WarpedEventArgs e)
         {
+            if (e.IsLocalPlayer)
+                TryStartPendingAtLocation(e.NewLocation);
+        }
+
+        private bool TryStartPendingAtLocation(GameLocation? location)
+        {
+            if (LocationEventLauncher.IsSceneBusy())
+                return false; // Keep pending IDs; UpdateTicked retries after the menu/event closes.
+
             // === Minor mine rescue (опасное состояние без Severe) ===
             string pendingMinorId = _stateManager.State.PendingMinorMineRescueEventId;
             if (!string.IsNullOrEmpty(pendingMinorId) &&
-                string.Equals(e.NewLocation?.NameOrUniqueName, "Mine", StringComparison.OrdinalIgnoreCase))
+                string.Equals(location?.NameOrUniqueName, "Mine", StringComparison.OrdinalIgnoreCase))
             {
                 _monitor.Log($"[MinorMineRescue] Игрок в Mine — запускаем: {pendingMinorId}", LogLevel.Info);
                 _stateManager.State.PendingMinorMineRescueEventId = "";
@@ -96,36 +105,48 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 if (!TryStartLocationEvent(pendingMinorId, "Mine", OnMinorMineRescueEventFinished))
                     RunMinorMineRescueFallback();
 
-                return;
+                return true;
             }
 
             // === Запуск отложенного утреннего rescue у кровати (FarmHouse) ===
             string pendingMineId = _stateManager.State.PendingMineRescueEventId;
             if (!string.IsNullOrEmpty(pendingMineId) &&
-                IsFarmHouseLocation(e.NewLocation))
+                IsFarmHouseLocation(location))
             {
-                string farmHouseName = e.NewLocation!.NameOrUniqueName;
+                string farmHouseName = location!.NameOrUniqueName;
                 _monitor.Log($"[MineRescue] Игрок дома — запускаем утреннее событие: {pendingMineId}", LogLevel.Info);
                 if (TryStartFarmhouseMineRescueEvent(pendingMineId, farmHouseName))
-                    return;
+                    return true;
 
                 RunMineRescueFallback(pendingMineId);
-                return;
+                return true;
             }
 
             // === Запуск отложенного hospital pass-out cutscene ===
             string pendingHospitalId = _stateManager.State.PendingHospitalPassOutEventId;
             if (!string.IsNullOrEmpty(pendingHospitalId) &&
-                IsHospitalLocation(e.NewLocation))
+                IsHospitalLocation(location))
             {
                 _monitor.Log($"[PassOutEvent] Игрок в Hospital — запускаем: {pendingHospitalId}", LogLevel.Info);
                 if (TryStartLocationEvent(pendingHospitalId, GetHospitalLocationName(), OnHospitalPassOutEventFinished))
-                    return;
+                    return true;
 
                 RunHospitalPassOutFallback(_stateManager.State.PendingHospitalPassOutFallbackKind);
                 ClearHospitalPassOutPending();
                 ClearPassOutFlags();
+                return true;
             }
+            if (!string.IsNullOrEmpty(pendingMineId))
+            {
+                BeginMineRescueMorningEvent(pendingMineId);
+                return true;
+            }
+            if (!string.IsNullOrEmpty(pendingHospitalId))
+            {
+                BeginHospitalPassOutWarp(pendingHospitalId, _stateManager.State.PendingHospitalPassOutFallbackKind);
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -282,6 +303,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 if (Game1.killScreen)
                     return;
 
+                if (Game1.locationRequest != null)
+                    return;
+
                 // killScreen снят и HP восстановлено → фермер уже в локации возрождения.
                 if (string.IsNullOrEmpty(state.PendingDeathReviveLocation))
                 {
@@ -293,14 +317,20 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 }
 
                 // Ждём окончания ванильной сцены PlayerKilled.
-                if (Game1.eventUp || !Context.IsPlayerFree)
+                if (Game1.eventUp || Game1.CurrentEvent != null || !Context.IsPlayerFree)
                     return;
 
                 ProcessDeathRevive();
                 return;
             }
 
-            if (!e.IsMultipleOf(60) || !Context.IsPlayerFree)
+            if (!e.IsMultipleOf(30) || !Context.IsPlayerFree)
+                return;
+
+            if (TryStartPendingAtLocation(Game1.currentLocation))
+                return;
+
+            if (!e.IsMultipleOf(60))
                 return;
 
             if (CanTriggerMinorMineRescue())
@@ -657,11 +687,15 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         /// </summary>
         public void TrackPassOut()
         {
-            var currentLocation = Game1.currentLocation?.NameOrUniqueName ?? "";
-
             // Гибель, после которой день кончился раньше, чем игрок стал свободен (например, в 1:50).
             if (_stateManager.State.PendingDeathRevive)
+            {
+                if (LocationEventLauncher.IsSceneBusy() || Game1.player.health <= 0)
+                    return; // Preserve death state until the loss menu/respawn finishes.
                 ProcessDeathRevive();
+            }
+
+            var currentLocation = Game1.currentLocation?.NameOrUniqueName ?? "";
 
             // Пациент в палате под присмотром Харви: поздний отбой/усталость там — не обморок
             // и не нарушение плана (обычно сюда не доходит — в 25:00 срабатывает сон в палате).
@@ -1017,6 +1051,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private void BeginMineRescueMorningEvent(string eventId)
         {
             _dialogueManager.AddTopic(ConversationTopics.MineRescuePending, 1);
+            _stateManager.State.PendingMineRescueEventId = eventId;
+            _stateManager.Save();
+
+            if (LocationEventLauncher.IsSceneBusy())
+                return;
 
             string farmHouseName = GetFarmHouseLocationName();
             if (!LocationEventExists(eventId, farmHouseName))
@@ -1104,6 +1143,12 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
         private void BeginHospitalPassOutWarp(string eventId, string fallbackKind)
         {
+            _stateManager.State.PendingHospitalPassOutEventId = eventId;
+            _stateManager.State.PendingHospitalPassOutFallbackKind = fallbackKind;
+            _stateManager.Save();
+            if (LocationEventLauncher.IsSceneBusy())
+                return;
+
             string hospitalName = GetHospitalLocationName();
             var hospitalLocation = Game1.getLocationFromName(hospitalName);
             if (hospitalLocation == null)
@@ -1115,19 +1160,11 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
             if (IsHospitalLocation(Game1.currentLocation))
             {
-                _stateManager.State.PendingHospitalPassOutEventId = eventId;
-                _stateManager.State.PendingHospitalPassOutFallbackKind = fallbackKind;
-                _stateManager.Save();
-
                 if (!TryStartLocationEvent(eventId, hospitalName, OnHospitalPassOutEventFinished))
                     RunHospitalPassOutFallback(fallbackKind);
 
                 return;
             }
-
-            _stateManager.State.PendingHospitalPassOutEventId = eventId;
-            _stateManager.State.PendingHospitalPassOutFallbackKind = fallbackKind;
-            _stateManager.Save();
 
             // У койки, не на ней: после сцены без end position игра вернёт фермера сюда.
             var bedside = HospitalizationHelper.GetBedsideTile(hospitalLocation, _config);
@@ -1486,6 +1523,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         {
             try
             {
+                if (LocationEventLauncher.IsSceneBusy())
+                    return false;
+
                 var location = Game1.getLocationFromName(locationName);
                 if (location == null)
                 {
@@ -1498,7 +1538,9 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     return false;
 
                 if (scriptPrefix != null)
-                    eventScript = HarveyEventStaging.AtPlayer(Game1.currentLocation, eventScript, scriptPrefix);
+                    eventScript = IsFarmHouseLocation(location)
+                        ? HarveyEventStaging.AtBed(location, eventScript, scriptPrefix)
+                        : HarveyEventStaging.AtPlayer(location, eventScript, scriptPrefix);
 
                 if (!ReferenceEquals(Game1.currentLocation, location)
                     && !string.Equals(Game1.currentLocation?.NameOrUniqueName, locationName, StringComparison.OrdinalIgnoreCase))
@@ -1511,7 +1553,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
 
                 try
                 {
-                    var gameEvent = new Event(eventScript);
+                    var gameEvent = new Event(eventScript, $"Data/Events/{locationName}", eventId, null);
                     string capturedId = eventId;
                     gameEvent.onEventFinished += () => onFinished(capturedId);
                     location.startEvent(gameEvent);

@@ -93,6 +93,9 @@ namespace HarveyOverhaul.InjuryCare
             // Инициализировать менеджеры
             InitializeManagers();
 
+            BombDamagePatch.Apply(new HarmonyLib.Harmony(ModManifest.UniqueID + ".BombDamage"),
+                Monitor, _playerEventHandler.OnBombDamage);
+
             // Подписаться на события
             SubscribeToEvents(helper.Events);
 
@@ -1066,6 +1069,8 @@ namespace HarveyOverhaul.InjuryCare
             // События сохранения
             events.GameLoop.GameLaunched += OnGameLaunched;
             events.GameLoop.SaveLoaded += OnSaveLoaded;
+            events.GameLoop.SaveLoaded += (_, _) => _playerEventHandler.ResetExplosionTracking();
+            events.GameLoop.ReturnedToTitle += (_, _) => _playerEventHandler.ResetExplosionTracking();
             events.GameLoop.Saving += OnSaving;
 
             // События дня

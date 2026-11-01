@@ -281,6 +281,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     ReadSomething(harvey);
                     break;
                 case "discharge":
+                    hospitalization.Discharge();
                     _dialogueManager.Speak(harvey, "Можешь идти. Но сегодня — без шахты и тяжёлой работы, ладно?$u");
                     break;
             }
@@ -402,6 +403,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
             }
 
             int steps = (remaining + 9) / 10;
+            int progressBeforeRest = hospitalization.HospitalStayProgressMinutes;
 
             Game1.globalFadeToBlack(() =>
             {
@@ -413,7 +415,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
                     done++;
                 }
 
-                hospitalization.ApplyRestedMinutes(done * 10);
+                hospitalization.ApplyRestedMinutes(done * 10, progressBeforeRest);
                 Game1.player.health = Game1.player.maxHealth;
                 Game1.player.Stamina = Game1.player.MaxStamina;
                 Game1.globalFadeToClear();

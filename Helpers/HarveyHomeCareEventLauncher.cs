@@ -74,6 +74,14 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             int today = GameUtils.Today();
             int time = Game1.timeOfDay;
 
+            if (HasHomeCareVisitToday(state, today))
+            {
+                if (state.NeedsHarveyAfterExternalRescueHomeEvent || state.NeedsHarveyAfterHospitalDischargeHomeEvent
+                    || state.NeedsSevereNightRoundEvent || state.NeedsHarveyMorningAfterExhaustionEvent)
+                    RecordVisit(today);
+                return false;
+            }
+
             foreach (var candidate in GetPriorityOrder())
             {
                 if (!IsEligible(candidate, state, today, time, location))
@@ -95,6 +103,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                 switch (launchResult)
                 {
                     case HomeCareLaunchResult.Launched:
+                        RecordVisit(today);
                         return true;
                     case HomeCareLaunchResult.DeferredBlocked:
                         return false;
@@ -104,7 +113,9 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                             _monitor.Log(
                                 $"[HomeCare/{source}] CP-событие '{EventIds.NightRoundSevereFirst}' не найдено — fallback на короткий диалог",
                                 LogLevel.Warn);
-                            return TryNightRoundSevereFirstFallbackDialogue(state, today, source);
+                            bool shown = TryNightRoundSevereFirstFallbackDialogue(state, today, source);
+                            if (shown) RecordVisit(today);
+                            return shown;
                         }
 
                         _monitor.Log(
@@ -145,6 +156,9 @@ namespace HarveyOverhaul.InjuryCare.Helpers
 
             var state = _stateManager.State;
             int today = GameUtils.Today();
+
+            if (HasHomeCareVisitToday(state, today))
+                return;
 
             if (HasPendingHigherPriorityNightCare(state, today))
             {
@@ -203,6 +217,33 @@ namespace HarveyOverhaul.InjuryCare.Helpers
             _stateManager.Save();
             ApplyNightRoundVisitBonuses();
             _dialogueManager.AddTopic(ConversationTopics.NightRound, 2);
+            RecordVisit(today);
+        }
+
+        public static bool HasHomeCareVisitToday(InjuryState state, int today) =>
+            state.LastHomeCareVisitDay == today || state.LastNightRoundDay == today
+            || state.HarveyAfterExternalRescueShownDay == today || state.HarveyAfterHospitalDischargeShownDay == today
+            || state.SevereNightRoundEventShownDay == today || state.HarveyMorningAfterExhaustionShownDay == today;
+
+        internal static void CompleteCareEpisode(InjuryState state, int today, string? injuryId)
+        {
+            state.LastHomeCareVisitDay = today;
+            state.LastNightRoundDay = today;
+            state.NeedsHarveyAfterExternalRescueHomeEvent = false;
+            state.NeedsHarveyAfterHospitalDischargeHomeEvent = false;
+            state.NeedsSevereNightRoundEvent = false;
+            state.NeedsHarveyMorningAfterExhaustionEvent = false;
+            if (!string.IsNullOrEmpty(injuryId))
+                state.SevereNightRoundInjuryId = injuryId;
+        }
+
+        private void RecordVisit(int today)
+        {
+            CompleteCareEpisode(_stateManager.State, today, _injuryManager.GetActiveInjury());
+            foreach (string topic in new[] { ConversationTopics.ExternalRescueConcern, ConversationTopics.AfterHospitalDischargeHome,
+                ConversationTopics.NightRoundSevereFirst, ConversationTopics.HarveyMorningAfterExhaustion })
+                _dialogueManager.RemoveTopic(topic);
+            _stateManager.Save();
         }
 
         public static bool IsHospitalDischargePending(InjuryState state, int today)
@@ -280,7 +321,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                         return false;
                     if (string.IsNullOrEmpty(_injuryManager.GetActiveInjury()))
                         return false;
-                    return LocationEventLauncher.IsFarmHouseLocation(location);
+                    return PassesCommonNightCareEligibility(state, location);
 
                 case HomeCareEventKind.MorningAfterExhaustion:
                     if (!state.NeedsHarveyMorningAfterExhaustionEvent)
@@ -300,7 +341,7 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                         return false;
                     if (!_dialogueManager.IsDatingEngagedOrMarriedToHarvey())
                         return false;
-                    return LocationEventLauncher.IsFarmHouseLocation(location);
+                    return PassesCommonNightCareEligibility(state, location);
 
                 default:
                     return false;
@@ -351,9 +392,9 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                             onFinished: resolvedId => OnExternalRescueFinished(resolvedId, source),
                             scriptPrefix: setup,
                             addToEventsSeenOnFinished: false,
-                            logTag: "HomeCare/ExternalRescue"))
+                            logTag: "HomeCare/ExternalRescue", stageAtBed: true))
                     {
-                        return HomeCareLaunchResult.EventNotFound;
+                        return HomeCareLaunchResult.DeferredBlocked;
                     }
 
                     state.HarveyAfterExternalRescueShownDay = today;
@@ -379,9 +420,9 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                             onFinished: resolvedId => OnHospitalDischargeFinished(resolvedId, source),
                             scriptPrefix: setup,
                             addToEventsSeenOnFinished: false,
-                            logTag: "HomeCare/HospitalDischarge"))
+                            logTag: "HomeCare/HospitalDischarge", stageAtBed: true))
                     {
-                        return HomeCareLaunchResult.EventNotFound;
+                        return HomeCareLaunchResult.DeferredBlocked;
                     }
 
                     state.HarveyAfterHospitalDischargeShownDay = today;
@@ -418,10 +459,10 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                             onFinished: resolvedId => OnNightRoundSevereFirstFinished(resolvedId, source),
                             scriptPrefix: nightSetup,
                             addToEventsSeenOnFinished: false,
-                            logTag: "HomeCare/NightRoundSevereFirst"))
+                            logTag: "HomeCare/NightRoundSevereFirst", stageAtBed: true))
                     {
                         _dialogueManager.RemoveTopic(ConversationTopics.NightRoundSevereFirst);
-                        return HomeCareLaunchResult.EventNotFound;
+                        return HomeCareLaunchResult.DeferredBlocked;
                     }
 
                     state.SevereNightRoundEventShownDay = today;
@@ -449,9 +490,9 @@ namespace HarveyOverhaul.InjuryCare.Helpers
                             onFinished: resolvedId => OnMorningAfterExhaustionFinished(resolvedId, source),
                             scriptPrefix: setup,
                             addToEventsSeenOnFinished: false,
-                            logTag: "HomeCare/MorningAfterExhaustion"))
+                            logTag: "HomeCare/MorningAfterExhaustion", stageAtBed: true))
                     {
-                        return HomeCareLaunchResult.EventNotFound;
+                        return HomeCareLaunchResult.DeferredBlocked;
                     }
 
                     state.NeedsHarveyMorningAfterExhaustionEvent = false;

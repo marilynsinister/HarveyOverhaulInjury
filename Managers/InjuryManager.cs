@@ -1594,7 +1594,7 @@ namespace HarveyOverhaul.InjuryCare.Managers
         public void ApplyDeepCutsSafe(string source = "generic")
         {
             LogDeepCutsContext("ApplyDeepCutsSafe entry", source, LogLevel.Trace);
-            string trigger = source == "combat" 
+            string trigger = source is "combat" or "explosion"
                 ? Triggers.DeepCutsCombat 
                 : Triggers.DeepCutsFarming;
             ApplyInjurySafe("buffDeepCuts", ApplyDeepCutsCore, trigger);

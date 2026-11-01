@@ -11,6 +11,7 @@
     <EnableModDeploy>true</EnableModDeploy>
     <EnableGameDebugging>true</EnableGameDebugging>
     <EnableModZip>false</EnableModZip>
+    <EnableHarmony>true</EnableHarmony>
     <GamePath>D:\Games\Steam\steamapps\common\Stardew Valley</GamePath>
     <GameModsPath>$(GamePath)\Mods\HarveyOverhaul</GameModsPath>
     <!-- config.json не деплоим: иначе каждая сборка затирала настройки игрока (SMAPI создаст файл сам). -->
@@ -18,6 +19,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
     <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.4.0" />
     <ProjectReference Include="..\HarveyOverhaulCore\HarveyOverhaulCore.csproj">
       <Private>false</Private>

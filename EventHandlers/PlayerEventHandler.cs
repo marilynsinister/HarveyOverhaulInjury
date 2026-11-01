@@ -62,6 +62,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private bool _firstTreatmentTopicClearedForRun;
         private bool _e5StormBesideEventRunning;
         private bool _rescueOperationEventRunning;
+        private readonly ExplosionInjuryCooldown _explosionCooldown = new();
 
         public PlayerEventHandler(
             IMonitor monitor,
@@ -260,12 +261,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 if (e.IsMultipleOf(6))
                 {
                     TrackToolUsage();
-                }
-
-                // Каждые 0.5 секунды — проверка взрывов
-                if (e.IsMultipleOf(30))
-                {
-                    CheckExplosionInjuries();
                 }
 
                 // Каждую секунду — близость Харви, фермерские травмы, дождь/простуда
@@ -764,7 +759,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                 string? eventScript = null;
                 foreach (var kvp in eventData)
                 {
-                    if (kvp.Key.StartsWith(eventId, StringComparison.OrdinalIgnoreCase))
+                    if (LocationEventLauncher.EventKeyMatches(kvp.Key, eventId))
                     {
                         eventScript = kvp.Value;
                         break;
@@ -777,7 +772,7 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
                     return false;
                 }
 
-                var gameEvent = new Event(eventScript);
+                var gameEvent = new Event(eventScript, $"Data/Events/{locationName}", eventId, null);
                 if (onFinished != null)
                     gameEvent.onEventFinished += onFinished;
 
@@ -1649,7 +1644,6 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         private void CheckHealthBasedInjuries()
         {
             int currentHealth = Game1.player.health;
-            int maxHealth = Game1.player.maxHealth;
             int lastHealth = _stateManager.State.LastHealth;
 
             // Проверяем только если здоровье уменьшилось
@@ -1849,89 +1843,70 @@ namespace HarveyOverhaul.InjuryCare.EventHandlers
         }
 
         /// <summary>
-        /// Проверить травмы от взрывов
+        /// Только фактическое попадание: вызывается после ванильной проверки радиуса, иммунитета и урона.
         /// </summary>
-        private void CheckExplosionInjuries()
+        public void OnBombDamage(ExplosionImpact impact)
         {
-            var location = Game1.currentLocation;
-            if (location == null) return;
+            if (!Context.IsWorldReady || impact.Damage <= 0)
+                return;
 
-            bool nearExplosion = false;
-            int bombSpritesFound = 0;
-            int bombSpritesIntersecting = 0;
-            var playerBox = Game1.player.GetBoundingBox();
-            var explosionArea = new Microsoft.Xna.Framework.Rectangle(
-                playerBox.X - Game1.tileSize * 3,
-                playerBox.Y - Game1.tileSize * 3,
-                playerBox.Width + Game1.tileSize * 6,
-                playerBox.Height + Game1.tileSize * 6
-            );
+            // The health poll runs every two seconds. It must not roll a second, combat injury
+            // for this bomb, including during the grace period or after an unsuccessful roll.
+            _stateManager.State.LastHealth = impact.ExcludeFromHealthSnapshot(
+                _stateManager.State.LastHealth, Game1.player.health);
 
-            if (location.temporarySprites != null)
-            {
-                foreach (var sprite in location.temporarySprites)
-                {
-                    if (sprite.bombRadius <= 0) continue;
+            if (Game1.player.health <= 0 || Game1.eventUp || Game1.CurrentEvent != null
+                || _hospitalizationManager.IsHospitalized)
+                return;
 
-                    bombSpritesFound++;
-                    var spriteBox = new Microsoft.Xna.Framework.Rectangle(
-                        (int)sprite.position.X,
-                        (int)sprite.position.Y,
-                        Game1.tileSize * 2,
-                        Game1.tileSize * 2
-                    );
-                    bool intersects = explosionArea.Intersects(spriteBox);
-                    float dx = sprite.position.X - playerBox.Center.X;
-                    float dy = sprite.position.Y - playerBox.Center.Y;
-                    float distTiles = (float)Math.Sqrt(dx * dx + dy * dy) / Game1.tileSize;
-
-                    _monitor.Log(
-                        $"[ExplosionInjury] bomb sprite: radius={sprite.bombRadius}, distTiles={distTiles:F1}, " +
-                        $"intersects={intersects}, playerBox=({playerBox.X},{playerBox.Y},{playerBox.Width}x{playerBox.Height}), " +
-                        $"spritePos=({sprite.position.X:F0},{sprite.position.Y:F0})",
-                        LogLevel.Trace);
-
-                    if (intersects)
-                    {
-                        bombSpritesIntersecting++;
-                        nearExplosion = true;
-                    }
-                }
-            }
-
-            if (bombSpritesFound > 0 || nearExplosion)
+            if (!_explosionCooldown.TryBegin(GameUtils.Today(), GameUtils.CurrentTimeInMinutes()))
             {
                 _monitor.Log(
-                    $"[ExplosionInjury] Scan: bombsWithRadius={bombSpritesFound}, intersecting={bombSpritesIntersecting}, " +
-                    $"nearExplosion={nearExplosion}, {FormatInjuryDiagnosticContext()}",
-                    LogLevel.Debug);
-            }
-
-            if (!nearExplosion) return;
-
-            if (!Helpers.GameUtils.Roll(ScaleInjuryChance(0.50)))
-            {
-                _monitor.Log(
-                    $"[ExplosionInjury] Near explosion but 50% gate roll failed, {FormatInjuryDiagnosticContext()}",
+                    $"[ExplosionInjury] Попадание на {impact.Damage} HP: действует передышка {ExplosionInjuryCooldown.GraceMinutes} мин.",
                     LogLevel.Debug);
                 return;
             }
 
-            if (Helpers.GameUtils.Roll(0.60))
+            double chance = ScaleInjuryChance(impact.ConsequenceChance);
+            string? main = _injuryManager.GetActiveInjury();
+            _monitor.Log(
+                $"[ExplosionInjury] Hit: damage={impact.Damage}, severity={impact.Severity}, " +
+                $"distance={impact.DistanceRatio:F2}, chance={chance:P0}, main={main ?? "none"}", LogLevel.Debug);
+
+            if (!string.IsNullOrEmpty(main))
             {
-                _monitor.Log(
-                    $"[ExplosionInjury] APPLY buffShrapnelWounds: near explosion, 50%+60% rolls ok, {FormatInjuryDiagnosticContext()}",
-                    LogLevel.Warn);
-                _injuryManager.ApplyShrapnelWoundsSafe();
+                // Preserve the existing, treatment-aware bruise upgrade. A strong hit can turn
+                // an untreated light bruise into a severe one, without stacking another injury.
+                if (string.Equals(main, "buffHurt", StringComparison.OrdinalIgnoreCase)
+                    && impact.Severity == ExplosionSeverity.Direct
+                    && _stateManager.GetDebuffState(main)?.TreatmentStarted != true)
+                {
+                    if (GameUtils.Roll(chance))
+                        _injuryManager.ApplyBadlyHurtSafe();
+                    return;
+                }
+
+                // One existing injury remains one injury. Only a compatible complication may
+                // appear; no blocked-injury HUD claiming a deterioration that never happened.
+                _complicationManager.TryApplyExplosionComplication(chance);
+                return;
             }
-            else
+
+            if (!GameUtils.Roll(chance))
+                return;
+
+            string injury = impact.SelectInjury(Game1.random.NextDouble());
+            switch (injury)
             {
-                _monitor.Log(
-                    $"[ExplosionInjury] APPLY buffBurnWounds: near explosion, 50% ok / 60% failed, {FormatInjuryDiagnosticContext()}",
-                    LogLevel.Warn);
-                _injuryManager.ApplyBurnWoundsSafe();
+                case "buffShrapnelWounds": _injuryManager.ApplyShrapnelWoundsSafe(); break;
+                case "buffBurnWounds": _injuryManager.ApplyBurnWoundsSafe(); break;
+                case "buffDeepCuts": _injuryManager.ApplyDeepCutsSafe("explosion"); break;
+                case "buffBadlyHurt": _injuryManager.ApplyBadlyHurtSafe(); break;
+                default: _injuryManager.ApplyHurtSafe(); break;
             }
         }
+
+        public void ResetExplosionTracking() => _explosionCooldown.Reset();
 
         private string GetCurrentToolKey()
         {
